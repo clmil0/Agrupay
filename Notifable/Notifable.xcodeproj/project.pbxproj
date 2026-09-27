@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		AA20000D30415B9C00D1EEB9 /* NotifableWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA20000130415B9C00D1EEB9 /* NotifableWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA30000D30415B9C00D1EEB9 /* NotifableNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA30000130415B9C00D1EEB9 /* NotifableNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -17,6 +18,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = AA20000530415B9C00D1EEB9;
 			remoteInfo = NotifableWidgetsExtension;
+		};
+		AA30000E30415B9C00D1EEB9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E7CE96C430415B9A00D1EEB9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA30000530415B9C00D1EEB9;
+			remoteInfo = NotifableNotificationService;
 		};
 		E7CE96DF30415B9C00D1EEB9 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -42,6 +50,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				AA20000D30415B9C00D1EEB9 /* NotifableWidgetsExtension.appex in Embed Foundation Extensions */,
+				AA30000D30415B9C00D1EEB9 /* NotifableNotificationService.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -50,6 +59,7 @@
 
 /* Begin PBXFileReference section */
 		AA20000130415B9C00D1EEB9 /* NotifableWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotifableWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA30000130415B9C00D1EEB9 /* NotifableNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotifableNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7CE96CC30415B9A00D1EEB9 /* Notifable.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Notifable.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7CE96DE30415B9C00D1EEB9 /* NotifableTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotifableTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7CE96E830415B9C00D1EEB9 /* NotifableUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotifableUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -70,6 +80,13 @@
 			);
 			target = E7CE96CB30415B9A00D1EEB9 /* Notifable */;
 		};
+		AA30000330415B9C00D1EEB9 /* Exceptions for "NotifableNotificationService" folder in "NotifableNotificationService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA30000530415B9C00D1EEB9 /* NotifableNotificationService */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -84,6 +101,14 @@
 				AA20000330415B9C00D1EEB9 /* Exceptions for "NotifableWidgets" folder in "NotifableWidgetsExtension" target */,
 			);
 			path = NotifableWidgets;
+			sourceTree = "<group>";
+		};
+		AA30000230415B9C00D1EEB9 /* NotifableNotificationService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AA30000330415B9C00D1EEB9 /* Exceptions for "NotifableNotificationService" folder in "NotifableNotificationService" target */,
+			);
+			path = NotifableNotificationService;
 			sourceTree = "<group>";
 		};
 		E7CE96CE30415B9A00D1EEB9 /* Notifable */ = {
@@ -108,6 +133,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		AA20000730415B9C00D1EEB9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA30000730415B9C00D1EEB9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -144,6 +176,7 @@
 				E7CE96CE30415B9A00D1EEB9 /* Notifable */,
 				AA10000130415B9C00D1EEB9 /* Shared */,
 				AA20000230415B9C00D1EEB9 /* NotifableWidgets */,
+				AA30000230415B9C00D1EEB9 /* NotifableNotificationService */,
 				E7CE96E130415B9C00D1EEB9 /* NotifableTests */,
 				E7CE96EB30415B9C00D1EEB9 /* NotifableUITests */,
 				E7CE96CD30415B9A00D1EEB9 /* Products */,
@@ -157,6 +190,7 @@
 				E7CE96DE30415B9C00D1EEB9 /* NotifableTests.xctest */,
 				E7CE96E830415B9C00D1EEB9 /* NotifableUITests.xctest */,
 				AA20000130415B9C00D1EEB9 /* NotifableWidgetsExtension.appex */,
+				AA30000130415B9C00D1EEB9 /* NotifableNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -187,6 +221,29 @@
 			productReference = AA20000130415B9C00D1EEB9 /* NotifableWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		AA30000530415B9C00D1EEB9 /* NotifableNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA30000930415B9C00D1EEB9 /* Build configuration list for PBXNativeTarget "NotifableNotificationService" */;
+			buildPhases = (
+				AA30000630415B9C00D1EEB9 /* Sources */,
+				AA30000730415B9C00D1EEB9 /* Frameworks */,
+				AA30000830415B9C00D1EEB9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AA10000130415B9C00D1EEB9 /* Shared */,
+				AA30000230415B9C00D1EEB9 /* NotifableNotificationService */,
+			);
+			name = NotifableNotificationService;
+			packageProductDependencies = (
+			);
+			productName = NotifableNotificationService;
+			productReference = AA30000130415B9C00D1EEB9 /* NotifableNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		E7CE96CB30415B9A00D1EEB9 /* Notifable */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E7CE96F230415B9C00D1EEB9 /* Build configuration list for PBXNativeTarget "Notifable" */;
@@ -200,6 +257,7 @@
 			);
 			dependencies = (
 				AA20000F30415B9C00D1EEB9 /* PBXTargetDependency */,
+				AA30000F30415B9C00D1EEB9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA10000130415B9C00D1EEB9 /* Shared */,
@@ -271,6 +329,9 @@
 					AA20000530415B9C00D1EEB9 = {
 						CreatedOnToolsVersion = 26.6;
 					};
+					AA30000530415B9C00D1EEB9 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					E7CE96CB30415B9A00D1EEB9 = {
 						CreatedOnToolsVersion = 16.2;
 					};
@@ -303,12 +364,20 @@
 				E7CE96DD30415B9C00D1EEB9 /* NotifableTests */,
 				E7CE96E730415B9C00D1EEB9 /* NotifableUITests */,
 				AA20000530415B9C00D1EEB9 /* NotifableWidgetsExtension */,
+				AA30000530415B9C00D1EEB9 /* NotifableNotificationService */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		AA20000830415B9C00D1EEB9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA30000830415B9C00D1EEB9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -346,6 +415,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA30000630415B9C00D1EEB9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E7CE96C830415B9A00D1EEB9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -375,6 +451,11 @@
 			target = AA20000530415B9C00D1EEB9 /* NotifableWidgetsExtension */;
 			targetProxy = AA20000E30415B9C00D1EEB9 /* PBXContainerItemProxy */;
 		};
+		AA30000F30415B9C00D1EEB9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA30000530415B9C00D1EEB9 /* NotifableNotificationService */;
+			targetProxy = AA30000E30415B9C00D1EEB9 /* PBXContainerItemProxy */;
+		};
 		E7CE96E030415B9C00D1EEB9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = E7CE96CB30415B9A00D1EEB9 /* Notifable */;
@@ -401,13 +482,13 @@
 				INFOPLIST_FILE = NotifableWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AgruPay;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1.0;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = clmilo.Notifable.NotifableWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -430,14 +511,68 @@
 				INFOPLIST_FILE = NotifableWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AgruPay;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1.0;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = clmilo.Notifable.NotifableWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		AA30000A30415B9C00D1EEB9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotifableNotificationService/NotifableNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PPQPXJMF36;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotifableNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AgruPay;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 3.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = clmilo.Notifable.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA30000B30415B9C00D1EEB9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotifableNotificationService/NotifableNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PPQPXJMF36;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotifableNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AgruPay;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 3.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = clmilo.Notifable.NotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -591,11 +726,12 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INVITE_LINK_DOMAIN = agrupay.josephalan444.workers.dev;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1.0;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = clmilo.Notifable;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -630,11 +766,12 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INVITE_LINK_DOMAIN = agrupay.josephalan444.workers.dev;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1.0;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = clmilo.Notifable;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -727,6 +864,15 @@
 			buildConfigurations = (
 				AA20000A30415B9C00D1EEB9 /* Debug */,
 				AA20000B30415B9C00D1EEB9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA30000930415B9C00D1EEB9 /* Build configuration list for PBXNativeTarget "NotifableNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA30000A30415B9C00D1EEB9 /* Debug */,
+				AA30000B30415B9C00D1EEB9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

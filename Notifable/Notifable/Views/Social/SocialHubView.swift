@@ -28,6 +28,8 @@ struct SocialHubView: View {
     @State private var showProfileSheet = false
     @State private var selectedFriend: Friend?
     @State private var expandedFriendID: String?
+    /// Amigos cuyas categorías ya se abrieron en carrusel (`2d`) al tocar «+N».
+    @State private var carouselFriendIDs: Set<String> = []
 
     init(scrollToTopTrigger: Binding<Bool>, progress: ScrollProgress) {
         self._scrollToTopTrigger = scrollToTopTrigger
@@ -46,6 +48,14 @@ struct SocialHubView: View {
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
 
+    private var isConnecting: Bool {
+        #if DEBUG
+        // Modo QA: amigos inventados, sin sesión.
+        if QAMode.isOn { return false }
+        #endif
+        return !auth.isReady && !auth.needsGoogleAccount
+    }
+
     private var totals: PeriodTotals {
         Accounting.totals(expenses: expenses, incomes: [],
                           period: Period(granularity: .mes, reference: Date()),
@@ -62,7 +72,7 @@ struct SocialHubView: View {
 
                 FriendsActionsSection()
 
-                if !auth.isReady && !auth.needsGoogleAccount {
+                if isConnecting {
                     ShellCard {
                         HStack(spacing: 10) {
                             ProgressView()
@@ -253,51 +263,52 @@ struct SocialHubView: View {
         let isExpanded = expandedFriendID == friend.id
         let categories = row.categoryTotals
 
-        return Button {
-            selectedFriend = friend
-        } label: {
-            ShellCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        FriendAvatar(friend: friend)
+        // Un toque y no un `Button`: dentro va el carrusel de categorías
+        // (`2d`), y un `Button` se quedaba con el deslizamiento y abría el
+        // perfil en vez de mover la fila.
+        return ShellCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    FriendAvatar(friend: friend)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(friend.name)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(palette.label)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(friend.name)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(palette.label)
 
-                            Text(friend.status.isEmpty
-                                 ? "Su gasto de " + Period.spanishMonthName(for: Date()).lowercased()
-                                 : "«" + friend.status + "»")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(palette.secondaryLabel)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 6)
-
-                        if let total = row.totalAmount, row.shareTotal {
-                            Text(Money.format(total))
-                                .font(.system(size: 17, weight: .bold))
-                                .foregroundStyle(palette.label)
-                        }
+                        Text(friend.status.isEmpty
+                             ? "Su gasto de " + Period.spanishMonthName(for: Date()).lowercased()
+                             : "«" + friend.status + "»")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(palette.secondaryLabel)
+                            .lineLimit(1)
                     }
 
-                    if !categories.isEmpty {
-                        categoryChips(categories)
+                    Spacer(minLength: 6)
 
-                        // Sólo cuando comparte total **y** categorías tiene
-                        // sentido avisar de que el desglose no cubre todo.
-                        if isExpanded, row.shareTotal {
-                            Text("El resto de su total no está desglosado.")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(palette.tertiaryLabel)
-                        }
+                    if let total = row.totalAmount, row.shareTotal {
+                        Text(Money.format(total))
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(palette.label)
+                    }
+                }
+
+                if !categories.isEmpty {
+                    categoryChips(categories, friendID: friend.id)
+
+                    // Sólo cuando comparte total **y** categorías tiene
+                    // sentido avisar de que el desglose no cubre todo.
+                    if isExpanded, row.shareTotal {
+                        Text("El resto de su total no está desglosado.")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(palette.tertiaryLabel)
                     }
                 }
             }
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture { selectedFriend = friend }
+        .accessibilityAddTraits(.isButton)
         .onLongPressGesture {
             withAnimation(.easeInOut(duration: 0.2)) {
                 expandedFriendID = isExpanded ? nil : friend.id
@@ -305,24 +316,73 @@ struct SocialHubView: View {
         }
     }
 
-    private func categoryChips(_ categories: [FriendShareRow.CategoryAmount]) -> some View {
-        HStack(spacing: 6) {
-            ForEach(categories.prefix(3), id: \.name) { category in
-                HStack(spacing: 4) {
-                    Image(systemName: CategoryStyle.icon(for: category.name))
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(category.name + " " + Money.formatCompact(category.amount)
-                        .replacingOccurrences(of: "S/ ", with: ""))
-                        .font(.system(size: 11.5, weight: .semibold))
+    /// Una sola línea, sin partir ningún chip (`2b`): caben los que caben y
+    /// el resto se cuenta en «+N». Tocar «+N» vuelve la fila un carrusel que
+    /// se desliza, con fundido al borde (`2d`).
+    @ViewBuilder
+    private func categoryChips(_ categories: [FriendShareRow.CategoryAmount], friendID: String) -> some View {
+        if carouselFriendIDs.contains(friendID) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(categories, id: \.name) { categoryChip($0) }
                 }
-                .foregroundStyle(CategoryStyle.color(for: category.name, accent: accent.color))
+                .padding(.horizontal, 14)
+            }
+            // Hasta el borde de la tarjeta, para que el fundido diga «hay más».
+            .padding(.horizontal, -14)
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0),
+                                         .init(color: .black, location: 0.84),
+                                         .init(color: .clear, location: 1)],
+                                 startPoint: .leading, endPoint: .trailing))
+            .transition(.opacity)
+        } else {
+            // De la fila entera a la de un chip y «+N»: la primera que quepa.
+            ViewThatFits(in: .horizontal) {
+                ForEach((1...categories.count).reversed(), id: \.self) { shown in
+                    HStack(spacing: 6) {
+                        ForEach(categories.prefix(shown), id: \.name) { categoryChip($0) }
+                        if shown < categories.count {
+                            moreChip(categories.count - shown, friendID: friendID)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .transition(.opacity)
+        }
+    }
+
+    private func categoryChip(_ category: FriendShareRow.CategoryAmount) -> some View {
+        let tint = CategoryStyle.color(for: category.name, accent: accent.color)
+        return HStack(spacing: 4) {
+            Image(systemName: CategoryStyle.icon(for: category.name))
+                .font(.system(size: 10, weight: .semibold))
+            Text(category.name + " " + Money.formatCompact(category.amount)
+                .replacingOccurrences(of: "S/ ", with: ""))
+                .font(.system(size: 11.5, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(tint.opacity(0.14), in: Capsule())
+        .fixedSize()
+    }
+
+    private func moreChip(_ hidden: Int, friendID: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.25)) { _ = carouselFriendIDs.insert(friendID) }
+        } label: {
+            Text("+\(hidden)")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(palette.secondaryLabel)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(CategoryStyle.color(for: category.name, accent: accent.color).opacity(0.14),
-                            in: Capsule())
-            }
-
-            Spacer(minLength: 0)
+                .background(palette.track, in: Capsule())
+                .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel(hidden == 1 ? "1 categoría más" : "\(hidden) categorías más")
     }
 }

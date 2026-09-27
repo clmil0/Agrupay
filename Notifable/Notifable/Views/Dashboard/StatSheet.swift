@@ -84,6 +84,7 @@ struct StatChart {
 // MARK: - Hoja
 
 struct StatSheet: View {
+    @Environment(\.hidesAmounts) private var hidesAmounts
     let stat: StatDetail
 
     @Environment(\.dismiss) private var dismiss
@@ -112,7 +113,7 @@ struct StatSheet: View {
             }
 
             VStack(spacing: 8) {
-                Text(stat.amount)
+                Text(stat.amount.masked(hidesAmounts))
                     .font(.system(size: stat.isName ? 32 : 40, weight: .bold))
                     .tracking(stat.isName ? -0.8 : -1.2)
                     .monospacedDigit()
@@ -121,7 +122,7 @@ struct StatSheet: View {
                     .lineLimit(stat.isName ? 2 : 1)
                     .minimumScaleFactor(0.6)
 
-                Text(stat.detail)
+                Text(stat.detail.masked(hidesAmounts))
                     .font(.system(size: 14))
                     .foregroundStyle(palette.secondaryLabel)
                     .multilineTextAlignment(.center)
@@ -154,6 +155,7 @@ struct StatSheet: View {
 /// antes sólo cabía en la hoja: la frase, el gráfico y las dos cifras. Tocarla
 /// abre la hoja, donde el gráfico se recorre con el dedo.
 struct StatExpandedCard: View {
+    @Environment(\.hidesAmounts) private var hidesAmounts
     let stat: StatDetail
     let action: () -> Void
 
@@ -174,14 +176,14 @@ struct StatExpandedCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(stat.amount)
+                    Text(stat.amount.masked(hidesAmounts))
                         .font(.system(size: stat.isName ? 26 : 32, weight: .bold))
                         .tracking(-1)
                         .monospacedDigit()
                         .foregroundStyle(stat.amountColor ?? palette.label)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                    Text(stat.detail)
+                    Text(stat.detail.masked(hidesAmounts))
                         .font(.system(size: 13.5))
                         .foregroundStyle(palette.secondaryLabel)
                         .fixedSize(horizontal: false, vertical: true)
@@ -208,6 +210,7 @@ struct StatExpandedCard: View {
 // MARK: - Piezas
 
 struct StatTilesRow: View {
+    @Environment(\.hidesAmounts) private var hidesAmounts
     let tiles: [StatFigure]
     var fill: Color?
 
@@ -222,7 +225,7 @@ struct StatTilesRow: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(palette.tertiaryLabel)
                         .lineLimit(1)
-                    Text(tile.value)
+                    Text(tile.value.masked(hidesAmounts))
                         .font(.system(size: 20, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(tile.color ?? palette.label)
@@ -261,6 +264,7 @@ struct StatVisualView: View {
 /// El gráfico de `1a`–`1e`. Se recorre arrastrando el dedo; al soltar, la
 /// marca se queda donde quedó.
 struct StatLineChart: View {
+    @Environment(\.hidesAmounts) private var hidesAmounts
     let chart: StatChart
     var interactive = true
     let ringColor: Color
@@ -376,7 +380,7 @@ struct StatLineChart: View {
         // En un overlay, para que la burbuja no cambie el tamaño del gráfico.
         .overlay(alignment: .topLeading) {
             if chart.tips.indices.contains(i) {
-                Text(chart.tips[i])
+                Text(chart.tips[i].masked(hidesAmounts))
                     .font(.system(size: 11.5, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(palette.label)
@@ -496,6 +500,7 @@ struct StatDaysStrip: View {
 
 /// Límites superados: cada categoría pasada y por cuánto.
 struct StatLimitList: View {
+    @Environment(\.hidesAmounts) private var hidesAmounts
     let items: [StatListItem]
     let more: Int
 
@@ -522,7 +527,7 @@ struct StatLimitList: View {
                             .foregroundStyle(palette.label)
                             .lineLimit(1)
                         Spacer(minLength: 8)
-                        Text(item.value)
+                        Text(item.value.masked(hidesAmounts))
                             .font(.system(size: 13.5, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(palette.negative)

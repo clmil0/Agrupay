@@ -6,6 +6,8 @@ import SwiftUI
 struct ShellSectionHeader: View {
     let title: String
     var trailing: String?
+    /// Color de `trailing` cuando dice algo que acaba de pasar («ahora»).
+    var trailingTint: Color?
 
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette(scheme) }
@@ -22,7 +24,7 @@ struct ShellSectionHeader: View {
             if let trailing {
                 Text(trailing)
                     .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(palette.secondaryLabel)
+                    .foregroundStyle(trailingTint ?? palette.secondaryLabel)
             }
         }
         .padding(.horizontal, 2)

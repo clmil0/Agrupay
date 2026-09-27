@@ -9,6 +9,31 @@ enum PenguinMood: Equatable {
     case warning
     /// Ojos en X: pasaste el presupuesto.
     case over
+    /// Ojos en arco: «¡Gracias!» cuando le pagan (`1c` de «Cobros entre amigos»).
+    case happy
+}
+
+/// Una postura del personaje, para animarlo por partes: alas, copete y cara
+/// se mueven cada uno sobre su bisagra, como las capas del diseño
+/// `Cobros entre amigos.dc.html`. Las medidas van en unidades del `viewBox`
+/// (470 de ancho); lo que mueve al personaje entero —caer, aplastarse,
+/// inclinarse— lo pone la vista con modificadores de SwiftUI.
+///
+/// Sólo los pingüinos tienen alas y copete sueltos; en un animal se usan la
+/// cara y el parpadeo.
+struct PenguinPose: Equatable {
+    /// Grados; positivo, en el sentido del reloj.
+    var wingLeft: Double = 0
+    var wingRight: Double = 0
+    var tuft: Double = 0
+    var tuftLift: CGFloat = 0
+    var tuftStretch: CGFloat = 1
+    /// Ojos, cresta y pico juntos: mirar a un lado o bajar la cabeza.
+    var face: CGSize = .zero
+    /// Alto de los ojos abiertos: 1 abiertos, ~0 cerrados.
+    var blink: CGFloat = 1
+
+    static let rest = PenguinPose()
 }
 
 /// Dibuja un `PenguinLook` —pingüino o animal, con sus objetos— con los
@@ -21,6 +46,7 @@ struct PenguinView: View {
     /// Silueta de un solo color (el de primer plano) con ojos y nariz
     /// recortados: pantalla bloqueada, StandBy y modos teñidos.
     var monochrome = false
+    var pose: PenguinPose = .rest
 
     /// El `viewBox` del SVG original, común a pingüinos, animales y objetos.
     static let viewBox = CGRect(x: 140, y: 170, width: 470, height: 460)
@@ -32,7 +58,7 @@ struct PenguinView: View {
             context.translateBy(x: (size.width - box.width * scale) / 2, y: (size.height - box.height * scale) / 2)
             context.scaleBy(x: scale, y: scale)
             context.translateBy(x: -box.minX, y: -box.minY)
-            let drawing = AvatarDrawing(look: look, mood: mood)
+            let drawing = AvatarDrawing(look: look, mood: mood, pose: pose)
             if monochrome {
                 drawing.drawMonochrome(in: context)
             } else {
@@ -71,6 +97,7 @@ struct PenguinAvatar: View {
 private struct AvatarDrawing {
     let look: PenguinLook
     let mood: PenguinMood
+    var pose: PenguinPose = .rest
 
     /// Las capas de los objetos puestos, de atrás hacia delante.
     private func layers(behind: Bool, includeFace: Bool = true) -> [(scene: SVGScene, item: AvatarItem)] {
@@ -94,17 +121,23 @@ private struct AvatarDrawing {
         for layer in layers(behind: true) { layer.scene.draw(in: objects, colors: layer.item.colors) }
 
         if let scene = look.animal?.scene {
-            if mood == .ok {
+            if mood == .ok && pose.blink >= 1 && pose.face == .zero {
                 scene.draw(in: context, colors: look.animalColors)
             } else {
                 scene.draw(in: context, colors: look.animalColors, skipping: ["ojos"])
+                var face = context
+                face.translateBy(x: pose.face.width, y: pose.face.height)
                 for eye in PenguinFace.eyes {
-                    if let ring = scene.eyeRing { context.fill(PenguinFace.circle(eye, ring), with: .color(.white)) }
-                    PenguinFace.drawMoodEye(mood, at: eye, in: context, color: PenguinFace.navy)
+                    if let ring = scene.eyeRing { face.fill(PenguinFace.circle(eye, ring), with: .color(.white)) }
+                    if mood == .ok {
+                        face.fill(PenguinFace.circle(eye, 24, squash: pose.blink), with: .color(PenguinFace.navy))
+                    } else {
+                        PenguinFace.drawMoodEye(mood, at: eye, in: face, color: PenguinFace.navy)
+                    }
                 }
             }
         } else {
-            PenguinDrawing(look: look, mood: mood).draw(in: context)
+            PenguinDrawing(look: look, mood: mood, pose: pose).draw(in: context)
         }
 
         for layer in layers(behind: false) { layer.scene.draw(in: objects, colors: layer.item.colors) }
@@ -155,6 +188,22 @@ enum PenguinFace {
         Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
     }
 
+    /// Un círculo aplastado en vertical sobre su centro: el parpadeo.
+    static func circle(_ center: CGPoint, _ radius: CGFloat, squash: CGFloat) -> Path {
+        let height = radius * 2 * max(0.04, min(1, squash))
+        return Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - height / 2, width: radius * 2, height: height))
+    }
+
+    /// Gira `context` `degrees` sobre `pivot`.
+    static func rotated(_ context: GraphicsContext, around pivot: CGPoint, degrees: Double) -> GraphicsContext {
+        guard degrees != 0 else { return context }
+        var copy = context
+        copy.translateBy(x: pivot.x, y: pivot.y)
+        copy.rotate(by: .degrees(degrees))
+        copy.translateBy(x: -pivot.x, y: -pivot.y)
+        return copy
+    }
+
     static func scaled(_ context: GraphicsContext, around point: CGPoint, by factor: CGFloat) -> GraphicsContext {
         var copy = context
         copy.translateBy(x: point.x, y: point.y)
@@ -169,6 +218,13 @@ enum PenguinFace {
         switch mood {
         case .ok:
             context.fill(circle(eye, 24), with: .color(color))
+        case .happy:
+            var arc = Path()
+            arc.move(to: CGPoint(x: eye.x - 19, y: eye.y + 7))
+            arc.addCurve(to: CGPoint(x: eye.x + 19, y: eye.y + 7),
+                         control1: CGPoint(x: eye.x - 10, y: eye.y - 14),
+                         control2: CGPoint(x: eye.x + 10, y: eye.y - 14))
+            context.stroke(arc, with: .color(color), style: StrokeStyle(lineWidth: 9, lineCap: .round))
         case .warning:
             var half = Path()
             half.addArc(center: CGPoint(x: eye.x, y: eye.y + 2), radius: 24,
@@ -197,6 +253,20 @@ enum PenguinFace {
 private struct PenguinDrawing {
     let look: PenguinLook
     let mood: PenguinMood
+    var pose: PenguinPose = .rest
+
+    /// Bisagras de las capas, con los `transform-origin` del diseño sobre la
+    /// caja de cada forma: el ala izquierda gira desde el hombro (94 % 67 %),
+    /// la derecha desde arriba (4 % 17 %) y el copete desde su base.
+    private static let wingLeftPivot = pivot(P.wingLeft, 0.94, 0.67)
+    private static let wingRightPivot = pivot(P.wingRight, 0.04, 0.17)
+    private static let tuftLeafPivot = pivot(P.tuftLeaf, 0.5, 1)
+    private static let tuftSpikesPivot = pivot(P.tuftSpikes, 0.5, 1)
+
+    private static func pivot(_ path: Path, _ x: CGFloat, _ y: CGFloat) -> CGPoint {
+        let box = path.boundingRect
+        return CGPoint(x: box.minX + box.width * x, y: box.minY + box.height * y)
+    }
 
     private static let navy = PenguinFace.navy
     private static let round = StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round)
@@ -234,6 +304,14 @@ private struct PenguinDrawing {
         PenguinFace.scaled(context, around: point, by: factor)
     }
 
+    private func scaled(_ context: GraphicsContext, around point: CGPoint, by x: CGFloat, y: CGFloat) -> GraphicsContext {
+        var copy = context
+        copy.translateBy(x: point.x, y: point.y)
+        copy.scaleBy(x: x, y: y)
+        copy.translateBy(x: -point.x, y: -point.y)
+        return copy
+    }
+
     func draw(in context: GraphicsContext) {
         let breed = look.breedStyle
         let young = look.age == 0
@@ -249,13 +327,22 @@ private struct PenguinDrawing {
         let body = scaled(context, around: CGPoint(x: 379, y: 430), by: young ? 0.94 : 1.03)
 
         let ctx = body
-        ctx.fill(breed.tuft == .leaf ? P.tuftLeaf : P.tuftSpikes, with: .color(coat))
-        ctx.stroke(breed.tuft == .leaf ? P.tuftLeaf : P.tuftSpikes, with: .color(navy), style: Self.round)
+        let tuftPath = breed.tuft == .leaf ? P.tuftLeaf : P.tuftSpikes
+        let tuftPivot = breed.tuft == .leaf ? Self.tuftLeafPivot : Self.tuftSpikesPivot
+        var tuft = PenguinFace.rotated(ctx, around: tuftPivot, degrees: pose.tuft)
+        if pose.tuftLift != 0 || pose.tuftStretch != 1 {
+            tuft.translateBy(x: 0, y: pose.tuftLift)
+            tuft = scaled(tuft, around: tuftPivot, by: 1, y: pose.tuftStretch)
+        }
+        tuft.fill(tuftPath, with: .color(coat))
+        tuft.stroke(tuftPath, with: .color(navy), style: Self.round)
 
-        for (wing, shine) in [(P.wingLeft, P.wingLeftShine), (P.wingRight, P.wingRightShine)] {
-            ctx.fill(wing, with: .color(coat))
-            ctx.stroke(wing, with: .color(navy), style: Self.round)
-            ctx.fill(shine, with: .color(coatLight))
+        for (wing, shine, pivot, angle) in [(P.wingLeft, P.wingLeftShine, Self.wingLeftPivot, pose.wingLeft),
+                                            (P.wingRight, P.wingRightShine, Self.wingRightPivot, pose.wingRight)] {
+            let wingCtx = PenguinFace.rotated(ctx, around: pivot, degrees: angle)
+            wingCtx.fill(wing, with: .color(coat))
+            wingCtx.stroke(wing, with: .color(navy), style: Self.round)
+            wingCtx.fill(shine, with: .color(coatLight))
         }
 
         ctx.fill(P.body, with: .color(coat))
@@ -282,7 +369,11 @@ private struct PenguinDrawing {
         }
         ctx.stroke(P.body, with: .color(navy), style: Self.round)
 
-        let eyeCtx = scaled(body, around: CGPoint(x: 379, y: 353), by: young ? 1.16 : 0.94)
+        // Ojos, cresta y pico se mueven juntos: es la cabeza la que mira.
+        var faceCtx = body
+        faceCtx.translateBy(x: pose.face.width, y: pose.face.height)
+        let eyeCtx = scaled(faceCtx, around: CGPoint(x: 379, y: 353), by: young ? 1.16 : 0.94)
+        let blink = pose.blink
         for eye in Self.eyes {
             switch breed.eyes {
             case .ring27: eyeCtx.fill(circle(eye, 27), with: .color(.white))
@@ -293,6 +384,9 @@ private struct PenguinDrawing {
                 // El iris rojo va sobre el manto oscuro: sin él, la X no se ve.
                 if breed.eyes == .iris { eyeCtx.fill(circle(eye, 27), with: .color(.white)) }
                 PenguinFace.drawMoodEye(mood, at: eye, in: eyeCtx, color: navy)
+            } else if blink < 1 {
+                // A medio parpadeo sólo se ve la pupila aplastada.
+                eyeCtx.fill(PenguinFace.circle(eye, 24, squash: blink), with: .color(navy))
             } else if breed.eyes == .iris {
                 eyeCtx.fill(circle(eye, 24), with: .color(RGBColor(hex: "#d62839").color))
                 eyeCtx.stroke(circle(eye, 24), with: .color(navy), lineWidth: 3)
@@ -307,11 +401,11 @@ private struct PenguinDrawing {
         }
 
         if breed.extra == .rockhopper {
-            ctx.fill(P.crests, with: .color(accent))
-            ctx.stroke(P.crests, with: .color(navy), style: StrokeStyle(lineWidth: 4, lineJoin: .round))
+            faceCtx.fill(P.crests, with: .color(accent))
+            faceCtx.stroke(P.crests, with: .color(navy), style: StrokeStyle(lineWidth: 4, lineJoin: .round))
         }
 
-        let beakCtx = scaled(body, around: CGPoint(x: 379, y: 384), by: young ? 0.9 : 1.04)
+        let beakCtx = scaled(faceCtx, around: CGPoint(x: 379, y: 384), by: young ? 0.9 : 1.04)
         beakCtx.fill(P.beak, with: .color(beakRGB.color))
         beakCtx.stroke(P.beak, with: .color(navy), style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
         beakCtx.fill(P.beakShade, with: .color(beakRGB.mixed(with: .black, amount: 0.78).color))

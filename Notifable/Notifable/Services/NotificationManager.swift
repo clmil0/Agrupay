@@ -31,6 +31,11 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        // Un cobro con la app abierta: se pide ya, y si es intenso sale su
+        // modal sin esperar al tiempo real.
+        if notification.request.content.userInfo["reminderId"] != nil {
+            Task { @MainActor in await PaymentReminders.shared.refresh() }
+        }
         completionHandler([.banner, .list, .sound])
     }
 
@@ -41,6 +46,9 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
+        if info["reminderId"] != nil {
+            Task { @MainActor in await PaymentReminders.shared.refresh() }
+        }
         if let link = info["deepLink"] as? String, let url = URL(string: link) {
             DispatchQueue.main.async { UIApplication.shared.open(url) }
         }
@@ -76,6 +84,11 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         scheduleRefresh()
     }
 
+    /// Vuelve a contar avisos y el numerito del ícono (al volver a la app o
+    /// al cambiar un límite, que no pasa por SwiftData).
+    @MainActor
+    func recount() { scheduleRefresh() }
+
     @MainActor
     private func scheduleRefresh() {
         pending?.cancel()
@@ -105,9 +118,18 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                                       usdToPen: ExchangeRateService.storedRate).spent
         updateBudgetNotice(spent: spent, month: month)
 
+        // El numerito del ícono: los pendientes de este mes, como la tarjeta.
+        let unclassifiedName = Accounting.unclassified
+        let pending = monthExpenses.filter {
+            $0.category == unclassifiedName && !$0.isTransfer && !$0.isVoided && !$0.isReversal && !$0.isSplit
+        }.count
+
         let budgets = CategoryBudgetStore.shared.budgets.values.filter(\.hasLimit)
         let limitsEnabled = defaults.object(forKey: NotificationManager.categoryLimitEnabledKey) as? Bool ?? true
-        guard !budgets.isEmpty else { return }
+        guard !budgets.isEmpty else {
+            AppBadge.update(pending: pending, overLimits: 0)
+            return
+        }
 
         // El ciclo actual y el anterior (por el sobrante) caben de sobra en
         // dos años, aunque el límite sea anual.
@@ -120,6 +142,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                                   expenses: snapshots, on: Date(), usdToPen: rate)
         }
         updateCategoryLimitNotices(statuses, enabled: limitsEnabled)
+        AppBadge.update(pending: pending, overLimits: statuses.filter(\.isOver).count)
     }
     
     static let debtReminderID = "dailyDebtReminder"

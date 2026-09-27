@@ -15,6 +15,7 @@ struct CommittedSection: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.hidesAmounts) private var hidesAmounts
     @Query private var rules: [RecurringExpense]
 
     @State private var showsPendingConfirmation = false
@@ -91,7 +92,7 @@ struct CommittedSection: View {
             }
 
             VStack(spacing: 8) {
-                ShellSectionHeader(title: "Comprometido este mes", trailing: Money.formatCompact(total))
+                ShellSectionHeader(title: "Comprometido este mes", trailing: Money.formatCompact(total).masked(hidesAmounts))
 
                 MovementCard {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -138,7 +139,7 @@ struct CommittedSection: View {
 
             Spacer(minLength: 8)
 
-            Text(Money.formatCompact(row.rule.amount, currency: row.rule.currency))
+            Text(Money.formatCompact(row.rule.amount, currency: row.rule.currency).masked(hidesAmounts))
                 .font(.system(size: 14.5, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(palette.secondaryLabel)

@@ -35,6 +35,9 @@ struct ContentView: View {
     /// detalle en cuanto las hojas de encima terminan de bajar.
     @State private var focusedExpense: Expense?
     @State private var focusedIncome: Income?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var reminders = PaymentReminders.shared
+    @State private var auth = SupabaseAuthManager.shared
 
     /// Aplica las reglas con `autoConfirm` y programa el aviso de las que
     /// esperan confirmación. Una vez por sesión.
@@ -113,6 +116,34 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Cobro intenso
+
+    /// La sesión de Amigos antes sólo se abría al entrar a Amigos, y hasta
+    /// entonces no se podían pedir los cobros: el modal intenso salía recién
+    /// ahí. Ahora se abre al arrancar, en silencio (sin pantallas de login).
+    private func startFriendsSession() async {
+        #if DEBUG
+        if QAMode.isOn { return }
+        #endif
+        guard !auth.isReady, !auth.needsGoogleAccount else { return }
+        let name = SocialProfileStore.shared.displayName
+        await auth.ensureSession(defaultName: name.isEmpty ? "Amigo" : name)
+    }
+
+    /// El modal de un cobro intenso sale al abrir la app (`1c`), nunca por
+    /// encima del splash ni del bloqueo.
+    private func presentReminderIfReady() {
+        guard !showSplash, !appLock.isLocked, scenePhase == .active,
+              !PaymentReminderModalPresenter.isPresenting,
+              let reminder = reminders.pendingModal else { return }
+        // Un respiro para que la pantalla termine de asentarse: el personaje
+        // cae sobre la app ya quieta.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard !showSplash, !appLock.isLocked, reminders.pendingModal?.id == reminder.id else { return }
+            PaymentReminderModalPresenter.present(reminder)
+        }
+    }
+
     /// Deja una sola pantalla sobre el dashboard: la pedida.
     private func open(_ section: AppSection) {
         selectedTransactionType = nil
@@ -183,6 +214,7 @@ struct ContentView: View {
                 // pantalla de bloqueo estaría **detrás** de ellas y no taparía
                 // nada. Bloquear cierra lo que hubiera encima.
                 guard locked else { return }
+                PaymentReminderModalPresenter.suspend()
                 showSettings = false
                 selectedTransactionType = nil
                 showsDictation = false
@@ -191,8 +223,30 @@ struct ContentView: View {
             // Las solicitudes de amistad pintan un número en la pestaña
             // Social: se piden al abrir, sin esperar a que se visite.
             .task {
+                await startFriendsSession()
                 if SupabaseAuthManager.shared.isReady { await FriendsManager.shared.refresh() }
+                await reminders.refresh()
             }
+            // Los cobros se piden al abrir, no sólo al visitar Amigos: el
+            // modo intenso tiene que salir apenas se abre la app.
+            .onChange(of: auth.isReady) { _, ready in
+                guard ready else { return }
+                Task {
+                    await reminders.refresh()
+                    await FriendsManager.shared.refresh()
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task {
+                    await startFriendsSession()
+                    await reminders.refresh()
+                }
+                // Día o mes nuevo: el numerito del ícono se vuelve a contar.
+                NotificationManager.shared.recount()
+                presentReminderIfReady()
+            }
+            .onChange(of: reminders.pendingModal?.arrivalKey) { _, _ in presentReminderIfReady() }
             .fullScreenCover(isPresented: $showSettings) {
                 SettingsView()
             }
@@ -214,14 +268,20 @@ struct ContentView: View {
                 pendingLink = link
                 applyPendingLinkIfReady()
             }
-            .onChange(of: appLock.isLocked) { _, _ in applyPendingLinkIfReady() }
+            .onChange(of: appLock.isLocked) { _, _ in
+                applyPendingLinkIfReady()
+                presentReminderIfReady()
+            }
             .onReceive(NotificationCenter.default.publisher(for: ActivityFocus.notification)) { note in
                 guard let request = ActivityFocus.request(from: note) else { return }
                 Task { await focus(on: request) }
             }
             .sheet(item: $focusedExpense) { ExpenseDetailsView(expense: $0) }
             .sheet(item: $focusedIncome) { IncomeDetailsView(income: $0) }
-            .onChange(of: showSplash) { _, _ in applyPendingLinkIfReady() }
+            .onChange(of: showSplash) { _, _ in
+                applyPendingLinkIfReady()
+                presentReminderIfReady()
+            }
             
             // Blindaje instantáneo: montado siempre, sin `.task` ni
             // transición — sólo cambia opacidad. `LockScreenView` reacciona a

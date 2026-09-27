@@ -34,6 +34,7 @@ struct SpendBarChart: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.hidesAmounts) private var hidesAmounts
     private var palette: Palette { Palette(scheme) }
 
     /// Las barras ya llenas; vuelve a `false` para repetir la entrada cuando
@@ -91,7 +92,7 @@ struct SpendBarChart: View {
             }
             .overlay(alignment: .top) {
                 if isSelected {
-                    Text(Money.formatCompact(column.total))
+                    Text(Money.formatCompact(column.total).masked(hidesAmounts))
                         .font(.system(size: 14, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(palette.duoText ?? palette.expense)
@@ -114,7 +115,7 @@ struct SpendBarChart: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(column.accessibilityLabel)
-        .accessibilityValue(Money.format(column.total))
+        .accessibilityValue(Money.format(column.total).masked(hidesAmounts))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

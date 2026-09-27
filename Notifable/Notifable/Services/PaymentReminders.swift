@@ -17,6 +17,20 @@ struct PaymentReminder: Identifiable, Equatable {
     let currency: String
     let message: String
     let createdAt: Date
+    var intensity: Intensity = .soft
+
+    /// Cómo llega (`1b`/`1c` de «Cobros entre amigos»). Lo elige quien cobra.
+    enum Intensity: String, CaseIterable {
+        /// La notificación de siempre y el cobro entra en Amigos con un
+        /// destello y un saltito del avatar.
+        case soft
+        /// Además, al abrir la app, un modal con el personaje del amigo.
+        case intense
+    }
+
+    /// Un recordatorio renovado conserva su `id` pero cambia de fecha: para
+    /// «¿ya lo vi?» cuenta como uno nuevo.
+    var arrivalKey: String { id + "@" + String(Int(createdAt.timeIntervalSince1970)) }
 }
 
 /// Recordatorios de cobro entre amigos (`payment_reminders` + la función
@@ -35,17 +49,76 @@ final class PaymentReminders {
     private var baseURL: String { auth.baseURL }
 
     /// Lo que me están recordando y todavía no cierro.
-    private(set) var inbox: [PaymentReminder] = []
+    private(set) var inbox: [PaymentReminder] = [] {
+        didSet { AppBadge.apply() }
+    }
     /// Lo último que contestó el servidor cuando algo falló. Se enseña tal
     /// cual: «no se pudo enviar» a secas no deja arreglar nada.
     private(set) var lastErrorMessage: String?
     private var isListening = false
 
-    private init() {}
+    /// Los recordatorios cuya entrada ya se animó en Amigos o cuyo modal ya
+    /// salió. Guardados por `arrivalKey`: el modal sale una vez por
+    /// recordatorio, y el del día siguiente (renovado) vuelve a salir.
+    private(set) var seenArrivals: Set<String>
+    private(set) var shownModals: Set<String>
+    private static let seenKey = "paymentReminders.seenArrivals"
+    private static let modalsKey = "paymentReminders.shownModals"
+
+    private init() {
+        seenArrivals = Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? [])
+        shownModals = Set(UserDefaults.standard.stringArray(forKey: Self.modalsKey) ?? [])
+    }
+
+    // MARK: - Llegada
+
+    /// El cobro intenso que todavía no enseñó su modal, el más reciente.
+    var pendingModal: PaymentReminder? {
+        inbox.first { $0.intensity == .intense && !shownModals.contains($0.arrivalKey) }
+    }
+
+    func isNewArrival(_ reminder: PaymentReminder) -> Bool {
+        !seenArrivals.contains(reminder.arrivalKey)
+    }
+
+    /// La entrada suave ya se vio: no se repite al volver a Amigos.
+    func markArrivalSeen(_ reminder: PaymentReminder) {
+        guard seenArrivals.insert(reminder.arrivalKey).inserted else { return }
+        persist()
+    }
+
+    /// El modal salió. «Más tarde» deja el cobro en Amigos, con su entrada
+    /// suave todavía pendiente de verse.
+    func markModalShown(_ reminder: PaymentReminder) {
+        guard shownModals.insert(reminder.arrivalKey).inserted else { return }
+        persist()
+    }
+
+    /// Sólo se guardan las llaves de lo que sigue en la bandeja: la lista no
+    /// crece sin fin.
+    private func persist() {
+        let alive = Set(inbox.map(\.arrivalKey))
+        if !inbox.isEmpty {
+            seenArrivals.formIntersection(alive)
+            shownModals.formIntersection(alive)
+        }
+        UserDefaults.standard.set(Array(seenArrivals), forKey: Self.seenKey)
+        UserDefaults.standard.set(Array(shownModals), forKey: Self.modalsKey)
+    }
+
+    #if DEBUG
+    /// Modo QA: la bandeja sale de `QAFakeData`, sin servidor.
+    func seedForQA(_ reminders: [PaymentReminder]) {
+        inbox = reminders
+    }
+    #endif
 
     // MARK: - Bandeja
 
     func refresh() async {
+        #if DEBUG
+        if QAMode.isOn { return }
+        #endif
         guard auth.isReady else { return }
         guard let data = await rpc("list_my_reminders", body: [:]),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
@@ -66,6 +139,9 @@ final class PaymentReminders {
     /// «Listo». Quien lo mandó puede volver a escribir en cuanto se cierra.
     func dismiss(_ reminder: PaymentReminder) async {
         inbox.removeAll { $0.id == reminder.id }
+        #if DEBUG
+        if QAMode.isOn { return }
+        #endif
         _ = await rpc("dismiss_payment_reminder", body: ["p_id": reminder.id])
     }
 
@@ -95,6 +171,7 @@ final class PaymentReminders {
               occurredOn: Date?,
               currency: String,
               message: String,
+              intensity: PaymentReminder.Intensity = .soft,
               to friends: [String],
               amounts: [String: Double]) async -> SendResult {
         var result = SendResult()
@@ -109,10 +186,16 @@ final class PaymentReminders {
             "p_amounts": amounts.mapValues { Money.decimalText($0) }
         ]
         if let occurredOn { body["p_occurred_on"] = Self.dayFormatter.string(from: occurredOn) }
+        // Sólo se manda cuando no es el de siempre: así un servidor sin el SQL
+        // v11 sigue aceptando los cobros suaves.
+        if intensity != .soft { body["p_intensity"] = intensity.rawValue }
 
         lastErrorMessage = nil
         guard let data = await rpc("send_payment_reminders", body: body),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            if intensity != .soft, lastErrorMessage?.contains("p_intensity") == true {
+                lastErrorMessage = "El servidor todavía no tiene el modo intenso: falta correr agrupay_reminders_v11_intensity.sql."
+            }
             result.failed = true
             return result
         }
@@ -274,7 +357,8 @@ final class PaymentReminders {
             amount: amount,
             currency: row["currency"] as? String ?? "PEN",
             message: row["message"] as? String ?? "",
-            createdAt: created ?? Date()
+            createdAt: created ?? Date(),
+            intensity: (row["intensity"] as? String).flatMap(PaymentReminder.Intensity.init(rawValue:)) ?? .soft
         )
     }
 }

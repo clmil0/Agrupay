@@ -26,9 +26,17 @@ struct FriendsActionsSection: View {
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
 
+    private var hidesForGoogle: Bool {
+        #if DEBUG
+        // Modo QA: amigos y cobros inventados, sin cuenta.
+        if QAMode.isOn { return false }
+        #endif
+        return auth.needsGoogleAccount
+    }
+
     var body: some View {
         VStack(spacing: 14) {
-            if auth.needsGoogleAccount {
+            if hidesForGoogle {
                 needsGoogle
             } else {
                 actions
@@ -143,17 +151,25 @@ struct FriendsActionsSection: View {
     // MARK: - Recordatorios de cobro
 
     /// Lo que un amigo te recuerda que le debes. No mueve nada de tus
-    /// cuentas: se lee y se cierra.
+    /// cuentas: se lee y se cierra. Lo que llegó desde la última visita entra
+    /// con destello y saltito (`1b` de «Cobros entre amigos»).
     @ViewBuilder
     private var remindersSection: some View {
         let inbox = reminders.inbox
         if !inbox.isEmpty {
             VStack(spacing: 0) {
                 ShellSectionHeader(title: inbox.count == 1 ? "Te recuerdan un pago"
-                                                           : "Te recuerdan \(inbox.count) pagos")
+                                                           : "Te recuerdan \(inbox.count) pagos",
+                                   trailing: inbox.first.map { Self.arrived($0.createdAt) },
+                                   trailingTint: accent.onSurface(scheme))
                 MovementCard {
                     ForEach(Array(inbox.enumerated()), id: \.element.id) { index, reminder in
-                        reminderRow(reminder)
+                        ReminderRow(reminder: reminder,
+                                    friend: friendsManager.friend(with: reminder.fromUser),
+                                    isNew: reminders.isNewArrival(reminder),
+                                    onSeen: { reminders.markArrivalSeen(reminder) },
+                                    onDone: { Task { await reminders.dismiss(reminder) } })
+                            .id(reminder.arrivalKey)
                         if index < inbox.count - 1 { MovementSeparator() }
                     }
                 }
@@ -161,62 +177,17 @@ struct FriendsActionsSection: View {
         }
     }
 
-    private func reminderRow(_ reminder: PaymentReminder) -> some View {
-        let friend = friendsManager.friend(with: reminder.fromUser)
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                FriendAvatar(friend: friend)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(friend.name + " te recuerda un pago")
-                        .font(.system(size: 15.5, weight: .semibold))
-                        .foregroundStyle(palette.label)
-                        .lineLimit(1)
-
-                    Text(reminderDetail(reminder))
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(palette.secondaryLabel)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 8)
-
-                if let amount = reminder.amount {
-                    Text(Money.format(amount, currency: reminder.currency))
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(palette.label)
-                }
-            }
-
-            if !reminder.message.isEmpty {
-                Text("«" + reminder.message + "»")
-                    .font(.system(size: 13.5))
-                    .foregroundStyle(palette.label)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                Spacer()
-                Button {
-                    Task { await reminders.dismiss(reminder) }
-                } label: {
-                    Text("Listo")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(accent.onSurface(scheme))
-                        .padding(.horizontal, 18)
-                        .frame(height: 32)
-                        .background(accent.color.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(14)
-    }
-
-    private func reminderDetail(_ reminder: PaymentReminder) -> String {
-        guard let day = reminder.occurredOn else { return reminder.merchant }
-        return reminder.merchant + " · " + day.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es_ES")))
+    /// «ahora», «hace 5 min», «hace 3 h», «ayer», «hace 4 días».
+    private static func arrived(_ date: Date) -> String {
+        let seconds = Date().timeIntervalSince(date)
+        if seconds < 60 { return "ahora" }
+        if seconds < 3600 { return "hace \(Int(seconds / 60)) min" }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "hace \(Int(seconds / 3600)) h" }
+        if calendar.isDateInYesterday(date) { return "ayer" }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
+                                           to: calendar.startOfDay(for: Date())).day ?? 0
+        return "hace \(days) días"
     }
 
     // MARK: - Solicitudes (2c)
@@ -452,5 +423,126 @@ struct FriendsRosterSection: View {
         case (false, true):  return ("arrow.left", "Sólo él te comparte")
         case (false, false): return ("minus", "Sin compartir")
         }
+    }
+}
+
+// MARK: - Recordatorio
+
+/// Un cobro que te recuerdan. Si llegó desde la última visita entra con la
+/// animación del modo suave: aparece bajando 8 pt, un destello del tema que
+/// se apaga en 3 s y un saltito del avatar. «Listo» lo desvanece y lo cierra.
+private struct ReminderRow: View {
+    let reminder: PaymentReminder
+    let friend: Friend
+    let isNew: Bool
+    let onSeen: () -> Void
+    let onDone: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+    @State private var origin: Date?
+    @State private var running = false
+    @State private var leaving = false
+
+    private var palette: Palette { Palette(scheme) }
+    private var accent: AppThemeColor { .current }
+
+    private enum Channel: Hashable { case rowOpacity, rowY, wash, hopSX, hopSY, hopY }
+
+    /// Los tiempos del diseño con 200 ms menos de espera: aquí la fila ya
+    /// llega tras el paso de pantalla, y más espera dejaba la tarjeta vacía.
+    private static let arrival: KeyMotion<Channel> = {
+        var m = KeyMotion<Channel>(rest: [.rowOpacity: 1, .hopSX: 1, .hopSY: 1])
+        m.add([(0, [.rowOpacity: 0, .rowY: -8]), (1, [.rowOpacity: 1, .rowY: 0])],
+              at: 300, duration: 480, curve: .css(0.2, 0.8, 0.3, 1))
+        m.add([(0, [.wash: 0]), (0.08, [.wash: 1]), (0.35, [.wash: 1]), (1, [.wash: 0])],
+              at: 360, duration: 3400, curve: .cssEaseOut)
+        m.add([(0, [:]), (0.18, [.hopSX: 1.1, .hopSY: 0.88]), (0.42, [.hopY: -9, .hopSX: 0.94, .hopSY: 1.08]),
+               (0.66, [.hopSX: 1.08, .hopSY: 0.92]), (0.82, [.hopSX: 0.98, .hopSY: 1.02]), (1, [:])],
+              at: 850, duration: 620, curve: .cssEaseInOut)
+        return m
+    }()
+
+    var body: some View {
+        TimelineView(.animation(paused: !running)) { context in
+            // Antes del primer fotograma ya escondida: si no, destella.
+            let t: Double? = running ? origin.map { context.date.timeIntervalSince($0) * 1000 }
+                                     : (isNew && origin == nil ? 0 : nil)
+            let v = { (channel: Channel) in
+                t.map { Self.arrival.value(channel, at: $0) } ?? (Self.arrival.rest[channel] ?? 0)
+            }
+            content(v)
+        }
+        .opacity(leaving ? 0 : 1)
+        .scaleEffect(leaving ? 0.97 : 1)
+        .onAppear {
+            guard isNew, origin == nil else { return }
+            origin = Date()
+            running = true
+            onSeen()
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.arrival.end / 1000) { running = false }
+        }
+    }
+
+    private func content(_ v: (Channel) -> Double) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                FriendAvatar(friend: friend)
+                    .scaleEffect(x: v(.hopSX), y: v(.hopSY), anchor: .bottom)
+                    .offset(y: v(.hopY))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(friend.name + " te recuerda un pago")
+                        .font(.system(size: 15.5, weight: .semibold))
+                        .foregroundStyle(palette.label)
+                        .lineLimit(1)
+
+                    Text(detail)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(palette.secondaryLabel)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                if let amount = reminder.amount {
+                    Text(Money.format(amount, currency: reminder.currency))
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(palette.label)
+                }
+            }
+
+            if !reminder.message.isEmpty {
+                Text("«" + reminder.message + "»")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(palette.label)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    withAnimation(.easeIn(duration: 0.26)) { leaving = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.26, execute: onDone)
+                } label: {
+                    Text("Listo")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(accent.onSurface(scheme))
+                        .padding(.horizontal, 18)
+                        .frame(height: 32)
+                        .background(accent.color.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(leaving)
+            }
+        }
+        .padding(14)
+        .background(accent.color.opacity(0.16 * v(.wash)))
+        .opacity(v(.rowOpacity))
+        .offset(y: v(.rowY))
+    }
+
+    private var detail: String {
+        guard let day = reminder.occurredOn else { return reminder.merchant }
+        return reminder.merchant + " · " + day.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es_ES")))
     }
 }

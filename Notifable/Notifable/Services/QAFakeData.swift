@@ -41,7 +41,56 @@ enum QAMode {
         }
         seed(in: context)
         try? context.save()
+        // Un límite ya pasado: el globo de Categorías y el numerito del ícono.
+        CategoryBudgetStore.shared.save(CategoryBudget(category: "Comida", amount: 50))
         Diagnostics.shared.log("QA: base sembrada con datos falsos")
+    }
+
+    // MARK: - Amigos falsos
+
+    /// Amigos, lo que te comparten y cobros inventados, sólo en memoria: el
+    /// modo QA no abre sesión en Supabase. `-qaCobro intense` o `-qaCobro soft`
+    /// añade un cobro de Vale que llega «ahora» en cada arranque.
+    @MainActor
+    static func seedSocial() {
+        guard isOn else { return }
+        func look(_ breed: Int, species: String? = nil) -> PenguinLook {
+            var look = PenguinLook()
+            look.breed = breed
+            look.coat = PenguinBreed.all[breed].coat
+            look.beak = PenguinBreed.all[breed].beak
+            look.accent = PenguinBreed.all[breed].accent
+            look.species = species
+            return look
+        }
+        let friends = FriendsManager.shared
+        friends.friends = [
+            Friend(id: "qa-vale", displayName: "Vale", status: "Mes tranquilo", penguin: look(1)),
+            Friend(id: "qa-alejo", displayName: "Alejo", status: "Ahorrando para volver a Cusco", penguin: look(5)),
+            Friend(id: "qa-diego", displayName: "Diego", status: "Modo ahorro", penguin: look(6)),
+        ]
+        func row(_ id: String, _ total: Double, _ categories: [(String, Double)]) -> FriendShareRow {
+            FriendShareRow(id: "qa-share-" + id, sharerID: id, viewerID: "qa-me",
+                           shareTotal: true, shareCategories: categories.map(\.0), totalAmount: total,
+                           categoryTotals: categories.map { .init(name: $0.0, amount: $0.1) },
+                           viewerStatus: "accepted", updatedAt: "")
+        }
+        friends.acceptedIncoming = [
+            row("qa-alejo", 4017.21, [("Comida", 1275), ("Transporte", 353), ("Supermercado", 33),
+                                      ("Entretenimiento", 210), ("Salud", 95)]),
+            row("qa-vale", 4247.27, [("Transporte", 803)]),
+            row("qa-diego", 2340.10, [("Comida", 640), ("Servicios", 188)]),
+        ]
+
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "-qaCobro"),
+              arguments.indices.contains(flag + 1),
+              let intensity = PaymentReminder.Intensity(rawValue: arguments[flag + 1]) else { return }
+        PaymentReminders.shared.seedForQA([
+            PaymentReminder(id: "qa-cobro-vale", fromUser: "qa-vale", merchant: "Pizzería Mamma Mia",
+                            occurredOn: daysAgo(6), amount: 42.50, currency: "PEN",
+                            message: "Lo de la pizza del viernes", createdAt: Date(), intensity: intensity)
+        ])
     }
 
     // MARK: - Gastos a mano
@@ -89,6 +138,11 @@ enum QAMode {
         ExpenseSplit.apply([SplitPart(amount: 60, category: "Supermercado", tags: []),
                             SplitPart(amount: 30, category: pending, tags: [])],
                            to: parent, in: context)
+
+        // Un cobro pendiente: la tarjeta Amigos enseña «te deben» y su ojito.
+        let debt = Expense(amount: 150, merchant: "PARRILLAS EL GAUCHO", date: daysAgo(4), category: "Comida")
+        debt.isDebt = true
+        context.insert(debt)
 
         // Un gasto en dólares, para las cifras mixtas.
         context.insert(Expense(amount: 20, merchant: "NETFLIX.COM", date: daysAgo(8),

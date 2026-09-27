@@ -25,6 +25,7 @@ struct ReminderComposerSheet: View {
     @State private var searchQuery = ""
     @State private var selected: Set<String> = []
     @State private var message = ReminderComposerSheet.defaultMessage
+    @State private var intensity: PaymentReminder.Intensity = .soft
     @State private var splitEnabled = false
     /// Monto escrito por amigo. Lo que no esté aquí va sin cifra.
     @State private var amounts: [String: String] = [:]
@@ -90,6 +91,7 @@ struct ReminderComposerSheet: View {
                     debtSection
                     friendsSection
                     messageSection
+                    intensitySection
                     if debt != nil, !selected.isEmpty { splitSection }
                     if let outcome {
                         ShellNote(icon: "exclamationmark.circle", text: outcome)
@@ -370,6 +372,59 @@ struct ReminderComposerSheet: View {
         }
     }
 
+    // MARK: - Intensidad
+
+    /// Quien cobra elige cómo le llega (`1` de «Cobros entre amigos»).
+    private var intensitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ShellSectionHeader(title: "Cómo le llega")
+            HStack(spacing: 10) {
+                intensityOption(.soft, icon: "bell",
+                                title: "Suave",
+                                detail: "La notificación y el cobro en Amigos")
+                intensityOption(.intense, icon: "bell.and.waves.left.and.right",
+                                title: "Intenso",
+                                detail: "Al abrir la app, tu pingüino le cobra")
+            }
+        }
+    }
+
+    private func intensityOption(_ value: PaymentReminder.Intensity, icon: String,
+                                 title: String, detail: String) -> some View {
+        let selected = intensity == value
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) { intensity = value }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                    Spacer(minLength: 0)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(selected ? accent.color : palette.tertiaryLabel)
+                }
+                .foregroundStyle(selected ? accent.onSurface(scheme) : palette.label)
+
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(selected ? accent.color.opacity(0.12) : palette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(selected ? accent.color.opacity(0.5) : palette.hairline, lineWidth: selected ? 1 : 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     // MARK: - Repartir
 
     private var splitSection: some View {
@@ -520,6 +575,7 @@ struct ReminderComposerSheet: View {
             occurredOn: debt.date,
             currency: currency,
             message: message.trimmingCharacters(in: .whitespacesAndNewlines),
+            intensity: intensity,
             to: sendableFriends,
             amounts: byFriend
         )

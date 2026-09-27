@@ -1,9 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>AgruPayInviteDomain</key>
 	<string>$(INVITE_LINK_DOMAIN)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>clmilo.Notifable.gmailRefresh</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>clmilo.Notifable</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>agrupay</string>
+			</array>
+		</dict>
+	</array>
 	<key>INAlternativeAppNames</key>
 	<array>
 		<dict>
@@ -19,24 +34,13 @@
 			<string>Agrupei</string>
 		</dict>
 	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<key>NSUserActivityTypes</key>
 	<array>
-		<string>clmilo.Notifable.gmailRefresh</string>
+		<string>INSendMessageIntent</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
-	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>clmilo.Notifable</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>agrupay</string>
-			</array>
-		</dict>
 	</array>
 </dict>
 </plist>

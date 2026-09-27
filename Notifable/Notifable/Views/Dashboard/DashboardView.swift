@@ -43,6 +43,8 @@ struct DashboardView: View {
     @AppStorage(BudgetStore.monthlyBudgetKey) private var monthlyBudget = 0.0
     @AppStorage(BudgetStore.enabledKey) private var budgetEnabled = false
     @AppStorage(DashboardStatsSettings.key) private var statsRaw = DashboardStatsSettings.defaultValue
+    /// El ojito junto al monto grande: tapa todos los montos del resumen.
+    @AppStorage(AmountPrivacy.storageKey) private var hidesAmounts = false
     @StateObject private var categoryBudgets = CategoryBudgetStore.shared
 
     @State private var filter = AccountFilter.shared
@@ -208,6 +210,8 @@ struct DashboardView: View {
 
             header
         }
+        // Las tarjetas y las hojas que abre el resumen leen el ojito de aquí.
+        .environment(\.hidesAmounts, hidesAmounts)
         .task {
             // La primera vez el gráfico espera al catálogo (`isReady`). Al
             // volver de otra pantalla el gráfico repite su entrada en
@@ -245,11 +249,12 @@ struct DashboardView: View {
         }
         .onChange(of: categoryBudgets.budgets) { _, _ in
             loadMonthExtras()
+            NotificationManager.shared.recount()
             // Los límites no pasan por SwiftData: el resumen del asistente
             // los usa, así que se vuelve a armar al regresar.
             loaded.brief = -1
         }
-        .sheet(item: $openStat) { StatSheet(stat: $0) }
+        .sheet(item: $openStat) { StatSheet(stat: $0).environment(\.hidesAmounts, hidesAmounts) }
         .sheet(item: $assistant, onDismiss: runPendingAction) { presentation in
             AssistantSheet(cards: presentation.cards, inputs: presentation.inputs,
                            categories: presentation.categories) { pendingAction = $0 }
@@ -424,24 +429,29 @@ struct DashboardView: View {
                 }
             }
 
-            HStack(alignment: .lastTextBaseline, spacing: 6) {
-                Text(split.map { String($0.0) } ?? formatted)
-                    .font(.system(size: 46, weight: .bold))
-                    .tracking(-1.8)
-                    .monospacedDigit()
-                    .foregroundStyle(isEmpty ? palette.tertiaryLabel : palette.label)
-                    .contentTransition(.numericText())
-                if let cents = split?.1 {
-                    Text(String(cents))
-                        .font(.system(size: 18, weight: .semibold))
+            HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .lastTextBaseline, spacing: 6) {
+                    // Tapado va sin céntimos: «S/ •••» y nada más.
+                    Text(hidesAmounts ? AmountPrivacy.mask(formatted) : (split.map { String($0.0) } ?? formatted))
+                        .font(.system(size: 46, weight: .bold))
+                        .tracking(-1.8)
                         .monospacedDigit()
-                        .foregroundStyle(palette.secondaryLabel)
+                        .foregroundStyle(isEmpty ? palette.tertiaryLabel : palette.label)
+                        .contentTransition(.numericText())
+                    if !hidesAmounts, let cents = split?.1 {
+                        Text(String(cents))
+                            .font(.system(size: 18, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(palette.secondaryLabel)
+                    }
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Gasto de " + monthName + ": " + formatted.masked(hidesAmounts))
+
+                eyeButton
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Gasto de " + monthName + ": " + formatted)
 
             HStack(spacing: 10) {
                 deltaChip(spent: spent, previous: previous.spent)
@@ -460,6 +470,23 @@ struct DashboardView: View {
         }
         .padding(.horizontal, 2)
         .padding(.top, 4)
+    }
+
+    /// Abre y cierra el ojito: todos los montos del resumen a la vez.
+    private var eyeButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) { hidesAmounts.toggle() }
+        } label: {
+            Image(systemName: hidesAmounts ? "eye.slash" : "eye")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.secondaryLabel)
+                .frame(width: 32, height: 32)
+                .background(palette.surface, in: Circle())
+                .overlay(Circle().stroke(palette.hairline, lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(hidesAmounts ? "Mostrar montos" : "Ocultar montos")
     }
 
     private func monthArrow(_ icon: String, label: String, disabled: Bool = false,
@@ -489,8 +516,8 @@ struct DashboardView: View {
             HStack(spacing: 4) {
                 Image(systemName: isUp ? "arrow.up" : "arrow.down")
                     .font(.system(size: 11, weight: .bold))
-                Text(Money.formatCompact(abs(delta)) + " vs. "
-                     + Period.spanishMonthName(for: month.previous.reference).lowercased())
+                Text((Money.formatCompact(abs(delta)) + " vs. "
+                      + Period.spanishMonthName(for: month.previous.reference).lowercased()).masked(hidesAmounts))
                     .font(.system(size: 12.5, weight: .semibold))
                     .monospacedDigit()
             }
@@ -626,7 +653,7 @@ struct DashboardView: View {
                     Text(chart.title)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(palette.label)
-                    Text(chart.subtitle)
+                    Text(chart.subtitle.masked(hidesAmounts))
                         .font(.system(size: 12.5))
                         .monospacedDigit()
                         .foregroundStyle(palette.secondaryLabel)
@@ -706,14 +733,14 @@ struct DashboardView: View {
                     .foregroundStyle(palette.duoText ?? palette.secondaryLabel)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text(stat.strip)
+                Text(stat.strip.masked(hidesAmounts))
                     .font(.system(size: roomy ? 23 : 19, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(stat.amountColor ?? palette.label)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 if roomy, let caption = stat.caption {
-                    Text(caption)
+                    Text(caption.masked(hidesAmounts))
                         .font(.system(size: 12))
                         .monospacedDigit()
                         .foregroundStyle(palette.tertiaryLabel)
@@ -730,7 +757,7 @@ struct DashboardView: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(stat.title + ": " + stat.strip)
+        .accessibilityLabel(stat.title + ": " + stat.strip.masked(hidesAmounts))
     }
 
     /// Lo que comparten los gráficos: los días del mes, hasta dónde hay datos
@@ -1039,7 +1066,12 @@ struct DashboardView: View {
                              action: { onOpen(.movements) }) {
             bigNumber("\(movementCount)", caption: movementCount == 1 ? "movimiento este mes" : "movimientos este mes")
         }
-        let categorias = tile(title: "Categorías", action: { onOpen(.categories) }) {
+        // Las categorías que pasaron su límite, con el mismo globo que
+        // Historial.
+        let overLimits = limitStatuses.filter(\.isOver).count
+        let categorias = tile(title: "Categorías", badge: { overLimits },
+                              badgeLabel: { $0 == 1 ? "1 categoría pasó su límite" : "\($0) categorías pasaron su límite" },
+                              action: { onOpen(.categories) }) {
             topCategories(totals)
         }
         let amigos = tile(title: "Amigos", action: { onOpen(.social) }) {
@@ -1110,9 +1142,12 @@ struct DashboardView: View {
     private static let gridSpacing: CGFloat = 14
 
     private func tile<Content: View>(title: String, badge: @escaping () -> Int = { 0 },
+                                     badgeLabel: @escaping (Int) -> String = {
+                                         $0 == 1 ? "1 movimiento nuevo" : "\($0) movimientos nuevos"
+                                     },
                                      action: @escaping () -> Void,
                                      @ViewBuilder content: @escaping () -> Content) -> some View {
-        DashboardTile(title: title, badge: badge, action: action, content: content)
+        DashboardTile(title: title, badge: badge, badgeLabel: badgeLabel, action: action, content: content)
     }
 
     private func bigNumber(_ value: String, caption: String, tint: Color? = nil) -> some View {
@@ -1147,7 +1182,7 @@ struct DashboardView: View {
                                 .font(.system(size: 13.5))
                                 .foregroundStyle(palette.label)
                                 .lineLimit(1)
-                            Text(Money.format(category.total))
+                            Text(Money.format(category.total).masked(hidesAmounts))
                                 .font(.system(size: 12))
                                 .monospacedDigit()
                                 .foregroundStyle(palette.secondaryLabel)
@@ -1196,6 +1231,7 @@ private final class LoadedRevisions {
 private struct DashboardTile<Content: View>: View {
     let title: String
     let badge: () -> Int
+    let badgeLabel: (Int) -> String
     let action: () -> Void
     let content: () -> Content
 
@@ -1229,25 +1265,34 @@ private struct DashboardTile<Content: View>: View {
                         .foregroundStyle(palette.duoText ?? palette.secondaryLabel)
                 }
                 content()
-                Spacer(minLength: 0)
+                // Sin `Spacer` al final: el `VStack` le sumaba sus 12 pt de
+                // separación y cada tarjeta quedaba con ese hueco de más
+                // abajo. El marco de abajo ya la alinea arriba.
             }
             .padding(15)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minHeight: 128)
             .background(palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            // Lo que asoma por el borde (el personaje de Amigos) se corta ahí.
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(palette.hairline, lineWidth: 0.5))
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
-        .accessibilityValue(badge > 0 ? (badge == 1 ? "1 movimiento nuevo" : "\(badge) movimientos nuevos") : "")
+        .accessibilityValue(badge > 0 ? badgeLabel(badge) : "")
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: badge)
     }
 }
 
 /// El pingüino del perfil y lo que te deben: los gastos por cobrar que aún no
 /// te pagan del todo. Sin nada por cobrar, cuántos amigos tienes.
+///
+/// El personaje va grande, asomando por la esquina de abajo y cortado por el
+/// borde de la tarjeta: con el avatar chico de antes la tarjeta se veía vacía
+/// al lado de Categorías. Con el ojito del resumen cerrado, lo que te deben
+/// también se tapa.
 ///
 /// Vista propia, con su consulta: amigos, solicitudes y cobros cambian con el
 /// tiempo real de Supabase, y leídos desde el dashboard lo recalculaban todo
@@ -1257,9 +1302,12 @@ private struct FriendsSummary: View {
     @Query(filter: #Predicate<Expense> { $0.isDebt && !$0.isTransfer })
     private var debtExpenses: [Expense]
 
+    @Environment(\.hidesAmounts) private var hidesAmounts
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette(scheme) }
-    private var accent: AppThemeColor { .current }
+
+    /// Lo que asoma el personaje por debajo del borde de la tarjeta.
+    static let characterHeight: CGFloat = 82
 
     var body: some View {
         let open = debtExpenses.filter { Money.cents(Accounting.outstanding(of: $0)) > 0 }
@@ -1267,8 +1315,42 @@ private struct FriendsSummary: View {
         let requests = FriendsManager.shared.incomingRequests.count + PaymentReminders.shared.inbox.count
         let friends = FriendsManager.shared.friends.count
 
-        HStack(spacing: 10) {
-            PenguinAvatar(look: SocialProfileStore.shared.penguin, size: 52, background: accent.softFill(scheme))
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                if open.isEmpty {
+                    Text(friends == 0 ? "Invita" : "\(friends)")
+                        .font(.system(size: 22, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.label)
+                    Text(friends == 1 ? "amigo" : (friends == 0 ? "a un amigo" : "amigos"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.secondaryLabel)
+                } else {
+                    Text(Money.formatCompact(owed).masked(hidesAmounts))
+                        .font(.system(size: 22, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.label)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                    Text("te deben")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.secondaryLabel)
+                    Text(open.count == 1 ? "1 cobro" : "\(open.count) cobros")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.secondaryLabel)
+                }
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // El personaje no ocupa sitio en el diseño de la tarjeta: se pinta en
+        // la esquina y el alto lo siguen poniendo las cifras (y Categorías).
+        .background(alignment: .bottomTrailing) {
+            PenguinView(look: SocialProfileStore.shared.penguin)
+                .frame(height: Self.characterHeight)
                 .overlay(alignment: .topTrailing) {
                     if requests > 0 {
                         Text(requests > 99 ? "99+" : "\(requests)")
@@ -1277,31 +1359,13 @@ private struct FriendsSummary: View {
                             .padding(.horizontal, 4)
                             .frame(minWidth: 16, minHeight: 16)
                             .background(palette.expense, in: Capsule())
-                            .offset(x: 3, y: -2)
+                            .offset(x: -4, y: 4)
                     }
                 }
-
-            VStack(alignment: .leading, spacing: 2) {
-                if open.isEmpty {
-                    Text(friends == 0 ? "Invita" : "\(friends)")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(palette.label)
-                    Text(friends == 1 ? "amigo" : (friends == 0 ? "a un amigo" : "amigos"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(palette.secondaryLabel)
-                } else {
-                    Text(Money.formatCompact(owed))
-                        .font(.system(size: 15, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(palette.label)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text("te deben · " + (open.count == 1 ? "1 cobro" : "\(open.count) cobros"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(palette.secondaryLabel)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+                // Hasta el borde de la tarjeta (su relleno es de 15): la
+                // panza queda cortada, como asomándose.
+                .offset(x: 6, y: 15 + 16)
+                .accessibilityHidden(true)
         }
     }
 }

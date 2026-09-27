@@ -49,7 +49,7 @@ enum PrivacyShield {
         window = nil
     }
 
-    private static func isDark() -> Bool {
+    static func isDark() -> Bool {
         let raw = UserDefaults.standard.string(forKey: AppAppearance.storageKey)
         switch AppAppearance(rawValue: raw ?? "") ?? .dark {
         case .dark: return true

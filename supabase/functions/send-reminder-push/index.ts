@@ -13,6 +13,12 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   los pone Supabase solo
 //
 // Desplegar:  supabase functions deploy send-reminder-push
+//
+// Estilo de mensaje de iOS (`1a` de «Cobros entre amigos»): el aviso lleva
+// `mutable-content` y los datos de quien cobra (`sender`) para que la
+// extensión `NotifableNotificationService` le ponga la cara de su personaje y
+// deje el ícono de la app de insignia. Sin la extensión se ve igual de claro:
+// el título ya es el nombre y el cuerpo dice de cuánto es.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -114,19 +120,29 @@ Deno.serve(async (request) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // Sólo los recordatorios que de verdad mandó quien llama.
-    const { data: reminders } = await admin
+    // Sólo los recordatorios que de verdad mandó quien llama. Sin el SQL v11
+    // no existe `intensity`: se piden sin ella y todos van como suaves.
+    const columns = "id, to_user, merchant, occurred_on, amount, currency, message, dismissed_at";
+    const pick = (select: string) => admin
       .from("payment_reminders")
-      .select("id, to_user, merchant, occurred_on, amount, currency, message, dismissed_at")
+      .select(select)
       .in("id", ids)
       .eq("from_user", sender)
       .is("dismissed_at", null);
+    let { data: reminders, error: remindersError } = await pick(`${columns}, intensity`);
+    if (remindersError) ({ data: reminders } = await pick(columns));
 
     if (!reminders?.length) return json({ sent: 0 });
 
-    const { data: profile } = await admin
-      .from("profiles").select("display_name").eq("id", sender).maybeSingle();
+    // `avatar` (personaje completo) llegó con amigos v7; antes sólo `penguin`.
+    let { data: profile, error: profileError } = await admin
+      .from("profiles").select("display_name, avatar, penguin").eq("id", sender).maybeSingle();
+    if (profileError) {
+      ({ data: profile } = await admin
+        .from("profiles").select("display_name").eq("id", sender).maybeSingle());
+    }
     const senderName = profile?.display_name?.trim() || "Un amigo";
+    const senderLook = profile?.avatar ?? profile?.penguin ?? null;
 
     let sent = 0;
     const staleTokens: string[] = [];
@@ -139,20 +155,25 @@ Deno.serve(async (request) => {
       const money = reminder.amount == null
         ? null
         : `${reminder.currency === "USD" ? "$" : "S/"} ${Number(reminder.amount).toFixed(2)}`;
-      const subtitle = [money, reminder.merchant].filter(Boolean).join(" · ");
+      // Como un mensaje: «Vale» arriba, y debajo de cuánto es y por qué.
+      const detail = [reminder.merchant, reminder.message ? `«${reminder.message}»` : null]
+        .filter(Boolean).join(" · ");
+      const lead = money ? `Te recuerda un pago de ${money}` : "Te recuerda un pago";
 
       const body = {
         aps: {
           alert: {
-            title: `${senderName} te recuerda un pago`,
-            subtitle,
-            body: reminder.message || "",
+            title: senderName,
+            body: detail ? `${lead}\n${detail}` : lead,
           },
           sound: "default",
           "thread-id": "payment-reminder",
+          "mutable-content": 1,
         },
         deepLink: "agrupay://amigos",
         reminderId: reminder.id,
+        intensity: reminder.intensity ?? "soft",
+        sender: { id: sender, name: senderName, look: senderLook },
       };
 
       for (const device of devices) {

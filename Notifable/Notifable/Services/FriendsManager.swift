@@ -126,13 +126,23 @@ final class FriendsManager {
 
     private let auth = SupabaseAuthManager.shared
 
-    var friends: [Friend] = []
+    var friends: [Friend] = [] {
+        // La extensión de notificaciones pinta el aviso de un cobro con la
+        // cara y el apodo que ves aquí (`ReminderSenders`).
+        didSet {
+            ReminderSenders.save(friends.map {
+                .init(id: $0.id, name: $0.name, look: $0.usesEmoji ? nil : $0.penguin)
+            })
+        }
+    }
     /// Te comparten algo pero todavía no lo aceptaste (aparece bajo "Te quieren compartir").
     var pendingIncoming: [FriendShareRow] = []
     /// Ya aceptado: lo que ves de cada amigo este mes.
     var acceptedIncoming: [FriendShareRow] = []
     /// Canjearon una invitación mía y esperan que los acepte.
-    var incomingRequests: [FriendRequest] = []
+    var incomingRequests: [FriendRequest] = [] {
+        didSet { AppBadge.apply() }
+    }
     /// Canjeé la invitación de alguien y espero que me acepte.
     var outgoingRequests: [FriendRequest] = []
     /// Lo que tú compartes con cada amigo este mes (una fila por amigo, si ya la tocaste).

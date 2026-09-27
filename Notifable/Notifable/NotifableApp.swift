@@ -64,6 +64,13 @@ struct NotifableApp: App {
                     // nube, Amigos ni recordatorios.
                     guard GmailSyncService.qaToken == nil else {
                         GmailSyncService.shared.modelContext = sharedModelContainer.mainContext
+                        #if DEBUG
+                        QAMode.seedSocial()
+                        #endif
+                        // Sólo avisos locales y el numerito del ícono: nada
+                        // sale del teléfono.
+                        NotificationManager.shared.start(container: sharedModelContainer)
+                        NotificationManager.shared.requestPermission()
                         return
                     }
                     Diagnostics.shared.log("Configurando respaldo y amigos")
