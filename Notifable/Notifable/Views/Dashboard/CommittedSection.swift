@@ -140,6 +140,7 @@ struct CommittedSection: View {
             Spacer(minLength: 8)
 
             Text(Money.formatCompact(row.rule.amount, currency: row.rule.currency).masked(hidesAmounts))
+                .amountVeil()
                 .font(.system(size: 14.5, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(palette.secondaryLabel)

@@ -21,7 +21,7 @@ struct QuickExpenseEditor: View {
 
     @State private var label = ""
     @State private var merchant = ""
-    @State private var category = "Otros"
+    @State private var category = CategoryStyle.fallback
     @State private var amountText = ""
     @State private var currency = "PEN"
     @State private var showDeleteDialog = false

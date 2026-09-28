@@ -122,7 +122,14 @@ struct ExpenseDetailsView: View {
             .sheet(isPresented: $showingCategoryPicker) {
                 // `6a`: el mismo componente que la Bandeja y el modal de alta.
                 AssignCategorySheet(context: .expense(expense),
-                                    history: allExpenses) { newCategory, createRule in
+                                    history: allExpenses,
+                                    onClear: {
+                    // Vuelve a Pendientes. También se anota, o la relectura
+                    // del correo le devolvería la categoría que tenía.
+                    expense.category = Accounting.unclassified
+                    ExpenseEditStore.record(expense, category: Accounting.unclassified)
+                    try? modelContext.save()
+                }) { newCategory, createRule in
                     expense.category = newCategory
                     // Se anota aunque haya regla: la regla sólo mira hacia
                     // adelante, y sin la anotación la próxima relectura del

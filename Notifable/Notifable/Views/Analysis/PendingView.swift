@@ -35,8 +35,17 @@ struct PendingView: View {
     @State private var assigning: AssignTarget?
     @State private var showsBulk = false
     @State private var confirmingDelete = false
+    @State private var showsTagPicker = false
+    /// Cómo se agrupa la lista. Se recuerda: quien clasifica por día suele
+    /// volver a hacerlo así.
+    @AppStorage("pendingLayout") private var layout: Layout = .merchant
 
     enum Scope: Hashable { case month, all }
+
+    /// Por comercio (una decisión para varios movimientos, lo que más ahorra
+    /// al clasificar) o por día, con la misma fila y la misma separación que
+    /// Movimientos: un movimiento se reconoce igual en las dos pantallas.
+    enum Layout: String { case merchant, day }
 
     /// De 20 en 20 y con botón, igual que Movimientos: la carga automática al
     /// llegar al final hacía crecer la lista bajo el dedo mientras se
@@ -165,26 +174,43 @@ struct PendingView: View {
                         bulkButton
                             .padding(.bottom, 12)
 
+                        layoutToggle
+                            .padding(.bottom, 12)
+
                         selectionBar(groups: groups)
                             .padding(.bottom, 10)
 
-                        VStack(spacing: 10) {
-                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, group in
-                                let isFirstOfMonth = index == 0 || visible[index - 1].monthStart != group.monthStart
-                                if isFirstOfMonth {
-                                    let monthName = Period.spanishMonthName(for: group.monthStart)
-                                    let year = Period.calendar.component(.year, from: group.monthStart)
-                                    ShellSectionHeader(title: "\(monthName) \(year)")
-                                        .padding(.top, index == 0 ? 0 : 16)
-                                        .padding(.horizontal, 4)
+                        if layout == .merchant {
+                            VStack(spacing: 10) {
+                                ForEach(Array(visible.enumerated()), id: \.element.id) { index, group in
+                                    let isFirstOfMonth = index == 0 || visible[index - 1].monthStart != group.monthStart
+                                    if isFirstOfMonth {
+                                        let monthName = Period.spanishMonthName(for: group.monthStart)
+                                        let year = Period.calendar.component(.year, from: group.monthStart)
+                                        ShellSectionHeader(title: "\(monthName) \(year)")
+                                            .padding(.top, index == 0 ? 0 : 16)
+                                            .padding(.horizontal, 4)
+                                    }
+                                    groupCard(group)
                                 }
-                                groupCard(group)
                             }
-                        }
-                        .padding(.bottom, 10)
+                            .padding(.bottom, 10)
 
-                        if visibleCount < groups.count {
-                            loadMoreButton(remaining: groups.count - visibleCount)
+                            if visibleCount < groups.count {
+                                loadMoreButton(remaining: groups.count - visibleCount)
+                            }
+                        } else {
+                            let movements = unclassified
+                            LazyVStack(spacing: 20) {
+                                ForEach(dayBuckets(Array(movements.prefix(visibleCount)))) { bucket in
+                                    dayBlock(bucket)
+                                }
+                            }
+                            .padding(.bottom, 10)
+
+                            if visibleCount < movements.count {
+                                loadMoreButton(remaining: movements.count - visibleCount)
+                            }
                         }
                     }
                 }
@@ -210,6 +236,9 @@ struct PendingView: View {
             selected.removeAll()
             visibleCount = Self.pageSize
         }
+        // Lo elegido se conserva al cambiar de agrupación: son los mismos
+        // movimientos vistos de otra forma.
+        .onChange(of: layout) { _, _ in visibleCount = Self.pageSize }
         .onAppear {
             // Se fija el de entrada: clasificar lo último del mes no cambia de
             // periodo bajo el dedo (se ve «Este mes está al día»).
@@ -224,6 +253,14 @@ struct PendingView: View {
             }
         } message: {
             Text(deleteMessage)
+        }
+        .sheet(isPresented: $showsTagPicker) {
+            TagPickerSheet(selected: BulkExpenseEdit.commonTags(selectedExpenses)) {
+                BulkExpenseEdit.toggleTag($0, on: selectedExpenses, in: modelContext)
+            }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
         }
         .sheet(isPresented: $showsBulk) {
             BulkClassifyView(onlyThisMonth: scope == .month)
@@ -292,7 +329,8 @@ struct PendingView: View {
         let allSelected = !allIDs.isEmpty && allIDs.isSubset(of: selected)
 
         HStack {
-            Text(selected.isEmpty ? "Toca un comercio o despliégalo con la flecha"
+            Text(selected.isEmpty ? (layout == .merchant ? "Toca un comercio o ábrelo con la flecha"
+                                                         : "Toca los movimientos que quieras clasificar")
                                   : selected.count == 1 ? "1 movimiento elegido"
                                   : "\(selected.count) movimientos elegidos")
                 .font(.system(size: 12.5))
@@ -314,74 +352,144 @@ struct PendingView: View {
         .padding(.horizontal, 6)
     }
 
-    /// Eliminar a la izquierda, pequeño y aparte; asignar sigue siendo la
-    /// acción principal. Lo que se elige en Pendientes a veces no es un gasto
-    /// que clasificar sino uno que sobra (un duplicado, una prueba).
+    /// Tres acciones sobre lo elegido: categorizar (la principal, rellena),
+    /// etiquetar y eliminar. Lo que se elige en Pendientes a veces no es un
+    /// gasto que clasificar sino uno que sobra (un duplicado, una prueba), o
+    /// uno que hay que marcar antes de decidir su categoría.
     private var assignBar: some View {
-        HStack(spacing: 10) {
-            Button { confirmingDelete = true } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(palette.negative)
-                    .frame(width: 48, height: 48)
-                    .background(palette.surface, in: Circle())
-                    .overlay(Circle().stroke(palette.hairline, lineWidth: 0.5))
-                    .shadow(color: Color.black.opacity(0.12), radius: 10, y: 5)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(selected.count == 1 ? "Eliminar el movimiento elegido"
-                                                    : "Eliminar los \(selected.count) movimientos elegidos")
+        BulkActionBar(count: selected.count,
+                      onCategorize: {
+                          assigning = AssignTarget(ids: selected, groups: groups,
+                                                   earlier: Self.earlierPending(than: selected, in: expenses).count)
+                      },
+                      onTags: { showsTagPicker = true },
+                      onDelete: { confirmingDelete = true })
+    }
 
-            Button {
-                assigning = AssignTarget(ids: selected, groups: groups,
-                                         earlier: Self.earlierPending(than: selected, in: expenses).count)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "tag")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("Asignar categoría a \(selected.count)")
-                        .font(.system(size: 15, weight: .semibold))
-                }
-                .foregroundStyle(Color.white)
-                .padding(.horizontal, 22)
-                .frame(height: 48)
-                .background(accent.color, in: Capsule())
-                .shadow(color: accent.color.opacity(0.3), radius: 10, y: 5)
+    // MARK: - Agrupar
+
+    private var layoutToggle: some View {
+        HStack(spacing: 6) {
+            Text("Agrupar")
+                .font(.system(size: 12.5))
+                .foregroundStyle(palette.secondaryLabel)
+            Spacer()
+            layoutChip("Por comercio", icon: "storefront", value: .merchant)
+            layoutChip("Por día", icon: "calendar", value: .day)
+        }
+        .padding(.horizontal, 6)
+    }
+
+    private func layoutChip(_ title: String, icon: String, value: Layout) -> some View {
+        let isOn = layout == value
+        return Button {
+            withAnimation(.snappy(duration: 0.25)) { layout = value }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 12.5, weight: .semibold))
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(isOn ? accent.onSurface(scheme) : palette.secondaryLabel)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(isOn ? accent.color.opacity(0.12) : palette.surface, in: Capsule())
+            .overlay(Capsule().stroke(isOn ? Color.clear : palette.hairline, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    // MARK: - Por día
+
+    struct DayBucket: Identifiable {
+        let day: Date
+        let expenses: [Expense]
+        var id: Date { day }
+    }
+
+    /// `unclassified` ya llega del más nuevo al más viejo.
+    private func dayBuckets(_ expenses: [Expense]) -> [DayBucket] {
+        let calendar = Calendar.current
+        var order: [Date] = []
+        var buckets: [Date: [Expense]] = [:]
+        for expense in expenses {
+            let day = calendar.startOfDay(for: expense.date)
+            if buckets[day] == nil { order.append(day) }
+            buckets[day, default: []].append(expense)
+        }
+        return order.map { DayBucket(day: $0, expenses: buckets[$0] ?? []) }
+    }
+
+    /// Igual que un día de Movimientos: cabecera con el total y la fila de
+    /// siempre, con su casilla.
+    private func dayBlock(_ bucket: DayBucket) -> some View {
+        let ids = Set(bucket.expenses.map(\.id))
+        let picked = ids.intersection(selected).count
+        return VStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        if picked == ids.count { selected.subtract(ids) } else { selected.formUnion(ids) }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        SelectionCheck(state: picked == 0 ? .off : picked == ids.count ? .on : .partial, size: 18)
+                        Text(MovementDay.shortLabel(for: bucket.day))
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundStyle(palette.secondaryLabel)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Elegir todo el " + MovementDay.shortLabel(for: bucket.day))
+
+                Spacer()
+
+                Text("–" + Money.format(Money.sum(bucket.expenses) { Accounting.netCostInPEN($0, fallbackRate: rate) }))
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(palette.secondaryLabel)
+            }
+            .padding(.horizontal, 4)
+
+            MovementCard {
+                ForEach(Array(bucket.expenses.enumerated()), id: \.element.id) { index, expense in
+                    let isOn = selected.contains(expense.id)
+                    MovementRow(expense: expense,
+                                showsTime: true,
+                                onTap: {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        if isOn { selected.remove(expense.id) } else { selected.insert(expense.id) }
+                                    }
+                                },
+                                selection: isOn)
+                    if index < bucket.expenses.count - 1 { MovementSeparator() }
+                }
+            }
         }
     }
 
-    private var deletable: [Expense] {
-        // Una parte de una división no se borra suelta: se deshace la división.
-        expenses.filter { selected.contains($0.id) && $0.splitOf == nil }
+    // MARK: - Etiquetas en bloque
+
+    private var selectedExpenses: [Expense] {
+        expenses.filter { selected.contains($0.id) }
     }
+
+    private var deletable: [Expense] { BulkExpenseEdit.deletable(selectedExpenses) }
 
     private var deleteTitle: String {
-        let count = deletable.count
-        if count == 0 {
-            return selected.count == 1 ? "Esta parte no se borra sola" : "Estas partes no se borran solas"
-        }
-        return count == 1 ? "¿Eliminar 1 movimiento?" : "¿Eliminar \(count) movimientos?"
+        BulkExpenseEdit.deleteTitle(selected: selected.count, deletable: deletable.count)
     }
 
     private var deleteMessage: String {
-        let skipped = selected.count - deletable.count
-        if deletable.isEmpty {
-            return "Es parte de un pago dividido. Para quitarla, abre el pago y usa «Deshacer división»."
-        }
-        var text = "Se borrarán de tus cuentas. Los que vinieron de un correo se pueden recuperar desde «Leer un rango pasado»."
-        if skipped > 0 {
-            text += skipped == 1 ? " Una parte de una división se queda: se quita deshaciendo la división."
-                                 : " \(skipped) partes de divisiones se quedan: se quitan deshaciendo la división."
-        }
-        return text
+        BulkExpenseEdit.deleteMessage(selected: selected.count, deletable: deletable.count)
     }
 
     private func deleteSelected() {
         let targets = deletable
         withAnimation(.easeInOut(duration: 0.25)) {
-            for expense in targets { expense.deleteRecordingRecovery(in: modelContext) }
+            BulkExpenseEdit.delete(targets, in: modelContext)
             selected.removeAll()
         }
     }
@@ -509,22 +617,10 @@ struct PendingView: View {
         .buttonStyle(.plain)
     }
 
-    private enum Check { case off, partial, on }
+    private typealias Check = SelectionCheck.State
 
     private func checkmark(_ state: Check, size: CGFloat) -> some View {
-        let filled = state != .off
-        return ZStack {
-            Circle()
-                .strokeBorder(filled ? accent.color : palette.hairline, lineWidth: filled ? 0 : 1.5)
-                .background(Circle().fill(filled ? accent.color : Color.clear))
-                .frame(width: size, height: size)
-
-            if filled {
-                Image(systemName: state == .on ? "checkmark" : "minus")
-                    .font(.system(size: size * 0.5, weight: .bold))
-                    .foregroundStyle(Color.white)
-            }
-        }
+        SelectionCheck(state: state, size: size)
     }
 
     private func countLabel(_ group: Group, picked: Int) -> String {
@@ -541,6 +637,12 @@ struct PendingView: View {
     private func sourceLook(_ expense: Expense) -> (icon: String, color: Color) {
         let icon = MovementStyle.icon(for: expense)
         if icon == CategoryStyle.icon(for: Accounting.unclassified) {
+            // El logo del banco que se detectó (BBVA, BCP, Interbank…) sobre
+            // su color, en vez de una tarjeta gris que no dice de dónde vino.
+            if let institution = MovementStyle.institution(for: expense),
+               let logo = institution.logoAsset {
+                return (logo, CardFace(institution).colors.first ?? palette.secondaryLabel)
+            }
             let hasCard = !(expense.cardLastDigits ?? "").isEmpty
             return (hasCard ? "creditcard.fill" : "questionmark", palette.secondaryLabel)
         }

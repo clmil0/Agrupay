@@ -45,6 +45,13 @@ struct DashboardView: View {
     @AppStorage(DashboardStatsSettings.key) private var statsRaw = DashboardStatsSettings.defaultValue
     /// El ojito junto al monto grande: tapa todos los montos del resumen.
     @AppStorage(AmountPrivacy.storageKey) private var hidesAmounts = false
+    /// La transición del ojito (`amountVeil`): sube, se cambian las cifras,
+    /// baja.
+    @State private var amountVeil = 0.0
+    /// Lo que va a quedar mientras dura la transición (`nil` en reposo): el
+    /// ícono cambia al tocar, los montos a mitad de camino.
+    @State private var eyeTarget: Bool?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var categoryBudgets = CategoryBudgetStore.shared
 
     @State private var filter = AccountFilter.shared
@@ -212,6 +219,8 @@ struct DashboardView: View {
         }
         // Las tarjetas y las hojas que abre el resumen leen el ojito de aquí.
         .environment(\.hidesAmounts, hidesAmounts)
+        .environment(\.amountVeil, amountVeil)
+        .environment(\.amountSwapping, eyeTarget != nil)
         .task {
             // La primera vez el gráfico espera al catálogo (`isReady`). Al
             // volver de otra pantalla el gráfico repite su entrada en
@@ -437,16 +446,21 @@ struct DashboardView: View {
                         .tracking(-1.8)
                         .monospacedDigit()
                         .foregroundStyle(isEmpty ? palette.tertiaryLabel : palette.label)
-                        .contentTransition(.numericText())
+                        // Las cifras ruedan al cambiar de mes; con el ojito
+                        // cambian en seco bajo el velo (rodar «533» hasta
+                        // «•••» no tiene sentido).
+                        .contentTransition(eyeTarget == nil ? .numericText() : .identity)
                     if !hidesAmounts, let cents = split?.1 {
                         Text(String(cents))
                             .font(.system(size: 18, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(palette.secondaryLabel)
+                            .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .leading)))
                     }
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+                .amountVeil()
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Gasto de " + monthName + ": " + formatted.masked(hidesAmounts))
 
@@ -474,10 +488,20 @@ struct DashboardView: View {
 
     /// Abre y cierra el ojito: todos los montos del resumen a la vez.
     private var eyeButton: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.2)) { hidesAmounts.toggle() }
-        } label: {
-            Image(systemName: hidesAmounts ? "eye.slash" : "eye")
+        Button(action: toggleAmounts) {
+            // Los dos glifos siempre dibujados y sólo cambia la opacidad: al
+            // cambiar el nombre del símbolo (con o sin `.symbolEffect`)
+            // SwiftUI pintaba el glifo nuevo ya en su destino mientras el
+            // círculo aún se deslizaba. Así viajan juntos.
+            let closed = eyeTarget ?? hidesAmounts
+            ZStack {
+                Image(systemName: "eye")
+                    .opacity(closed ? 0 : 1)
+                    .scaleEffect(closed ? 0.7 : 1)
+                Image(systemName: "eye.slash")
+                    .opacity(closed ? 1 : 0)
+                    .scaleEffect(closed ? 1 : 0.7)
+            }
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(palette.secondaryLabel)
                 .frame(width: 32, height: 32)
@@ -486,7 +510,39 @@ struct DashboardView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(hidesAmounts ? "Mostrar montos" : "Ocultar montos")
+        .sensoryFeedback(.selection, trigger: hidesAmounts)
+        .accessibilityLabel((eyeTarget ?? hidesAmounts) ? "Mostrar montos" : "Ocultar montos")
+    }
+
+    /// En dos tiempos: los montos se desenfocan (130 ms), en el pico se
+    /// cambian —cifras ↔ «•••», con o sin céntimos— y vuelven a enfocarse
+    /// con un resorte corto. Antes `numericText` intentaba rodar
+    /// «2,612» hasta «•••» carácter por carácter y los céntimos saltaban.
+    ///
+    /// Con «Reducir movimiento», un fundido simple sin desenfoque ni escala.
+    private func toggleAmounts() {
+        guard !reduceMotion else {
+            withAnimation(.easeInOut(duration: 0.2)) { hidesAmounts.toggle() }
+            return
+        }
+        // Un segundo toque a mitad de camino esperaría a que termine el
+        // primero; más simple ignorarlo, dura medio segundo.
+        guard eyeTarget == nil else { return }
+        let target = !hidesAmounts
+        // El ícono responde al toque; los montos, a mitad de camino.
+        withAnimation(.snappy(duration: 0.22)) { eyeTarget = target }
+        withAnimation(.easeIn(duration: 0.13)) {
+            amountVeil = 1
+        } completion: {
+            // Con el mismo resorte: el ojito se desliza al nuevo ancho del
+            // monto en vez de saltar.
+            withAnimation(.spring(duration: 0.38, bounce: 0.2)) {
+                hidesAmounts = target
+                amountVeil = 0
+            } completion: {
+                eyeTarget = nil
+            }
+        }
     }
 
     private func monthArrow(_ icon: String, label: String, disabled: Bool = false,
@@ -520,6 +576,7 @@ struct DashboardView: View {
                       + Period.spanishMonthName(for: month.previous.reference).lowercased()).masked(hidesAmounts))
                     .font(.system(size: 12.5, weight: .semibold))
                     .monospacedDigit()
+                    .amountVeil()
             }
             // En dos colores, el chip va en el acento 2 suba o baje: la
             // flecha ya dice hacia dónde.
@@ -654,6 +711,7 @@ struct DashboardView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(palette.label)
                     Text(chart.subtitle.masked(hidesAmounts))
+                        .amountVeil()
                         .font(.system(size: 12.5))
                         .monospacedDigit()
                         .foregroundStyle(palette.secondaryLabel)
@@ -734,6 +792,7 @@ struct DashboardView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Text(stat.strip.masked(hidesAmounts))
+                    .amountVeil()
                     .font(.system(size: roomy ? 23 : 19, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(stat.amountColor ?? palette.label)
@@ -741,6 +800,7 @@ struct DashboardView: View {
                     .minimumScaleFactor(0.7)
                 if roomy, let caption = stat.caption {
                     Text(caption.masked(hidesAmounts))
+                        .amountVeil()
                         .font(.system(size: 12))
                         .monospacedDigit()
                         .foregroundStyle(palette.tertiaryLabel)
@@ -1183,6 +1243,7 @@ struct DashboardView: View {
                                 .foregroundStyle(palette.label)
                                 .lineLimit(1)
                             Text(Money.format(category.total).masked(hidesAmounts))
+                                .amountVeil()
                                 .font(.system(size: 12))
                                 .monospacedDigit()
                                 .foregroundStyle(palette.secondaryLabel)
@@ -1327,6 +1388,7 @@ private struct FriendsSummary: View {
                         .foregroundStyle(palette.secondaryLabel)
                 } else {
                     Text(Money.formatCompact(owed).masked(hidesAmounts))
+                        .amountVeil()
                         .font(.system(size: 22, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(palette.label)

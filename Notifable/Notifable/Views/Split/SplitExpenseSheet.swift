@@ -154,8 +154,8 @@ struct SplitExpenseSheet: View {
         // Dos mitades para empezar: la primera con lo que ya sabía el pago.
         let first = parent.category != Accounting.unclassified
             ? parent.category
-            : (suggestedCategory ?? orderedCategories.first ?? "Otros")
-        let second = orderedCategories.first { $0 != first } ?? "Otros"
+            : (suggestedCategory ?? orderedCategories.first ?? CategoryStyle.fallback)
+        let second = orderedCategories.first { $0 != first } ?? CategoryStyle.fallback
         let half = totalCents / 2
         drafts = [
             Draft(amountText: Self.text(totalCents - half), category: first, tags: parent.tags),
@@ -512,7 +512,7 @@ struct SplitExpenseSheet: View {
     /// La parte nueva sale de la mitad de la última: así sigue cuadrando.
     private func addPart() {
         let used = Set(drafts.map(\.category))
-        let category = orderedCategories.first { !used.contains($0) } ?? "Otros"
+        let category = orderedCategories.first { !used.contains($0) } ?? CategoryStyle.fallback
         guard let last = drafts.indices.last else { return }
         let half = drafts[last].cents / 2
         withAnimation(.snappy(duration: 0.22)) {

@@ -89,6 +89,6 @@ struct AppleParser: BankEmailParser {
             }
         }
         
-        return Expense(amount: amount, merchant: merchant, date: expenseDate, category: "Entretenimiento", isSubscription: true, currency: currency, cardLastDigits: cardLastDigits)
+        return Expense(amount: amount, merchant: merchant, date: expenseDate, category: "Suscripciones", isSubscription: true, currency: currency, cardLastDigits: cardLastDigits)
     }
 }

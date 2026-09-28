@@ -93,6 +93,7 @@ struct SpendBarChart: View {
             .overlay(alignment: .top) {
                 if isSelected {
                     Text(Money.formatCompact(column.total).masked(hidesAmounts))
+                        .amountVeil()
                         .font(.system(size: 14, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(palette.duoText ?? palette.expense)

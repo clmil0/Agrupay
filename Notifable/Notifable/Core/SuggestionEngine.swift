@@ -63,7 +63,10 @@ enum SuggestionEngine {
 
         // 3. Catálogo de comercios conocidos. Sólo como último recurso, y
         //    siempre pidiendo confirmación.
-        if let category = catalog.category(for: clean) {
+        //    Habla en nombres de fábrica: si el usuario quitó esa básica, no
+        //    se sugiere nada; si la renombró o fusionó, va a la de ahora.
+        if let raw = catalog.category(for: clean),
+           let category = CategoryCatalog.shared.builtIns.resolve(raw) {
             return CategorySuggestion(
                 category: category,
                 confidence: 0.7,

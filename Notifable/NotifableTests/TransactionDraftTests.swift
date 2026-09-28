@@ -61,14 +61,17 @@ struct TransactionDraftTests {
 
     // MARK: - 7. Validación
 
-    @Test("7. Sin monto o sin categoría el botón dice qué falta; el título es opcional")
-    func validacionExplica() {
+    @Test("7. Sin monto el botón dice qué falta; título y categoría son opcionales")
+    func validacionExplica() throws {
         var draft = TransactionDraft(type: .gasto)
         draft.category = ""
         #expect(draft.validation == .blocked("Escribe un monto"))
 
         draft.amountText = "50"
-        #expect(draft.validation == .blocked("Elige una categoría"))
+        #expect(draft.validation == .ready, "sin categoría se guarda y queda pendiente")
+        let pending = try #require(draft.makeExpense())
+        #expect(pending.category == Accounting.unclassified)
+        #expect(pending.merchant == "Gasto")
 
         draft.category = "Comida"
         #expect(draft.validation == .ready, "sin título también se puede guardar")

@@ -19,7 +19,7 @@ struct RecurringExpenseEditor: View {
     @Query(sort: \Expense.date, order: .reverse) private var history: [Expense]
 
     @State private var merchant = ""
-    @State private var category = "Otros"
+    @State private var category = CategoryStyle.fallback
     @State private var amountText = ""
     @State private var currency = "PEN"
     @State private var isPaused = false

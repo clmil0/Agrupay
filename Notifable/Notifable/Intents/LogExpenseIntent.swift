@@ -57,10 +57,11 @@ struct LogExpenseIntent: AppIntent {
             } else if lowerMerchant.contains("uber") || lowerMerchant.contains("lyft") || lowerMerchant.contains("didi") {
                 autoCategory = "Transporte"
             } else if lowerMerchant.contains("netflix") || lowerMerchant.contains("spotify") || lowerMerchant.contains("apple") {
-                autoCategory = "Entretenimiento"
+                autoCategory = "Suscripciones"
             }
-            
-            let isSub = autoCategory == "Entretenimiento"
+
+            let isSub = autoCategory == "Suscripciones"
+            autoCategory = CategoryCatalog.shared.builtIns.resolve(autoCategory) ?? Accounting.unclassified
             
             let newExpense = Expense(amount: finalAmount, merchant: finalMerchant, category: autoCategory, isSubscription: isSub)
             context.insert(newExpense)

@@ -174,14 +174,29 @@ struct CategorySettingsView: View {
 
     private var identity: some View {
         HStack(spacing: 13) {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .fill(color.opacity(0.22))
-                .frame(width: 56, height: 56)
-                .overlay(
-                    Image(systemName: icon ?? CategoryStyle.defaultIcon(for: activeName))
-                        .font(.title2)
-                        .foregroundStyle(color)
-                )
+            // El cuadro mismo abre el selector: es lo primero que se toca
+            // para cambiar el ícono. El lápiz dice que se puede.
+            Button { showingIcons = true } label: {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .fill(color.opacity(0.22))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: icon ?? CategoryStyle.defaultIcon(for: activeName))
+                            .font(.title2)
+                            .foregroundStyle(color)
+                    )
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(color, in: Circle())
+                            .overlay(Circle().stroke(palette.background, lineWidth: 2))
+                            .offset(x: 5, y: 5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cambiar ícono")
 
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Nombre", text: $name)
@@ -650,7 +665,7 @@ struct CategorySettingsView: View {
     // MARK: - Sheets
 
     private var iconPicker: some View {
-        CategoryIconPicker(selected: icon ?? CategoryStyle.defaultIcon(for: currentName),
+        CategoryIconPicker(selected: icon ?? CategoryStyle.defaultIcon(for: activeName),
                            color: color) { chosen in
             icon = chosen
             persistIdentity()
@@ -807,20 +822,19 @@ struct CategoryIconPicker: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(CategoryIcons.all, id: \.self) { symbol in
-                        Button {
-                            onPick(symbol)
-                            dismiss()
-                        } label: {
-                            Image(systemName: symbol)
-                                .font(.title3)
-                                .foregroundStyle(symbol == selected ? color : Palette(scheme).label)
-                                .frame(width: 54, height: 54)
-                                .background(symbol == selected ? color.opacity(0.22) : Palette(scheme).surface)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(CategoryIcons.groups, id: \.title) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(group.title.uppercased())
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Palette(scheme).secondaryLabel)
+                                .padding(.horizontal, 4)
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                ForEach(group.symbols, id: \.self) { symbol in
+                                    cell(symbol)
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(16)
@@ -836,7 +850,24 @@ struct CategoryIconPicker: View {
             .appAppearance()
             .appTextSize()
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func cell(_ symbol: String) -> some View {
+        Button {
+            onPick(symbol)
+            dismiss()
+        } label: {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(symbol == selected ? color : Palette(scheme).label)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(symbol == selected ? color.opacity(0.22) : Palette(scheme).surface)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 

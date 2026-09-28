@@ -25,6 +25,11 @@ enum CategoryStyle {
         case "Servicios": return "bolt.fill"
         case "Salud": return "cross.case.fill"
         case "Compras": return "bag.fill"
+        case "Casa": return "house.fill"
+        case "Educación": return "graduationcap.fill"
+        case "Suscripciones": return "repeat.circle.fill"
+        case "Viajes": return "airplane"
+        case "Otros": return "ellipsis.circle.fill"
         case Accounting.unclassified: return "tray.full.fill"
         default: 
             let key = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -45,7 +50,8 @@ enum CategoryStyle {
     /// Orden fijo en la rampa del tema para las categorías por defecto, así
     /// las más comunes nunca comparten tono entre sí.
     private static let rampOrder = ["Comida", "Supermercado", "Transporte", "Entretenimiento",
-                                    "Servicios", "Otros", "Salud", "Compras"]
+                                    "Servicios", "Otros", "Salud", "Compras",
+                                    "Casa", "Suscripciones", "Viajes", "Educación"]
 
     /// Color de la rampa del tema (Ajustes › Apariencia). "Sin Clasificar" se
     /// queda gris: es un estado, no una categoría.
@@ -67,6 +73,10 @@ enum CategoryStyle {
         case "Servicios": return .yellow
         case "Salud": return .pink
         case "Compras": return .indigo
+        case "Casa": return .brown
+        case "Educación": return .mint
+        case "Suscripciones": return .purple
+        case "Viajes": return .cyan
         case Accounting.unclassified: return .gray
         default:
             let key = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -80,9 +90,49 @@ enum CategoryStyle {
         }
     }
 
-    /// Las categorías por defecto, sin "Sin Clasificar": ése es el estado de lo
-    /// que llega del banco sin regla, no algo que se elija a mano.
-    static let defaults = ["Comida", "Transporte", "Entretenimiento", "Supermercado", "Otros"]
+    /// Nombre corto para cuando el largo no cabe en una línea:
+    /// «Entretenimiento» → «Entr.», «Supermercado» → «Super.».
+    ///
+    /// Se corta como se abrevia en castellano: al menos cuatro letras y
+    /// terminando en consonante, con el punto. Las palabras cortas se dejan
+    /// igual —«Comida» se entiende mejor entera que «Com.»—.
+    static func shortName(for category: String) -> String {
+        if let fixed = shortNames[category] { return fixed }
+        return category
+            .split(separator: " ")
+            .map { abbreviate(String($0)) }
+            .joined(separator: " ")
+    }
+
+    private static let shortNames = [
+        "Entretenimiento": "Entr.",
+        "Supermercado": "Super.",
+        "Transporte": "Transp.",
+        "Servicios": "Serv.",
+        "Suscripciones": "Suscr.",
+        "Educación": "Educ.",
+        Accounting.unclassified: "Sin clas."
+    ]
+
+    private static func abbreviate(_ word: String) -> String {
+        let letters = Array(word)
+        guard letters.count > 8 else { return word }
+        let vowels = Set("aeiouáéíóúAEIOUÁÉÍÓÚ")
+        var end = 4
+        while end < letters.count - 2, vowels.contains(letters[end - 1]) { end += 1 }
+        return String(letters[..<end]) + "."
+    }
+
+    /// Las básicas que el usuario no quitó, sin "Sin Clasificar": ése es el
+    /// estado de lo que llega del banco sin regla, no algo que se elija a
+    /// mano. Puede quedar vacía. Ver `BuiltInCategories`.
+    static var defaults: [String] { CategoryCatalog.shared.builtIns.visible }
+
+    /// Adónde va lo que antes caía en «Otros» por defecto (un gasto a mano,
+    /// una recurrencia nueva). Si se eliminó, a Pendientes.
+    static var fallback: String {
+        CategoryCatalog.shared.builtIns.resolve("Otros") ?? Accounting.unclassified
+    }
 
     /// Todas las categorías elegibles, con las más usadas por delante.
     ///

@@ -71,7 +71,11 @@ struct BBVAParser: BankEmailParser {
     }
     
     private func parseBBVATransfer(_ cleanText: String) -> Expense? {
-        guard cleanText.contains("Transferir a terceros BBVA") || cleanText.contains("TRANSF. A CTAS. TERCEROS") else {
+        // «Transferencia interbancaria» (a otro banco, ej. BCP) usa la misma
+        // constancia: «Importe cargado», «Fecha y hora de la operación» y
+        // «Nombre del beneficiario», pero sin «Concepto» detrás del nombre.
+        guard cleanText.contains("Transferir a terceros BBVA") || cleanText.contains("TRANSF. A CTAS. TERCEROS")
+                || cleanText.contains("Transferencia interbancaria") else {
             return nil
         }
         
@@ -95,7 +99,7 @@ struct BBVAParser: BankEmailParser {
         }
         
         var merchant = "BBVA - Transferencia a terceros"
-        let merchantPattern = "Nombre del beneficiario\\s*(.*?)\\s*Concepto"
+        let merchantPattern = "Nombre del beneficiario\\s*(.*?)\\s*(?:Concepto|Esta cuenta|Recuerda)"
         if let merchantRegex = try? NSRegularExpression(pattern: merchantPattern, options: []),
            let match = merchantRegex.firstMatch(in: cleanText, options: [], range: NSRange(location: 0, length: cleanText.utf16.count)),
            let range = Range(match.range(at: 1), in: cleanText) {

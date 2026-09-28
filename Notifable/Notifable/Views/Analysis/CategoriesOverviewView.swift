@@ -29,6 +29,9 @@ struct CategoriesOverviewView: View {
 
     @State private var selectedCategory: CategoryRef?
     @State private var creatingCategory = false
+    @State private var editingCategory: CategoryRef?
+    @State private var deletingCategory: CategoryRef?
+    @State private var isDeleting = false
 
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
@@ -64,9 +67,15 @@ struct CategoriesOverviewView: View {
                     ShellEmptyState(icon: "square.grid.2x2",
                                     title: "Sin gastos este mes",
                                     message: "Cuando registres el primero verás aquí en qué se va tu dinero.")
-                } else {
-                    chartCard(totals: totals, slices: slices)
+                    // Crear categorías no depende de haber gastado: se pueden
+                    // preparar antes del primer gasto.
+                    newCategoryRow
                         .padding(.bottom, 24)
+                } else {
+                    if !slices.isEmpty {
+                        chartCard(totals: totals, slices: slices)
+                            .padding(.bottom, 24)
+                    }
                     listHeader(spent: totals.spent)
                     categoryList(rows: rows, slices: slices)
                         .padding(.bottom, 14)
@@ -87,8 +96,33 @@ struct CategoriesOverviewView: View {
         .sheet(item: $selectedCategory) { ref in
             CategoryDetailView(category: ref.name)
         }
+        .sheet(item: $editingCategory) { ref in
+            NavigationStack {
+                CategorySettingsView(category: ref.name, history: expenses)
+            }
+        }
+        .alert(deletingCategory.map { "¿Eliminar \($0.name)?" } ?? "",
+               isPresented: Binding(get: { deletingCategory != nil },
+                                    set: { if !$0 { deletingCategory = nil } }),
+               presenting: deletingCategory) { ref in
+            Button("Cancelar", role: .cancel) {}
+            Button("Eliminar", role: .destructive) { delete(ref.name) }
+        } message: { ref in
+            Text(CategoryDeletion.message(for: ref.name, in: expenses))
+        }
+        .overlay {
+            if isDeleting {
+                ProgressView().controlSize(.large)
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
         .sheet(isPresented: $creatingCategory) {
-            CategorySettingsView(category: "", isNew: true, history: expenses)
+            // Con su propia navegación: sin ella no hay barra, y sin barra no
+            // hay «Listo», que es justo lo que crea la categoría.
+            NavigationStack {
+                CategorySettingsView(category: "", isNew: true, history: expenses)
+            }
         }
     }
 
@@ -142,6 +176,15 @@ struct CategoriesOverviewView: View {
             .sorted { $0.category < $1.category }
 
         rows.append(contentsOf: idle)
+
+        // Las creadas a mano que aún no tienen nada asignado: si dependieran
+        // del gasto, crear una categoría vacía la haría desaparecer al cerrar.
+        let listed = Set(rows.map(\.category))
+        let empty = catalog.names
+            .filter { !listed.contains($0) && $0 != Accounting.unclassified && !$0.isEmpty }
+            .sorted()
+            .map { Row(category: $0, total: 0, status: status($0)) }
+        rows.append(contentsOf: empty)
         return rows
     }
 
@@ -180,6 +223,7 @@ struct CategoriesOverviewView: View {
                     categoryRow(row, dot: dots[row.category])
                 }
                 .buttonStyle(.plain)
+                .contextMenu { rowMenu(row.category) }
 
                 if index < rows.count - 1 {
                     Rectangle()
@@ -241,6 +285,29 @@ struct CategoriesOverviewView: View {
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(status.longLabel)
+    }
+
+    /// Pulsación larga: editar y eliminar (también las básicas).
+    @ViewBuilder
+    private func rowMenu(_ category: String) -> some View {
+        Button {
+            editingCategory = CategoryRef(name: category)
+        } label: { Label("Editar", systemImage: "pencil") }
+
+        if !CategoryCatalog.isSystem(category) {
+            Button(role: .destructive) {
+                deletingCategory = CategoryRef(name: category)
+            } label: { Label("Eliminar", systemImage: "trash") }
+        }
+    }
+
+    private func delete(_ category: String) {
+        isDeleting = true
+        Task {
+            await CategoryEditor.delete(category, in: expenses)
+            try? modelContext.save()
+            isDeleting = false
+        }
     }
 
     /// Crear categoría vive **al final de la lista**, no en un modo de edición

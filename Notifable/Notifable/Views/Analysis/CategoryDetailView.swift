@@ -118,7 +118,9 @@ struct CategoryDetailView: View {
             }
             .sheet(item: $selectedExpense) { ExpenseDetailsView(expense: $0) }
             .sheet(isPresented: $editing) {
-                CategorySettingsView(category: category, history: expenses)
+                NavigationStack {
+                    CategorySettingsView(category: category, history: expenses)
+                }
             }
             .sheet(isPresented: $editingLimit) {
                 CategoryLimitEditorView(

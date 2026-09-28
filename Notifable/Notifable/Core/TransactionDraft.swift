@@ -125,11 +125,8 @@ struct TransactionDraft {
         if Money.cents(amount) > 100_000_000 {
             return .invalid("Monto demasiado alto. Revisa las cifras.")
         }
-        // El título es opcional (va en «+ Detalle»); la categoría no: sin
-        // título, el gasto se llama como ella.
-        if type == .gasto && category.trimmed.isEmpty {
-            return .blocked("Elige una categoría")
-        }
+        // El título y la categoría son opcionales: sin categoría el gasto
+        // queda en Pendientes, igual que lo que llega del banco sin regla.
         if type == .ingreso, isDebtPayment {
             guard let debt = selectedDebt else {
                 return .blocked("Elige qué te están devolviendo")
@@ -242,10 +239,11 @@ struct TransactionDraft {
         let expense = Expense(
             amount: Money.normalized(amount),
             // Sin título, el nombre de la categoría: «Comida» se lee mejor
-            // en la lista que un comercio vacío.
-            merchant: merchant.trimmed.isEmpty ? category : merchant.trimmed,
+            // en la lista que un comercio vacío. Sin ninguno de los dos, «Gasto».
+            merchant: !merchant.trimmed.isEmpty ? merchant.trimmed
+                : (category.trimmed.isEmpty ? "Gasto" : category.trimmed),
             date: date,
-            category: category,
+            category: category.trimmed.isEmpty ? Accounting.unclassified : category.trimmed,
             notes: notes.trimmed.isEmpty ? nil : notes.trimmed,
             isSubscription: isSubscription,
             currency: currency

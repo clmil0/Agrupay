@@ -41,11 +41,12 @@ struct AccountBadge: Equatable {
 /// lista por una. «Todas» va primero y «Editar» queda fijo al borde derecho,
 /// siempre a mano aunque haya diez cuentas.
 ///
-/// Tarjetas neutras con la proporción de una tarjeta física (`2c`, 128 × 81,
-/// casi 1.586 : 1): el logo y los últimos dígitos arriba, el nombre y cuántos
-/// movimientos abajo. El banco sólo se nota como un brillo de su color en la
-/// esquina; la elegida se rellena del gris de selección y lleva un aro, no el
-/// color del tema: el tema decora, no marca estado.
+/// Cada tarjeta se viste como la de su banco —el degradado de su marca, un
+/// motivo propio (la franja naranja del BCP, la banda azul de Interbank…) y el
+/// chip—, con la proporción de una tarjeta física (152 × 96, casi 1.586 : 1).
+/// Así se reconoce de un vistazo sin leer el nombre. La elegida lleva un aro
+/// por fuera, separado del borde: el color de la tarjeta ya es del banco, así
+/// que el estado no puede ir en el relleno.
 struct AccountCarousel: View {
     let accounts: [DetectedAccount]
     let name: (DetectedAccount) -> String
@@ -61,14 +62,17 @@ struct AccountCarousel: View {
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
 
-    private static let cardSize = CGSize(width: 128, height: 81)
-    private static let radius: CGFloat = 11
+    private static let cardSize = CGSize(width: 152, height: 96)
+    private static let radius: CGFloat = 12
     private static let editWidth: CGFloat = 52
+    /// Aire alrededor de las tarjetas para que el aro de la elegida y la
+    /// sombra no se corten contra el borde del `ScrollView`.
+    private static let ringRoom: CGFloat = 5
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                card(selected: selection == nil, glow: nil, label: "Todas las cuentas") {
+            HStack(spacing: 12) {
+                card(selected: selection == nil, face: .all, label: "Todas las cuentas") {
                     selection = nil
                 } top: {
                     stackedCards
@@ -82,13 +86,15 @@ struct AccountCarousel: View {
                 ForEach(accounts) { account in
                     let isOn = selection == account.key
                     let institution = account.institution ?? account.via
-                    card(selected: isOn, glow: institution?.brandColor, label: name(account)) {
+                    card(selected: isOn, face: CardFace(institution), label: name(account)) {
                         selection = isOn ? nil : account.key
                     } top: {
-                        AccountLogo(institution: institution, size: 20)
+                        logo(institution)
                         Spacer(minLength: 4)
                         if let last = account.digits {
-                            digits("••" + last)
+                            digits("•• " + last)
+                        } else {
+                            contactless
                         }
                     } bottom: {
                         title(name(account))
@@ -96,6 +102,7 @@ struct AccountCarousel: View {
                     }
                 }
             }
+            .padding(.vertical, Self.ringRoom + 3)
             .padding(.leading, ShellMetrics.sideInset)
             .padding(.trailing, ShellMetrics.sideInset + Self.editWidth + 14)
         }
@@ -109,7 +116,7 @@ struct AccountCarousel: View {
     // MARK: Piezas
 
     private func card<Top: View, Bottom: View>(selected: Bool,
-                                               glow: Color?,
+                                               face: CardFace,
                                                label: String,
                                                action: @escaping () -> Void,
                                                @ViewBuilder top: () -> Top,
@@ -123,22 +130,27 @@ struct AccountCarousel: View {
                 HStack(spacing: 0) { top() }
                     .frame(height: 20)
                 Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 3) { bottom() }
+                EMVChip()
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 1) { bottom() }
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 9)
             .frame(width: Self.cardSize.width, height: Self.cardSize.height, alignment: .topLeading)
-            .background(alignment: .topTrailing) {
-                if let glow { brandGlow(glow) }
-            }
-            .background(selected ? palette.selectedFill : palette.surface)
+            .background { CardBackground(face: face) }
             .clipShape(shape)
-            .overlay(shape.stroke(palette.hairline, lineWidth: 0.5))
+            // Filo de luz arriba y sombra abajo: el borde de una tarjeta de
+            // plástico, no una línea dibujada.
+            .overlay(shape.strokeBorder(
+                LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.05)],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 0.75))
+            .shadow(color: face.shadow.opacity(scheme == .dark ? 0.45 : 0.28), radius: 6, y: 3)
             .overlay {
-                // En claro, el negro de `label` se leía como un borde de
-                // error: ahí la selección va en el acento.
                 if selected {
-                    shape.strokeBorder(scheme == .dark ? palette.label : accent.color, lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: Self.radius + 4, style: .continuous)
+                        .strokeBorder(scheme == .dark ? palette.label : accent.color, lineWidth: 2)
+                        .padding(-Self.ringRoom)
                 }
             }
             .contentShape(shape)
@@ -148,51 +160,63 @@ struct AccountCarousel: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// El color del banco como un brillo que asoma por la esquina.
-    private func brandGlow(_ color: Color) -> some View {
-        let strength = scheme == .dark ? 0.5 : 0.28
-        return Circle()
-            .fill(RadialGradient(colors: [color.opacity(strength), color.opacity(0)],
-                                 center: .center, startRadius: 0, endRadius: 60))
-            .frame(width: 120, height: 120)
-            .offset(x: 34, y: -44)
-            .allowsHitTesting(false)
+    /// El logo sobre la tarjeta. Sin asset (efectivo, una tarjeta sin banco)
+    /// va el símbolo en blanco sobre un vidrio, que sí se lee sobre el color.
+    @ViewBuilder
+    private func logo(_ institution: Institution?) -> some View {
+        if institution?.logoAsset != nil {
+            AccountLogo(institution: institution, size: 20)
+                .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 0.75))
+        } else {
+            Image(systemName: institution?.symbol ?? "person.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(.white.opacity(0.22), in: Circle())
+        }
+    }
+
+    private var contactless: some View {
+        Image(systemName: "wave.3.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.75))
     }
 
     /// El ícono de «Todas»: dos tarjetas encimadas.
     private var stackedCards: some View {
         HStack(spacing: -8) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(palette.comparison)
+                .fill(.white.opacity(0.35))
                 .frame(width: 14, height: 20)
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(palette.track)
+                .fill(.white.opacity(0.85))
                 .frame(width: 14, height: 20)
                 .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .stroke(palette.surface, lineWidth: 1))
+                    .stroke(.black.opacity(0.25), lineWidth: 1))
         }
     }
 
     private func digits(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .tracking(1)
-            .foregroundStyle(palette.secondaryLabel)
+            .tracking(0.5)
+            .foregroundStyle(.white.opacity(0.9))
             .lineLimit(1)
     }
 
     private func title(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 13.5, weight: .semibold))
-            .foregroundStyle(palette.label)
+            .font(.system(size: 13.5, weight: .bold))
+            .foregroundStyle(.white)
             .lineLimit(1)
+            .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
     }
 
     private func line(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11))
+            .font(.system(size: 10.5, weight: .medium))
             .monospacedDigit()
-            .foregroundStyle(palette.secondaryLabel)
+            .foregroundStyle(.white.opacity(0.78))
             .lineLimit(1)
     }
 
@@ -219,26 +243,157 @@ struct AccountCarousel: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Editar tus cuentas")
             .padding(.trailing, ShellMetrics.sideInset)
+            .frame(maxHeight: .infinity)
             .background(palette.background)
         }
-        .frame(height: Self.cardSize.height)
+        .frame(height: Self.cardSize.height + 2 * (Self.ringRoom + 3))
     }
 }
 
-private extension Institution {
-    /// El color de la marca, sólo para el brillo de su tarjeta en el carrusel
-    /// (`2c`): la tarjeta es neutra y el banco se reconoce por el logo.
-    var brandColor: Color? {
-        switch self {
-        case .bbva:       return Color(red: 0.078, green: 0.392, blue: 0.647)   // #1464A5
-        case .bcp:        return Color(red: 1.000, green: 0.471, blue: 0.000)   // #FF7800
-        case .interbank:  return Color(red: 0.059, green: 0.639, blue: 0.333)   // #0FA355
-        case .yape:       return Color(red: 0.557, green: 0.169, blue: 0.639)   // #8E2BA3
-        case .plin:       return Color(red: 0.000, green: 0.733, blue: 0.827)   // #00BBD3
-        case .scotiabank: return Color(red: 0.925, green: 0.067, blue: 0.102)   // #EC111A
-        case .efectivo:   return Color(red: 0.063, green: 0.725, blue: 0.506)   // #10B981
-        case .tarjeta:    return nil
+// MARK: - Cara de la tarjeta
+
+/// Cómo se viste cada banco: los colores de su degradado y el motivo que lo
+/// distingue. Son aproximaciones a la tarjeta real, no la tarjeta: nada de
+/// logos de red ni textos que no son de la app.
+struct CardFace: Equatable {
+    enum Motif: Equatable {
+        /// BBVA: círculos grandes y translúcidos, como su tarjeta azul.
+        case rings
+        /// BCP: franja naranja en diagonal sobre el azul.
+        case stripe(Color)
+        /// Interbank: banda ancha de otro color cruzando la esquina.
+        case band(Color)
+        /// Yape y Plin: una mancha de color que asoma por abajo.
+        case blob(Color)
+        /// Scotiabank, efectivo, genéricas: un arco de luz.
+        case arc
+    }
+
+    let colors: [Color]
+    let motif: Motif
+    var shadow: Color { colors.last ?? .black }
+
+    static let all = CardFace(colors: [Color(hex: 0x3A3A40), Color(hex: 0x16161A)], motif: .arc)
+
+    init(colors: [Color], motif: Motif) {
+        self.colors = colors
+        self.motif = motif
+    }
+
+    init(_ institution: Institution?) {
+        switch institution {
+        case .bbva?:
+            self.init(colors: [Color(hex: 0x1973B8), Color(hex: 0x072146)], motif: .rings)
+        case .bcp?:
+            self.init(colors: [Color(hex: 0x0A3A9E), Color(hex: 0x002169)], motif: .stripe(Color(hex: 0xFF7800)))
+        case .interbank?:
+            self.init(colors: [Color(hex: 0x12B563), Color(hex: 0x05783D)], motif: .band(Color(hex: 0x0039A6)))
+        case .scotiabank?:
+            self.init(colors: [Color(hex: 0xF0282E), Color(hex: 0x9E0A0F)], motif: .arc)
+        case .yape?:
+            self.init(colors: [Color(hex: 0x8E2BA3), Color(hex: 0x4A0F5C)], motif: .blob(Color(hex: 0x10D4C2)))
+        case .plin?:
+            self.init(colors: [Color(hex: 0x16C7E0), Color(hex: 0x0070B8)], motif: .blob(Color(hex: 0x7CF2FF)))
+        case .efectivo?:
+            self.init(colors: [Color(hex: 0x22C58B), Color(hex: 0x087A55)], motif: .arc)
+        case .tarjeta?, nil:
+            self.init(colors: [Color(hex: 0x5B6270), Color(hex: 0x262A33)], motif: .arc)
         }
+    }
+}
+
+/// El fondo de la tarjeta: degradado, motivo y un brillo diagonal encima.
+private struct CardBackground: View {
+    let face: CardFace
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+
+            ZStack {
+                LinearGradient(colors: face.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+
+                motif(w: w, h: h)
+
+                // Brillo de plástico: una luz suave que cruza de arriba a la
+                // izquierda hacia el centro.
+                LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.0)],
+                               startPoint: .topLeading, endPoint: UnitPoint(x: 0.6, y: 0.7))
+                    .blendMode(.softLight)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func motif(w: CGFloat, h: CGFloat) -> some View {
+        switch face.motif {
+        case .rings:
+            ZStack {
+                Circle().stroke(.white.opacity(0.10), lineWidth: 14)
+                    .frame(width: h * 1.5, height: h * 1.5)
+                    .position(x: w * 0.92, y: h * 0.15)
+                Circle().fill(.white.opacity(0.07))
+                    .frame(width: h * 1.1, height: h * 1.1)
+                    .position(x: w * 1.0, y: h * 1.0)
+            }
+        case .stripe(let color):
+            Path { p in
+                p.move(to: CGPoint(x: w * 0.62, y: h))
+                p.addLine(to: CGPoint(x: w * 0.86, y: h))
+                p.addLine(to: CGPoint(x: w * 1.1, y: 0))
+                p.addLine(to: CGPoint(x: w * 0.86, y: 0))
+                p.closeSubpath()
+            }
+            .fill(LinearGradient(colors: [color, color.opacity(0.75)],
+                                 startPoint: .bottom, endPoint: .top))
+            .opacity(0.9)
+        case .band(let color):
+            Path { p in
+                p.move(to: CGPoint(x: w * 0.45, y: h))
+                p.addQuadCurve(to: CGPoint(x: w, y: h * 0.25),
+                               control: CGPoint(x: w * 0.8, y: h * 0.85))
+                p.addLine(to: CGPoint(x: w, y: h))
+                p.closeSubpath()
+            }
+            .fill(color.opacity(0.85))
+        case .blob(let color):
+            Ellipse()
+                .fill(RadialGradient(colors: [color.opacity(0.75), color.opacity(0)],
+                                     center: .center, startRadius: 0, endRadius: w * 0.45))
+                .frame(width: w * 1.0, height: h * 1.1)
+                .position(x: w * 0.95, y: h * 0.95)
+        case .arc:
+            Circle()
+                .stroke(.white.opacity(0.12), lineWidth: 10)
+                .frame(width: w * 0.9, height: w * 0.9)
+                .position(x: w * 0.95, y: h * 1.05)
+        }
+    }
+}
+
+/// El chip de contacto, en dorado. Es lo que hace que un rectángulo de color
+/// se lea como tarjeta.
+private struct EMVChip: View {
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 3, style: .continuous)
+        return shape
+            .fill(LinearGradient(colors: [Color(hex: 0xF4DC9A), Color(hex: 0xC9A24E)],
+                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(width: 20, height: 15)
+            .overlay {
+                // Las pistas del contacto: una línea al medio y dos cortes.
+                ZStack {
+                    Rectangle().fill(.black.opacity(0.22)).frame(height: 0.75)
+                    HStack(spacing: 6) {
+                        Rectangle().fill(.black.opacity(0.22)).frame(width: 0.75)
+                        Rectangle().fill(.black.opacity(0.22)).frame(width: 0.75)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .overlay(shape.stroke(.black.opacity(0.18), lineWidth: 0.5))
     }
 }
 
@@ -485,5 +640,14 @@ struct AccountsSheet: View {
         AccountBook.shared.replace(with: draft)
         TransferDetector.apply(in: modelContext, preferences: draft)
         dismiss()
+    }
+}
+
+fileprivate extension Color {
+    /// `0xRRGGBB`, para escribir los colores de marca tal como se publican.
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255)
     }
 }

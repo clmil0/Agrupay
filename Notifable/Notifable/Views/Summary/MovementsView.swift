@@ -47,6 +47,15 @@ struct MovementsView: View {
     @State private var catalog = AccountCatalog(expenses: [], incomes: [])
     @FocusState private var searchFocused: Bool
 
+    /// «Seleccionar», como en Fotos: la misma barra que Pendientes
+    /// (Categorizar · Etiquetas · Eliminar) para corregir en bloque sin
+    /// tener que ir allá. Sólo en Gastos.
+    @State private var isSelecting = false
+    @State private var selected: Set<UUID> = []
+    @State private var assigningSelection = false
+    @State private var showsTagPicker = false
+    @State private var confirmingDelete = false
+
     /// Gastos, ingresos y —sólo si hay— lo que está por cobrar. Lo sin
     /// categoría ya no se filtra aquí: vive en Pendientes, que es donde se
     /// clasifica.
@@ -167,8 +176,11 @@ struct MovementsView: View {
                         }
                 }
 
-                searchField
-                    .padding(.bottom, 12)
+                HStack(spacing: 8) {
+                    searchField
+                    if kind == .gastos { selectButton }
+                }
+                .padding(.bottom, 12)
 
                 // La tercera opción sólo existe mientras haya algo por
                 // cobrar: un filtro que siempre dice «nada» es ruido.
@@ -203,7 +215,17 @@ struct MovementsView: View {
             }
             .padding(.horizontal, ShellMetrics.sideInset)
             .padding(.top, ShellMetrics.contentTopInset)
-            .padding(.bottom, 40)
+            .padding(.bottom, selected.isEmpty ? 40 : 110)
+        }
+        .overlay(alignment: .bottom) {
+            if isSelecting && !selected.isEmpty {
+                BulkActionBar(count: selected.count,
+                              onCategorize: { assigningSelection = true },
+                              onTags: { showsTagPicker = true },
+                              onDelete: { confirmingDelete = true })
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top
@@ -211,7 +233,10 @@ struct MovementsView: View {
             progress.update(offset)
         }
         .onChange(of: searchText) { _, _ in visibleCount = Self.pageSize }
-        .onChange(of: kind) { _, _ in visibleCount = Self.pageSize }
+        .onChange(of: kind) { _, newKind in
+            visibleCount = Self.pageSize
+            if newKind != .gastos { endSelection() }
+        }
         .onChange(of: filter.selection) { _, _ in visibleCount = Self.pageSize }
         // Al cobrar el último pendiente la opción desaparece: sin esto la
         // lista se quedaba vacía y sin forma de salir.
@@ -227,6 +252,41 @@ struct MovementsView: View {
         .onReceive(NotificationCenter.default.publisher(for: ActivityFocus.notification)) { _ in
             selectedExpense = nil
             selectedIncome = nil
+        }
+        .sheet(isPresented: $assigningSelection) {
+            AssignCategorySheet(context: BulkExpenseEdit.context(for: selectedExpenses, rate: rate),
+                                history: expenses) { category, _ in
+                BulkExpenseEdit.assign(category, to: selectedExpenses, in: modelContext)
+                withAnimation(.easeInOut(duration: 0.25)) { selected.removeAll() }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+        }
+        .sheet(isPresented: $showsTagPicker) {
+            TagPickerSheet(selected: BulkExpenseEdit.commonTags(selectedExpenses)) {
+                BulkExpenseEdit.toggleTag($0, on: selectedExpenses, in: modelContext)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+        }
+        .alert(BulkExpenseEdit.deleteTitle(selected: selected.count, deletable: deletableSelection.count),
+               isPresented: $confirmingDelete) {
+            if deletableSelection.isEmpty {
+                Button("Entendido", role: .cancel) {}
+            } else {
+                Button("Cancelar", role: .cancel) {}
+                Button("Eliminar", role: .destructive) {
+                    let targets = deletableSelection
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        BulkExpenseEdit.delete(targets, in: modelContext)
+                        selected.removeAll()
+                    }
+                }
+            }
+        } message: {
+            Text(BulkExpenseEdit.deleteMessage(selected: selected.count, deletable: deletableSelection.count))
         }
         .sheet(item: $selectedExpense) { ExpenseDetailsView(expense: $0) }
         .sheet(item: $selectedIncome) { IncomeDetailsView(income: $0) }
@@ -274,6 +334,50 @@ struct MovementsView: View {
         case .porCobrar: noun = "por cobrar"
         }
         return "\(count) " + noun + (searchText.isEmpty ? "" : " encontrados")
+    }
+
+    // MARK: - Selección
+
+    private var selectedExpenses: [Expense] {
+        expenses.filter { selected.contains($0.id) }
+    }
+
+    private var deletableSelection: [Expense] {
+        BulkExpenseEdit.deletable(selectedExpenses)
+    }
+
+    private func toggle(_ expense: Expense) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if selected.contains(expense.id) { selected.remove(expense.id) } else { selected.insert(expense.id) }
+        }
+    }
+
+    private func endSelection() {
+        withAnimation(.snappy(duration: 0.25)) {
+            isSelecting = false
+            selected.removeAll()
+        }
+    }
+
+    private var selectButton: some View {
+        Button {
+            if isSelecting {
+                endSelection()
+            } else {
+                searchFocused = false
+                withAnimation(.snappy(duration: 0.25)) { isSelecting = true }
+            }
+        } label: {
+            Text(isSelecting ? "Listo" : "Seleccionar")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(accent.onSurface(scheme))
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(palette.hairline, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Buscador
@@ -341,6 +445,12 @@ struct MovementsView: View {
                                            onOpenPart: { selectedExpense = $0 },
                                            onOpenParent: { selectedExpense = expense },
                                            onEditSplit: { splitting = expense })
+                        case .expense(let expense) where isSelecting:
+                            let isOn = selected.contains(expense.id)
+                            MovementRow(expense: expense,
+                                        showsTime: true,
+                                        onTap: { toggle(expense) },
+                                        selection: isOn)
                         case .expense(let expense):
                             MovementRow(expense: expense,
                                         showsTime: true,

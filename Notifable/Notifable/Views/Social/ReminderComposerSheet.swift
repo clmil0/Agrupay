@@ -33,7 +33,7 @@ struct ReminderComposerSheet: View {
     @State private var isSending = false
     @State private var outcome: String?
 
-    static let defaultMessage = "Me estás debiendo este pago mmhvo, digo glu glu"
+    static let defaultMessage = "Yo a la firme no sé cómo es que creí en ti causa"
 
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
@@ -374,17 +374,17 @@ struct ReminderComposerSheet: View {
 
     // MARK: - Intensidad
 
-    /// Quien cobra elige cómo le llega (`1` de «Cobros entre amigos»).
+    /// Quien cobra elige qué tan fuerte cobra (`1` de «Cobros entre amigos»).
     private var intensitySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ShellSectionHeader(title: "Cómo le llega")
+            ShellSectionHeader(title: "¿Qué tan fuerte le cobras?")
             HStack(spacing: 10) {
                 intensityOption(.soft, icon: "bell",
                                 title: "Suave",
-                                detail: "La notificación y el cobro en Amigos")
+                                detail: "Le llega una notificación y lo ve en su lista de Amigos")
                 intensityOption(.intense, icon: "bell.and.waves.left.and.right",
                                 title: "Intenso",
-                                detail: "Al abrir la app, tu pingüino le cobra")
+                                detail: "Además, cuando abra la app, tu pingüino le aparece en pantalla cobrándole")
             }
         }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Colocación en filas que saltan de línea al llenarse el ancho.
 ///
@@ -123,6 +124,10 @@ struct TagPickerSheet: View {
     @Environment(\.colorScheme) private var scheme
     @StateObject private var catalog = TagCatalog.shared
     @State private var draft = ""
+    /// Para eliminar una etiqueta de todos los gastos que la llevan, no sólo
+    /// de los que se están etiquetando aquí.
+    @Query private var expenses: [Expense]
+    @State private var deleting: TagRef?
 
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
@@ -194,8 +199,17 @@ struct TagPickerSheet: View {
                                     onToggle(name)
                                 }
                                 .opacity(!isOn(name) && isFull ? 0.35 : 1)
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        deleting = TagRef(name: name)
+                                    } label: { Label("Eliminar etiqueta", systemImage: "trash") }
+                                }
                             }
                         }
+
+                        Text("Mantén presionada una etiqueta para eliminarla.")
+                            .font(.caption)
+                            .foregroundStyle(palette.secondaryLabel)
                     }
                 }
                 .padding(16)
@@ -203,6 +217,19 @@ struct TagPickerSheet: View {
             .background(palette.background)
             .navigationTitle("Etiquetas")
             .navigationBarTitleDisplayMode(.inline)
+            .alert(deleting.map { "¿Eliminar «\($0.name)»?" } ?? "",
+                   isPresented: Binding(get: { deleting != nil },
+                                        set: { if !$0 { deleting = nil } }),
+                   presenting: deleting) { ref in
+                Button("Cancelar", role: .cancel) {}
+                Button("Eliminar", role: .destructive) {
+                    Task { await TagEditor.delete(ref.name, in: expenses) }
+                }
+            } message: { ref in
+                let count = TagEditor.expenseCount(of: ref.name, in: expenses)
+                Text(count == 0 ? "No la lleva ningún gasto."
+                     : "Se quita de \(count == 1 ? "1 gasto" : "\(count) gastos"). Sus categorías no cambian.")
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Listo") { dismiss() }.fontWeight(.semibold)

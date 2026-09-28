@@ -448,10 +448,14 @@ struct CategoryRulesScreen: View {
         }
         .onAppear(perform: reload)
         .sheet(item: $editing, onDismiss: reload) { ref in
-            CategorySettingsView(category: ref.name, history: history)
+            NavigationStack {
+                CategorySettingsView(category: ref.name, history: history)
+            }
         }
         .sheet(isPresented: $creating, onDismiss: reload) {
-            CategorySettingsView(category: "", isNew: true, history: history)
+            NavigationStack {
+                CategorySettingsView(category: "", isNew: true, history: history)
+            }
         }
         .sheet(item: $merging) { ref in
             CategoryMergeSheet(source: ref.name, onDone: reload)
@@ -593,8 +597,10 @@ private struct CategoryRulesStats {
         // hoy, no lo que clasificaste a mano hace dos años.
         coveragePercent = recentCount == 0 ? 0 : Int((Double(recentByRule) / Double(recentCount) * 100).rounded())
 
-        let all = Set(totalByCategory.keys).union(catalog.entries.keys).subtracting([Accounting.unclassified])
-        active = all.filter { recent.contains($0) || CategoryCatalog.isSystem($0) }.sorted()
+        let builtIns = Set(CategoryStyle.defaults)
+        let all = Set(totalByCategory.keys).union(catalog.entries.keys).union(builtIns)
+            .subtracting([Accounting.unclassified])
+        active = all.filter { recent.contains($0) || builtIns.contains($0) }.sorted()
         unused = all.subtracting(active).sorted()
     }
 }

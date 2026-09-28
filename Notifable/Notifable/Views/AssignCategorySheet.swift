@@ -72,7 +72,7 @@ struct AssignCategoryContext: Equatable, Identifiable {
             subtitle: "Sin guardar todavía",
             amount: Money.cents(amount) > 0 ? amount : nil,
             currency: currency,
-            current: current
+            current: (current ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : current
         )
     }
 
@@ -110,14 +110,20 @@ struct AssignCategorySheet: View {
     let context: AssignCategoryContext
     let history: [Expense]
     private let onAssign: (String, AssignCategoryRules) -> Void
+    /// Dejar el movimiento sin categoría. Sólo se ofrece si ya tiene una y
+    /// quien llama sabe qué hacer con eso (detalle del gasto, alta).
+    private var onClear: (() -> Void)?
 
     /// Se llama con la categoría elegida y el estado del interruptor, cuyo
     /// significado depende de `context.ruleScope`: en `.forward`, crear la
     /// regla sólo para lo que llegue; en `.past`, reclasificar también el
     /// historial del comercio.
-    init(context: AssignCategoryContext, history: [Expense], onAssign: @escaping (String, Bool) -> Void) {
+    init(context: AssignCategoryContext, history: [Expense],
+         onClear: (() -> Void)? = nil,
+         onAssign: @escaping (String, Bool) -> Void) {
         self.context = context
         self.history = history
+        self.onClear = onClear
         self.onAssign = { category, rules in onAssign(category, rules.past || rules.future) }
     }
 
@@ -130,6 +136,7 @@ struct AssignCategorySheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.modelContext) private var modelContext
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
     @AppStorage("period") private var period = Period()
@@ -143,6 +150,12 @@ struct AssignCategorySheet: View {
     /// Sólo en `.pending`: los dos interruptores del pie.
     @State private var rules = AssignCategoryRules()
     @State private var creating: String?
+    /// Modo edición: cada categoría propia lleva su papelera y tocarla abre
+    /// su ficha en vez de elegirla.
+    @State private var isEditing = false
+    @State private var editingCategory: String?
+    @State private var deleting: String?
+    @State private var isDeleting = false
 
     private var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .purple }
     private var palette: Palette { Palette(scheme) }
@@ -167,6 +180,33 @@ struct AssignCategorySheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button(isEditing ? "Listo" : "Editar") {
+                        withAnimation(.easeInOut(duration: 0.2)) { isEditing.toggle() }
+                    }
+                    .fontWeight(isEditing ? .semibold : .regular)
+                }
+            }
+            .alert(deleting.map { "¿Eliminar \($0)?" } ?? "",
+                   isPresented: Binding(get: { deleting != nil },
+                                        set: { if !$0 { deleting = nil } }),
+                   presenting: deleting) { name in
+                Button("Cancelar", role: .cancel) {}
+                Button("Eliminar", role: .destructive) { delete(name) }
+            } message: { name in
+                Text(CategoryDeletion.message(for: name, in: history))
+            }
+            .overlay {
+                if isDeleting {
+                    ProgressView().controlSize(.large)
+                        .padding(24)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .navigationDestination(item: $editingCategory) { name in
+                CategorySettingsView(category: name, history: history) { finalName in
+                    if selected == name { selected = finalName }
                 }
             }
             .navigationDestination(item: $creating) { name in
@@ -290,18 +330,11 @@ struct AssignCategorySheet: View {
             VStack(spacing: 0) {
                 ForEach(Array(categories.enumerated()), id: \.element) { index, category in
                     if index > 0 { rowSeparator }
-                    Button { select(category) } label: {
-                        CategoryLimitRow(category: category,
-                                         status: status(for: category),
-                                         color: color(of: category),
-                                         isSelected: selected == category,
-                                         suggestionReason: category == suggested?.category ? suggested?.reason : nil,
-                                         accent: accent.color)
-                    }
-                    .buttonStyle(.plain)
+                    categoryRow(category, suggested: suggested)
                 }
 
-                rowSeparator
+                // Sin categorías (se pueden eliminar todas) sólo queda crear.
+                if !categories.isEmpty { rowSeparator }
                 newCategoryRow
             }
             .background(palette.surface)
@@ -310,6 +343,66 @@ struct AssignCategorySheet: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(palette.hairline, lineWidth: 0.5)
             )
+
+            Text(isEditing ? "Toca una categoría para cambiarle nombre, color o ícono, o la papelera para eliminarla."
+                           : "Mantén presionada una categoría para editarla o eliminarla.")
+                .font(.caption)
+                .foregroundStyle(palette.secondaryLabel)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    private func categoryRow(_ category: String, suggested: CategorySuggestion?) -> some View {
+        let deletable = !CategoryCatalog.isSystem(category)
+        return HStack(spacing: 0) {
+            Button {
+                if isEditing { editingCategory = category } else { select(category) }
+            } label: {
+                CategoryLimitRow(category: category,
+                                 status: status(for: category),
+                                 color: color(of: category),
+                                 isSelected: selected == category,
+                                 suggestionReason: category == suggested?.category ? suggested?.reason : nil,
+                                 accent: accent.color,
+                                 showsRadio: !isEditing)
+            }
+            .buttonStyle(.plain)
+
+            if isEditing {
+                Button {
+                    deleting = category
+                } label: {
+                    Image(systemName: deletable ? "trash" : "lock.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(deletable ? palette.negative : palette.tertiaryLabel)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(!deletable)
+                .padding(.trailing, 6)
+                .accessibilityLabel(deletable ? "Eliminar " + category : category + " no se puede eliminar")
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+        }
+        .contextMenu {
+            Button {
+                editingCategory = category
+            } label: { Label("Editar", systemImage: "pencil") }
+            if deletable {
+                Button(role: .destructive) {
+                    deleting = category
+                } label: { Label("Eliminar", systemImage: "trash") }
+            }
+        }
+    }
+
+    private func delete(_ category: String) {
+        if selected == category { selected = nil }
+        isDeleting = true
+        Task {
+            await CategoryEditor.delete(category, in: history)
+            try? modelContext.save()
+            isDeleting = false
         }
     }
 
@@ -367,6 +460,19 @@ struct AssignCategorySheet: View {
                 ruleToggle
             }
             primaryButton
+            if context.current != nil, let onClear {
+                Button {
+                    onClear()
+                    dismiss()
+                } label: {
+                    Text("Quitar categoría")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(palette.negative)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -584,6 +690,8 @@ struct CategoryLimitRow: View {
     /// El porqué de la sugerencia; `nil` si esta fila no es la sugerida.
     var suggestionReason: String?
     var accent: Color
+    /// En el modo edición del selector la papelera ocupa su sitio.
+    var showsRadio = true
 
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette(scheme) }
@@ -634,7 +742,7 @@ struct CategoryLimitRow: View {
 
             Spacer(minLength: 8)
 
-            radio
+            if showsRadio { radio }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)

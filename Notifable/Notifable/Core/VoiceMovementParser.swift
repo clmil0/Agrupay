@@ -378,7 +378,7 @@ enum VoiceMovementParser {
                 return hint.category
             }
         }
-        return MerchantCatalog.shared.category(for: whole)
+        return MerchantCatalog.shared.category(for: whole).flatMap(CategoryCatalog.shared.builtIns.resolve)
     }
 
     /// Regla exacta del usuario, el nombre de una categoría dicho tal cual

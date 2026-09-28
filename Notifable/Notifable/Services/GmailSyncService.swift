@@ -1159,7 +1159,7 @@ class GmailSyncService: ObservableObject {
         // a caer sin clasificar.
         if let rule = MerchantRules.category(for: expense.merchant) {
             expense.category = rule
-            expense.isSubscription = rule == "Entretenimiento"
+            expense.isSubscription = BuiltInCategories.marksSubscription(rule)
             return expense
         }
 
@@ -1170,13 +1170,13 @@ class GmailSyncService: ObservableObject {
         } else if lowerMerchant.contains("uber") || lowerMerchant.contains("lyft") || lowerMerchant.contains("didi") || lowerMerchant.contains("cabify") || lowerMerchant.contains("yango") {
             autoCategory = "Transporte"
         } else if lowerMerchant.contains("netflix") || lowerMerchant.contains("spotify") || lowerMerchant.contains("apple") || lowerMerchant.contains("disney") || lowerMerchant.contains("prime") {
-            autoCategory = "Entretenimiento"
+            autoCategory = "Suscripciones"
         }
-        
-        let isSub = autoCategory == "Entretenimiento"
-        
-        expense.category = autoCategory
-        expense.isSubscription = isSub
+
+        // Nombres de fábrica: la básica que el usuario quitó no vuelve.
+        let resolved = CategoryCatalog.shared.builtIns.resolve(autoCategory) ?? Accounting.unclassified
+        expense.category = resolved
+        expense.isSubscription = autoCategory == "Suscripciones"
         return expense
     }
     

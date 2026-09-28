@@ -16,7 +16,7 @@ struct MovementIcon: View {
 
     /// Los íconos de billetera y banco son imágenes de marca: no se tiñen.
     private var isAsset: Bool {
-        ["plin_icon", "yape_icon", "bbva_icon"].contains(icon)
+        Institution.allCases.contains { $0.logoAsset == icon }
     }
 
     var body: some View {
@@ -40,12 +40,39 @@ struct MovementIcon: View {
     }
 }
 
+/// El logo de Yape, Plin o BBVA en miniatura, con un aro del color de la
+/// tarjeta para despegarlo del ícono de la categoría.
+struct SourceBadge: View {
+    let asset: String
+    var size: CGFloat = 17
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Image(asset)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Palette(scheme).surface, lineWidth: 2))
+            .accessibilityHidden(true)
+    }
+}
+
 /// Ícono y color de un gasto. Extraído de `DashboardView` para que la fila
 /// nueva y la antigua no se separen mientras conviven.
 enum MovementStyle {
 
+    /// Ya clasificado, el gasto lleva el ícono de su categoría aunque haya
+    /// llegado por Yape o Plin: el origen sigue en el subtítulo, y el logo de
+    /// la billetera no dice en qué se fue el dinero.
+    private static func isClassified(_ expense: Expense) -> Bool {
+        expense.category != Accounting.unclassified && !expense.isTransfer
+    }
+
     static func icon(for expense: Expense) -> String {
         if expense.isReversal || expense.isVoided { return "arrow.uturn.backward" }
+        if isClassified(expense) { return CategoryStyle.icon(for: expense.category) }
         if expense.merchant.hasPrefix("PLIN - ") { return "plin_icon" }
         if expense.merchant.hasPrefix("YAPE - ") { return "yape_icon" }
         if expense.merchant.hasPrefix("BBVA - ") { return "bbva_icon" }
@@ -53,8 +80,30 @@ enum MovementStyle {
         return CategoryStyle.icon(for: expense.category)
     }
 
+    /// El logo de la billetera o el banco, en pequeño sobre la esquina del
+    /// ícono, cuando éste ya es el de la categoría: así se sigue viendo por
+    /// dónde salió el dinero. Sin clasificar no hace falta: el ícono entero
+    /// ya es el logo.
+    static func sourceBadge(for expense: Expense) -> String? {
+        guard !expense.isReversal, !expense.isVoided,
+              let logo = institution(for: expense)?.logoAsset,
+              icon(for: expense) != logo else { return nil }
+        return logo
+    }
+
+    /// El banco o la billetera por la que salió el dinero: el prefijo que
+    /// ponen los lectores de Yape/Plin/BBVA o, si no, el banco del correo
+    /// (una compra con tarjeta BCP, Interbank…).
+    static func institution(for expense: Expense) -> Institution? {
+        if expense.merchant.hasPrefix("PLIN - ") { return .plin }
+        if expense.merchant.hasPrefix("YAPE - ") { return .yape }
+        if expense.merchant.hasPrefix("BBVA - ") { return .bbva }
+        return expense.sourceBank.flatMap { Institution(name: $0) }
+    }
+
     static func color(for expense: Expense, accent: Color, scheme: ColorScheme) -> Color {
         if expense.isReversal || expense.isVoided { return Palette(scheme).warning }
+        if isClassified(expense) { return CategoryStyle.color(for: expense.category, accent: accent) }
         if expense.merchant.hasPrefix("PLIN - ") { return Color(red: 0, green: 0.7, blue: 0.9) }
         if expense.merchant.hasPrefix("YAPE - ") { return Color(red: 0.5, green: 0, blue: 0.5) }
         if expense.merchant.hasPrefix("BBVA - ") { return Color(red: 0.0, green: 0.27, blue: 0.51) }
@@ -92,6 +141,11 @@ struct MovementRow: View {
     var showsTime = false
     var onTap: () -> Void = {}
     var onAssignCategory: () -> Void = {}
+    /// En modo selección (Pendientes «Por día», Movimientos › Seleccionar):
+    /// `true`/`false` dibuja la casilla a la izquierda y el toque elige. `nil`
+    /// fuera de ese modo. Es la misma fila en los dos sitios a propósito: un
+    /// movimiento se reconoce por su fila, no por la pantalla en la que está.
+    var selection: Bool? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
@@ -130,9 +184,20 @@ struct MovementRow: View {
 
     private var content: some View {
         HStack(spacing: 12) {
+            if let selection {
+                SelectionCheck(state: selection ? .on : .off, size: 22)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+
             MovementIcon(icon: MovementStyle.icon(for: expense),
                          color: MovementStyle.color(for: expense, accent: accent.color, scheme: scheme),
                          size: 40)
+                .overlay(alignment: .bottomTrailing) {
+                    if let badge = MovementStyle.sourceBadge(for: expense) {
+                        SourceBadge(asset: badge)
+                            .offset(x: 4, y: 4)
+                    }
+                }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -149,7 +214,17 @@ struct MovementRow: View {
                     }
                 }
 
-                if isUnclassified && showsTime {
+                if isUnclassified && selection != nil {
+                    // Eligiendo, el chip «Asignar categoría» sería un botón
+                    // dentro de otro: se asigna desde la barra.
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(MovementStyle.source(for: expense) ?? Accounting.unclassified)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(palette.secondaryLabel)
+                            .lineLimit(1)
+                        if showsTime { TimeLabel(date: expense.date) }
+                    }
+                } else if isUnclassified && showsTime {
                     // Movimientos: el chip y la hora, como el resto de filas.
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         assignRow(showsSource: false)
@@ -189,6 +264,7 @@ struct MovementRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
+        .background(accent.color.opacity(selection == true ? 0.07 : 0))
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .contextMenu {
@@ -270,11 +346,25 @@ struct MovementRow: View {
     /// saber que llegó por Yape —que además ya se ve en el ícono—. El punto de
     /// color es lo único que la distingue de la categoría, que va en gris y
     /// sin punto.
-    @ViewBuilder
+    ///
+    /// Si no cabe, la categoría se abrevia («Entretenimiento» → «Entr.») antes
+    /// que cortar la línea con puntos suspensivos o partirla en dos.
     private var subtitleLine: some View {
+        ViewThatFits(in: .horizontal) {
+            subtitleLine(abbreviated: false)
+            subtitleLine(abbreviated: true)
+        }
+    }
+
+    private var categoryName: String { expense.category }
+
+    @ViewBuilder
+    private func subtitleLine(abbreviated: Bool) -> some View {
+        let category = abbreviated ? CategoryStyle.shortName(for: categoryName) : categoryName
         if let tag = expense.tags.first, expense.countsAsSpending {
             HStack(spacing: 5) {
-                Text(expense.category + " ·")
+                Text(category + " ·")
+                    .fixedSize()
                     .foregroundStyle(palette.secondaryLabel)
 
                 Circle()
@@ -285,6 +375,7 @@ struct MovementRow: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(palette.label)
                     .lineLimit(1)
+                    .fixedSize(horizontal: !abbreviated, vertical: false)
 
                 if expense.tags.count > 1 {
                     Text("+\(expense.tags.count - 1)")
@@ -294,14 +385,17 @@ struct MovementRow: View {
             }
             .font(.system(size: 12.5))
         } else {
-            Text(subtitle)
+            // Sin cortar en la versión completa: si no entra, `ViewThatFits`
+            // pasa a la abreviada, y ésa sí se corta si hace falta.
+            Text(subtitle(category: category))
                 .font(.system(size: 12.5))
                 .foregroundStyle(palette.secondaryLabel)
                 .lineLimit(1)
+                .fixedSize(horizontal: !abbreviated, vertical: false)
         }
     }
 
-    private var subtitle: String {
+    private func subtitle(category: String) -> String {
         if expense.isReversal {
             let card = expense.cardLastDigits.map { " · •••• " + $0 } ?? ""
             return "Toca para elegir cuál" + card
@@ -310,9 +404,9 @@ struct MovementRow: View {
         if expense.isTransfer { return MovementStyle.transferNote }
         // En Movimientos, «Categoría  16:49»: el origen ya lo dice el ícono.
         if !showsTime, let source = MovementStyle.source(for: expense) {
-            return expense.category + " · " + source
+            return category + " · " + source
         }
-        return expense.category
+        return category
     }
 
     /// El guion es un menos tipográfico (U+2013), no un guion de teclado: a

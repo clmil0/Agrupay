@@ -216,19 +216,21 @@ final class MerchantCatalog: @unchecked Sendable {
             "uber", "cabify", "beat", "didi", "indriver", "yango", "taxi", "taxi directo", "taxi satelital",
             "metropolitano", "corredor", "tren", "línea 1", "tren eléctrico", "primax", "repsol", "petroperu",
             "petroperú", "pecsa", "grifo", "gasolina", "combustible", "peaje", "estacionamiento", "parking",
-            "cochera", "los portales", "taller", "mecánico", "mantenimiento auto", "cruz del sur", "oltursa",
-            "movil tours", "movil bus", "tepsa", "flores", "civa", "cavassa", "bus", "autobús", "pasajes",
-            "terminal terrestre", "aeropuerto", "latam", "sky airline", "jetsmart", "avianca", "vuelos", "avión",
-            "aerolínea", "soat", "revisión técnica", "llantas", "neumáticos"
+            "cochera", "los portales", "taller", "mecánico", "mantenimiento auto", "flores", "bus", "autobús",
+            "pasajes", "soat", "revisión técnica", "llantas", "neumáticos"
         ],
-        "Entretenimiento": [
-            "netflix", "spotify", "disney", "hbo", "max", "prime video", "amazon prime", "youtube premium",
-            "apple tv", "crunchyroll", "cineplanet", "cinemark", "cinestar", "teleticket", "joinnus", "tuentrada",
-            "atrapalo", "cine", "película", "películas", "teatro", "concierto", "entradas", "museo", "exposición",
-            "parque de diversiones", "playstation", "xbox", "nintendo", "steam", "epic games", "riot games",
-            "gaming", "videojuegos", "juegos", "twitch", "discord nitro", "paramount+", "star+", "vix",
-            "claro video", "movistar play", "directv go", "deezer", "tidal", "boliche", "karaoke", "feria",
-            "circo", "zoológico", "acuario", "escape room"
+        "Viajes": [
+            "latam", "sky airline", "jetsmart", "avianca", "vuelos", "avión", "aerolínea", "aeropuerto",
+            "cruz del sur", "oltursa", "movil tours", "movil bus", "tepsa", "civa", "cavassa",
+            "terminal terrestre", "hotel", "hostal", "hospedaje", "airbnb", "booking", "despegar", "expedia",
+            "casa andina", "costa del sol", "tierra viva", "peru rail", "perurail", "inca rail",
+            "paquete turístico", "agencia de viajes"
+        ],
+        "Casa": [
+            "sodimac", "promart", "maestro", "muebles", "decoración", "ferretería", "herramientas", "alquiler",
+            "arriendo", "mantenimiento de edificio", "cuota de mantenimiento", "cassinelli", "la curacao hogar",
+            "lavandería", "cerrajero", "gasfitero", "electricista", "jardinería", "limpieza del hogar", "ikea",
+            "casaideas", "decor center"
         ],
         "Servicios": [
             "movistar", "claro", "entel", "bitel", "win", "wow", "luz del sur", "enel", "sedapal", "calidda",
@@ -249,13 +251,31 @@ final class MerchantCatalog: @unchecked Sendable {
             "nutricionista", "dermatólogo", "ginecólogo", "cardiólogo", "traumatólogo", "farmacia universal",
             "mi farmacia", "boticas torres de limatambo", "fasa", "inca farma", "óptica gmo"
         ],
+        "Educación": [
+            "librería", "papelería", "universidad", "colegio", "pensión escolar", "matrícula", "instituto",
+            "academia", "cursos", "curso", "idiomas", "icpna", "británico", "alianza francesa", "pucp", "upc",
+            "ulima", "usil", "upch", "udemy", "platzi", "coursera", "crehana", "domestika", "tayloy", "crisol",
+            "útiles escolares"
+        ],
+        "Entretenimiento": [
+            "cineplanet", "cinemark", "cinestar", "teleticket", "joinnus", "tuentrada", "atrapalo", "cine",
+            "película", "películas", "teatro", "concierto", "entradas", "museo", "exposición",
+            "parque de diversiones", "playstation", "xbox", "nintendo", "steam", "epic games", "riot games",
+            "gaming", "videojuegos", "juegos", "boliche", "karaoke", "feria", "circo", "zoológico", "acuario",
+            "escape room"
+        ],
+        "Suscripciones": [
+            "netflix", "spotify", "disney", "hbo", "max", "prime video", "amazon prime", "youtube premium",
+            "apple tv", "crunchyroll", "twitch", "discord nitro", "paramount+", "star+", "vix", "claro video",
+            "movistar play", "directv go", "deezer", "tidal", "icloud", "google one", "chatgpt", "openai",
+            "microsoft 365", "adobe", "canva", "duolingo", "dropbox", "notion", "suscripción", "membresía digital"
+        ],
         "Compras": [
-            "falabella", "saga falabella", "ripley", "oechsle", "sodimac", "promart", "maestro", "hiraoka",
-            "la curacao", "curacao", "tiendas efe", "carsa", "elektra", "zara", "h&m", "adidas", "nike", "puma",
-            "forever 21", "topitop", "platanitos", "payless", "ropa", "moda", "zapatos", "zapatillas", "calzado",
-            "joyería", "relojes", "accesorios", "tecnología", "electrónica", "celular", "smartphone", "iphone",
-            "samsung", "xiaomi", "laptop", "computadora", "muebles", "decoración", "ferretería", "herramientas",
-            "regalos", "juguetería", "juguetes", "librería", "papelería", "cosméticos", "perfumería",
+            "falabella", "saga falabella", "ripley", "oechsle", "hiraoka", "la curacao", "curacao", "tiendas efe",
+            "carsa", "elektra", "zara", "h&m", "adidas", "nike", "puma", "forever 21", "topitop", "platanitos",
+            "payless", "ropa", "moda", "zapatos", "zapatillas", "calzado", "joyería", "relojes", "accesorios",
+            "tecnología", "electrónica", "celular", "smartphone", "iphone", "samsung", "xiaomi", "laptop",
+            "computadora", "regalos", "juguetería", "juguetes", "cosméticos", "perfumería",
             "tienda por departamento", "mall", "centro comercial"
         ]
     ]

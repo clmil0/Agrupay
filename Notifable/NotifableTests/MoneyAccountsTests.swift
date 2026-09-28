@@ -227,6 +227,29 @@ extension MoneyAccountsTests {
         #expect(AccountResolver.payee(merchant: expense.merchant)?.name == "LECSSI DANIELA YUPARI ERAZO")
     }
 
+    /// «BBVA - Constancia Transf. Interbancaria», ya sin etiquetas HTML.
+    static let bbvaInterbankEmail = """
+         Hola, Joseph    Has realizado con éxito la operación:  Transferencia interbancaria    \
+         Importe transferido  S/ 300.00   Comisión  S/ 0.00  ITF  S/ 0.00  Importe cargado  S/ 300.00  \
+         Importe abonado  S/ 300.00    DETALLES DE LA OPERACI&Oacute;N  Titular de la cuenta  \
+         Joseph Alan Mottoccanche Tantaruna  Tipo de operación  Transferencia interbancaria  \
+         Número de operación  00000952000000000  Fecha y hora de la operación  27 setiembre, 2026 21:13  \
+         Cuenta de origen  Contiahorro  Cuenta de destino   9193  Banco de destino  BANCO DE CRÉDITO DEL PERÚ  \
+         Nombre del beneficiario   Carmen Rosa Vega Rojas         Esta cuenta NO ES PROPIA, la operación \
+         no será exonerada del ITF.     Recuerda que, por ningún medio de comunicación…
+        """
+
+    @Test("Transferencia interbancaria de BBVA: beneficiario, monto, fecha y banco de destino")
+    func bbvaInterbancaria() throws {
+        let expense = try #require(BBVAParser().parse(cleanText: Self.bbvaInterbankEmail))
+        #expect(expense.merchant == "BBVA - Carmen Rosa Vega Rojas")
+        #expect(Money.cents(expense.amount) == 30000)
+        #expect(expense.currency == "PEN")
+        #expect(expense.date == Self.day(2026, 9, 27, hour: 21, minute: 13))
+        #expect(EmailAccountDetails.destinationWallet(in: Self.bbvaInterbankEmail) == "BCP")
+        #expect(AccountResolver.payee(merchant: expense.merchant)?.name == "Carmen Rosa Vega Rojas")
+    }
+
     @Test("«Destino» sólo acepta bancos y billeteras conocidos")
     func destinoDesconocido() {
         #expect(EmailAccountDetails.destinationWallet(in: "Destino: Yape  ITF") == "Yape")

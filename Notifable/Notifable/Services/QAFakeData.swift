@@ -144,6 +144,19 @@ enum QAMode {
         debt.isDebt = true
         context.insert(debt)
 
+        // Pagos por billetera: uno ya clasificado (ícono de su categoría con
+        // el logo en la esquina) y otro pendiente (el logo entero).
+        let wallets: [(String, Double, Int, String, String)] = [
+            ("YAPE - Bodega Don Lucho", 14.50, 1, "Supermercado", "Yape"),
+            ("PLIN - Cine con Ana", 28.00, 2, "Entretenimiento", "Plin"),
+            ("YAPE - Juan Pérez", 20.00, 3, pending, "Yape"),
+        ]
+        for (merchant, amount, days, category, bank) in wallets {
+            let expense = Expense(amount: amount, merchant: merchant, date: daysAgo(days, hour: 18), category: category)
+            expense.sourceBank = bank
+            context.insert(expense)
+        }
+
         // Un gasto en dólares, para las cifras mixtas.
         context.insert(Expense(amount: 20, merchant: "NETFLIX.COM", date: daysAgo(8),
                                category: pending, currency: "USD", fxRateAtCapture: 3.75))

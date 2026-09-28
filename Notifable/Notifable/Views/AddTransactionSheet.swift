@@ -573,7 +573,7 @@ struct AddTransactionSheet: View {
                         Text("Categoría")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(palette.label)
-                        Text(hasCategory ? category : "Toca para elegir")
+                        Text(hasCategory ? category : "Opcional · sin ella queda en Pendientes")
                             .font(.subheadline)
                             .foregroundStyle(hasCategory ? color : palette.secondaryLabel)
                     }
@@ -1523,7 +1523,8 @@ struct AddTransactionSheet: View {
                                             amount: draft.amount,
                                             currency: draft.currency,
                                             current: draft.category),
-                            history: history) { category, createRule in
+                            history: history,
+                            onClear: { draft.category = "" }) { category, createRule in
             draft.category = category
             if createRule {
                 MerchantRules.set(category, for: draft.merchant.trimmed)
