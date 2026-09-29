@@ -248,9 +248,6 @@ struct DataBackupView: View {
     private var debugSection: some View {
         #if DEBUG
         SettingsGroup(title: "Debug") {
-            SettingsToggle(title: "Pro (QA)", subtitle: "Cambia entre Gratis y Pro sin pasar por el paywall",
-                           isOn: Binding(get: { isPro }, set: { $0 ? ProStore.startTrial(plan: .anual) : ProStore.cancel() }))
-            SettingsDivider(inset: 14)
             SettingsButton(title: "Diagnóstico BBVA Pago", chevron: false) { gmailSync.diagnosticBBVA() }
             SettingsDivider(inset: 14)
             SettingsButton(title: "Diagnóstico BBVA Transf", chevron: false) { gmailSync.diagnosticBBVATransfer() }

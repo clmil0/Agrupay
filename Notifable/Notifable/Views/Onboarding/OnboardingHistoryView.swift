@@ -40,6 +40,13 @@ struct OnboardingHistoryView: View {
     private var palette: Palette { Palette(scheme) }
 
     private static let standardPeriods = [1, 3, 6, 12]
+    /// Gratis, la primera lectura llega hasta 3 meses (lo mismo que Gmail y
+    /// bancos): más atrás es «Todo el historial», de Pro.
+    private static let freePeriods = [1, 2, 3]
+
+    @AppStorage(ProStore.enabledKey) private var isPro = false
+    private var periods: [Int] { isPro ? Self.standardPeriods : Self.freePeriods }
+    private var maxMonths: Int { isPro ? 36 : ProStore.freeHistoryMonths }
 
     var body: some View {
         ScrollView {
@@ -81,7 +88,11 @@ struct OnboardingHistoryView: View {
             }
         }
         .background(palette.background)
-        .onAppear(perform: loadBankStates)
+        .onAppear {
+            loadBankStates()
+            // Un valor guardado de antes (6 meses, un año) se baja al límite.
+            if readPeriodMonths > maxMonths { readPeriodMonths = maxMonths }
+        }
         .confirmationDialog("¿No leer tus correos?", isPresented: $showNoReadConfirm, titleVisibility: .visible) {
             Button("No leer", role: .destructive) { onDone(nil) }
             Button("Cancelar", role: .cancel) {}
@@ -99,14 +110,16 @@ struct OnboardingHistoryView: View {
                 .foregroundStyle(palette.tertiaryLabel)
 
             HStack(spacing: 8) {
-                ForEach(Self.standardPeriods, id: \.self) { months in
+                ForEach(periods, id: \.self) { months in
                     chip(label: chipLabel(months),
                          isActive: !showsCustom && readPeriodMonths == months) {
                         showsCustom = false
                         readPeriodMonths = months
                     }
                 }
-                chip(label: "Otro", isActive: showsCustom) { showsCustom = true }
+                if isPro {
+                    chip(label: "Otro", isActive: showsCustom) { showsCustom = true }
+                }
             }
 
             if showsCustom {
@@ -116,7 +129,7 @@ struct OnboardingHistoryView: View {
                         .foregroundStyle(palette.secondaryLabel)
                     Spacer()
                     HStack(spacing: 0) {
-                        stepper("minus") { readPeriodMonths = min(36, readPeriodMonths + 1) }
+                        stepper("minus") { readPeriodMonths = min(maxMonths, readPeriodMonths + 1) }
                         Text("\(readPeriodMonths)")
                             .font(.subheadline.weight(.semibold).monospacedDigit())
                             .foregroundStyle(palette.label)

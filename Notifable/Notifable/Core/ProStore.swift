@@ -129,6 +129,25 @@ enum ProStore {
         ConfigBackupManager.shared.markDirty()
     }
 
+    // MARK: - Interruptor de pruebas
+
+    /// Mientras no haya StoreKit: el interruptor «Premium (pruebas)» de la raíz
+    /// de Configuración. Sólo en builds de desarrollo y de TestFlight —nunca
+    /// en la del App Store, donde regalaría Pro—.
+    static var showsTestSwitch: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
+
+    /// Enciende o apaga Pro sin pasar por el paywall.
+    @MainActor
+    static func setForTesting(_ on: Bool) {
+        on ? startTrial(plan: plan) : cancel()
+    }
+
     // MARK: - Límites del plan Gratis
 
     /// Gratis lee y compara hasta 3 meses atrás.

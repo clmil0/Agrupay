@@ -298,6 +298,14 @@ struct SettingsView: View {
                         tint: Color(white: 0.35), subtitle: dataSubtitle) {
                 DataBackupView()
             }
+            // Sólo para probar mientras no hay StoreKit (ver `ProStore.showsTestSwitch`).
+            if ProStore.showsTestSwitch {
+                SettingsSeparator()
+                SettingsToggle(icon: "crown.fill", tint: SettingsProHero.gold,
+                               title: "Premium (pruebas)",
+                               subtitle: "Cambia entre Gratis y Pro sin pagar",
+                               isOn: Binding(get: { isPro }, set: { ProStore.setForTesting($0) }))
+            }
         }
     }
 
