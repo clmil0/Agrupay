@@ -39,6 +39,18 @@ enum AppPreferences {
         .init(key: AppThemeColor.intenseTintKey, kind: .bool, note: "Tinte intenso del color de acento"),
         .init(key: AppThemeColor.themedCategoryColorsKey, kind: .bool, note: "Categorías con el color del tema"),
         .init(key: WidgetSnapshotBuilder.showAmountsKey, kind: .bool, note: "Montos visibles en los widgets"),
+        // El tema Pro elegido. Sin Pro no se aplica, pero se recuerda para
+        // cuando vuelva (el plan en sí no viaja: es del dispositivo/cuenta).
+        .init(key: ProTheme.storageKey, kind: .string, note: "Tema Pro del Resumen"),
+
+        // Privacidad
+        .init(key: AmountPrivacy.hideOnLaunchKey, kind: .bool, note: "Empezar con los montos ocultos"),
+        .init(key: PrivacyShield.coverKey, kind: .bool, note: "Tapar la app al cambiar de app"),
+
+        // Asistente
+        .init(key: AssistantSettings.briefDotKey, kind: .bool, note: "Punto en ✦ cuando hay resumen nuevo"),
+        .init(key: AssistantSettings.suggestionsKey, kind: .bool, note: "Sugerencias de categoría"),
+        .init(key: AssistantSettings.unusualKey, kind: .bool, note: "Avisos de gastos raros"),
 
         // Presupuesto
         .init(key: "monthlyBudget", kind: .double, note: "Presupuesto mensual"),
@@ -61,9 +73,13 @@ enum AppPreferences {
         .init(key: "debtReminderHour", kind: .int, note: "Hora del aviso de cobros"),
         .init(key: "debtReminderMinute", kind: .int, note: "Minuto del aviso de cobros"),
         .init(key: "debtNotificationFrequency", kind: .string, note: "Cada cuánto avisa de los cobros"),
+        .init(key: NotificationSettings.debtWeekdayKey, kind: .int, note: "Día de la semana del aviso de cobros"),
+        .init(key: NotificationSettings.debtMonthDayKey, kind: .int, note: "Día del mes del aviso de cobros"),
+        .init(key: NotificationSettings.reminderIntensityKey, kind: .string, note: "Intensidad al cobrarle a un amigo"),
 
         // Lectura del correo
         .init(key: "readPeriodMonths", kind: .int, note: "Desde cuándo leer el correo"),
+        .init(key: GmailLookback.allHistoryKey, kind: .bool, note: "Leer todo el historial (Pro)"),
 
         // Preferencias de vista que sí son una elección duradera
         .init(key: DictationStyle.storageKey, kind: .string, note: "Animación del dictado por voz"),

@@ -44,7 +44,7 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         SettingsPage(title: "Apariencia y resumen") {
-            AppearancePreview(palette: palette, flash: flash, dictationStyle: dictationStyle,
+            AppearancePreview(palette: palette.themed(activeProTheme), flash: flash, dictationStyle: dictationStyle,
                               amountScale: textSize.amountScale)
                 .padding(.horizontal, 16)
 
@@ -127,7 +127,12 @@ struct AppearanceSettingsView: View {
                         let selected = activeProTheme == theme
                         Button {
                             guard isPro else { paywall = .themes; return }
-                            withAnimation(.easeInOut(duration: 0.2)) { proThemeRaw = theme.rawValue }
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proThemeRaw = theme.rawValue
+                                // El resto de la app toma el tono más
+                                // cercano, para que no desentone con el Resumen.
+                                appAccentColor = theme.companionAccent.rawValue
+                            }
                             ring(.surface)
                         } label: {
                             ProThemeSwatch(theme: theme, size: 40)
@@ -179,11 +184,14 @@ struct AppearanceSettingsView: View {
     // MARK: - Modo, texto y color
 
     private var modeSection: some View {
-        SettingsGroup(title: "Modo") {
+        SettingsGroup(title: "Modo",
+                      footer: activeProTheme == nil ? nil : "Los temas Pro son de noche: mientras uses \(activeProTheme?.rawValue ?? ""), la app va en oscuro.") {
             ShellSegment(items: [AppAppearance.dark, .light, .system], selection: appearanceBinding) { option in
                 option == .system ? "Sistema" : option.rawValue
             }
             .padding(8)
+            .disabled(activeProTheme != nil)
+            .opacity(activeProTheme == nil ? 1 : 0.5)
         }
     }
 
@@ -326,16 +334,24 @@ private struct AppearancePreview: View {
                     .ringed(flash == .dict, color: accent.color, radius: 19)
                 Spacer()
                 Circle()
-                    .fill(accent.color)
+                    .fill(palette.expense)
                     .frame(width: 42, height: 42)
                     .overlay(Image(systemName: "plus").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white))
-                    .shadow(color: accent.color.opacity(0.38), radius: 11)
+                    .shadow(color: palette.expense.opacity(0.38), radius: 11)
             }
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)
         .padding(.bottom, 12)
-        .background(palette.background, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background {
+            // Con tema Pro, la vista previa lleva su cielo animado.
+            if let pro = palette.pro {
+                ProThemeBackdrop(theme: pro)
+                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 26, style: .continuous).fill(palette.background)
+            }
+        }
         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
             .stroke(palette.label.opacity(0.09), lineWidth: 1))
         .accessibilityElement(children: .ignore)

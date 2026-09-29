@@ -277,9 +277,13 @@ struct SettingsEntry: Identifiable, Hashable {
 /// aspecto de iOS, así que el cambio al atardecer llega sin reiniciar la app.
 struct AppAppearanceModifier: ViewModifier {
     @AppStorage(AppAppearance.storageKey) private var raw = AppAppearance.dark.rawValue
+    @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
+    @AppStorage(ProStore.enabledKey) private var isPro = false
 
     func body(content: Content) -> some View {
-        content.preferredColorScheme(AppAppearance(rawValue: raw)?.colorScheme)
+        // Los temas Pro son de noche: con uno puesto, la app va en oscuro.
+        let forcesDark = isPro && ProTheme(rawValue: proThemeRaw) != nil
+        content.preferredColorScheme(forcesDark ? .dark : AppAppearance(rawValue: raw)?.colorScheme)
     }
 }
 

@@ -15,12 +15,13 @@ struct CommittedSection: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
     @Environment(\.hidesAmounts) private var hidesAmounts
     @Query private var rules: [RecurringExpense]
 
     @State private var showsPendingConfirmation = false
 
-    private var palette: Palette { Palette(scheme) }
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
 
     /// Una fila por regla con alguna fecha en el mes.

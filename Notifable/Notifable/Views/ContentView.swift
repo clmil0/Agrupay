@@ -16,6 +16,11 @@ struct ContentView: View {
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
     
+    /// Tema Pro del Resumen (`3b`–`3e`): sólo con Pro activo.
+    @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
+    @AppStorage(ProStore.enabledKey) private var isPro = false
+    private var proTheme: ProTheme? { isPro ? ProTheme(rawValue: proThemeRaw) : nil }
+
     var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .purple }
     var themeColor: Color { accent.color }
     @State private var showSettings = false
@@ -38,6 +43,9 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var reminders = PaymentReminders.shared
     @State private var auth = SupabaseAuthManager.shared
+
+    /// El fondo liso del Resumen: el del tema Pro o el de siempre.
+    private var dashboardBase: Color { proTheme?.base ?? Palette(systemScheme).background }
 
     /// Aplica las reglas con `autoConfirm` y programa el aviso de las que
     /// esperan confirmación. Una vez por sesión.
@@ -181,9 +189,9 @@ struct ContentView: View {
                     // verse nítidas debajo y se notaba el corte.
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
-                        LinearGradient(stops: [.init(color: Palette(systemScheme).background.opacity(0), location: 0),
-                                               .init(color: Palette(systemScheme).background.opacity(0.85), location: 0.45),
-                                               .init(color: Palette(systemScheme).background, location: 0.75)],
+                        LinearGradient(stops: [.init(color: dashboardBase.opacity(0), location: 0),
+                                               .init(color: dashboardBase.opacity(0.85), location: 0.45),
+                                               .init(color: dashboardBase, location: 0.75)],
                                        startPoint: .top, endPoint: .bottom)
                             .frame(height: 170)
                     }
@@ -199,7 +207,16 @@ struct ContentView: View {
                     .padding(.horizontal, ShellMetrics.sideInset)
                     .padding(.bottom, 4)
                 }
-                .background(Palette(systemScheme).background.ignoresSafeArea())
+                // Con tema Pro, el Resumen se dibuja con sus colores sobre su
+                // cielo animado; las pantallas que se apilan encima no.
+                .environment(\.proTheme, proTheme)
+                .background {
+                    if let proTheme {
+                        ProThemeBackdrop(theme: proTheme)
+                    } else {
+                        Palette(systemScheme).background.ignoresSafeArea()
+                    }
+                }
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: AppSection.self) { section in
                     DrillScreen(entry: section)

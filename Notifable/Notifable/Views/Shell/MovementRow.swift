@@ -13,6 +13,7 @@ struct MovementIcon: View {
     var size: CGFloat = 44
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
 
     /// Los íconos de billetera y banco son imágenes de marca: no se tiñen.
     private var isAsset: Bool {
@@ -47,6 +48,7 @@ struct SourceBadge: View {
     var size: CGFloat = 17
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
 
     var body: some View {
         Image(asset)
@@ -54,7 +56,7 @@ struct SourceBadge: View {
             .scaledToFill()
             .frame(width: size, height: size)
             .clipShape(Circle())
-            .overlay(Circle().stroke(Palette(scheme).surface, lineWidth: 2))
+            .overlay(Circle().stroke(Palette(scheme).themed(proTheme).surface, lineWidth: 2))
             .accessibilityHidden(true)
     }
 }
@@ -152,10 +154,11 @@ struct MovementRow: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
     @State private var confirmsDelete = false
     @State private var categorizing = false
     @State private var tagging = false
-    private var palette: Palette { Palette(scheme) }
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
 
     private func assignCategory() {
@@ -457,9 +460,10 @@ struct IncomeRow: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
     @State private var showsDestino = false
     @State private var confirmsDelete = false
-    private var palette: Palette { Palette(scheme) }
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
 
     var body: some View {
@@ -541,7 +545,8 @@ struct MovementCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         VStack(spacing: 0) { content }
@@ -557,10 +562,11 @@ struct MovementCard<Content: View>: View {
 
 struct MovementSeparator: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
 
     var body: some View {
         Rectangle()
-            .fill(Palette(scheme).separator)
+            .fill(Palette(scheme).themed(proTheme).separator)
             .frame(height: 0.5)
             .padding(.leading, 66)
     }
@@ -612,6 +618,7 @@ enum MovementDay {
 private struct TimeLabel: View {
     let date: Date
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
 
     /// Armado una vez y no por fila: la lista monta filas mientras se desliza.
     private static let style = Date.FormatStyle.dateTime
@@ -622,7 +629,7 @@ private struct TimeLabel: View {
         Text(date.formatted(Self.style))
             .font(.system(size: 12.5))
             .monospacedDigit()
-            .foregroundStyle(Palette(scheme).secondaryLabel)
+            .foregroundStyle(Palette(scheme).themed(proTheme).secondaryLabel)
             .fixedSize()
     }
 }

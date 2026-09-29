@@ -19,11 +19,22 @@ struct Palette {
     /// superficies y bordes son los grises neutros de siempre.
     let intense: Bool
 
+    /// Tema Pro del Resumen (`3b`–`3e`). Sólo lo lleva la paleta de las
+    /// vistas del dashboard (`themed(_:)`); en el resto de la app es `nil`.
+    private(set) var pro: ProTheme? = nil
+
     init(_ scheme: ColorScheme, accent: AppThemeColor = .current,
          intense: Bool = AppThemeColor.usesIntenseTint) {
         self.scheme = scheme
         self.accent = accent
         self.intense = intense
+    }
+
+    /// La misma paleta con los colores del tema Pro, si lo hay.
+    func themed(_ pro: ProTheme?) -> Palette {
+        var copy = self
+        copy.pro = pro
+        return copy
     }
 
     private var dark: Bool { scheme == .dark }
@@ -32,14 +43,16 @@ struct Palette {
     /// no es el negro puro de OLED, y por eso las tarjetas se despegan de él
     /// por tono sin necesitar sombra.
     var background: Color {
-        dark ? Color(red: 0.043, green: 0.055, blue: 0.078)   // #0B0E14
+        if let pro { return pro.base }
+        return dark ? Color(red: 0.043, green: 0.055, blue: 0.078)   // #0B0E14
              : Color.white
     }
 
     /// Superficie de tarjeta **neutra**, sin tinte. Para lo que se pinta
     /// encima de una tarjeta ya tintada o necesita el gris de siempre.
     var neutralSurface: Color {
-        dark ? Color(red: 0.086, green: 0.098, blue: 0.133)   // #161922
+        if let pro { return pro.surface }
+        return dark ? Color(red: 0.086, green: 0.098, blue: 0.133)   // #161922
              : Color(red: 0.969, green: 0.969, blue: 0.976)   // #F7F7F9
     }
 
@@ -47,6 +60,7 @@ struct Palette {
     /// tema. Opaca a propósito —mezclada, no con transparencia—, para que lo
     /// que pase por debajo al hacer scroll no se transparente.
     var surface: Color {
+        if let pro { return pro.surface }
         guard intense else { return neutralSurface }
         return neutralSurface.mixed(with: accent.color, amount: dark ? 0.10 : 0.06, scheme: scheme)
     }
@@ -60,7 +74,8 @@ struct Palette {
     /// Relleno del elemento elegido dentro de un control oscuro (la opción
     /// activa de «Semana · Mes», la tarjeta «Todas» del carrusel).
     var selectedFill: Color {
-        dark ? Color(red: 0.137, green: 0.157, blue: 0.220)   // #232838
+        if let pro { return pro.accent.opacity(0.24) }
+        return dark ? Color(red: 0.137, green: 0.157, blue: 0.220)   // #232838
              : Color(red: 0.898, green: 0.906, blue: 0.925)
     }
 
@@ -68,6 +83,7 @@ struct Palette {
     /// hairline gris, con apenas un toque del tema: nunca un borde del color
     /// del acento.
     var hairline: Color {
+        if let pro { return pro.hairline }
         guard intense else { return dark ? Color.white.opacity(0.07) : Color.black.opacity(0.10) }
         let base: Color = dark ? .white : .black
         return base.mixed(with: accent.color, amount: 0.30, scheme: scheme)
@@ -80,26 +96,30 @@ struct Palette {
     }
 
     var label: Color {
-        dark ? Color(red: 0.929, green: 0.941, blue: 0.957)   // #EDF0F4
+        if let pro { return pro.label }
+        return dark ? Color(red: 0.929, green: 0.941, blue: 0.957)   // #EDF0F4
              : .black
     }
 
     /// Texto secundario legible: #AEAEB2 sobre #1C1C1E = 6.1:1;
     /// #6C6C70 sobre #F7F7F9 = 5.4:1. (Antes: 3.1:1 y 3.6:1.)
     var secondaryLabel: Color {
-        dark ? Color(red: 0.604, green: 0.639, blue: 0.698)   // #9AA3B2
+        if let pro { return pro.secondaryLabel }
+        return dark ? Color(red: 0.604, green: 0.639, blue: 0.698)   // #9AA3B2
              : Color(red: 0.424, green: 0.424, blue: 0.439)   // #6C6C70
     }
 
     /// Terciario, sólo para marcas de tiempo y placeholders.
     var tertiaryLabel: Color {
-        dark ? Color(red: 0.541, green: 0.576, blue: 0.639)   // #8A93A3
+        if let pro { return pro.tertiaryLabel }
+        return dark ? Color(red: 0.541, green: 0.576, blue: 0.639)   // #8A93A3
              : Color(red: 0.557, green: 0.557, blue: 0.576)
     }
 
     /// Relleno de barras de progreso y pistas de gráficos.
     var track: Color {
-        dark ? Color(red: 0.165, green: 0.196, blue: 0.259)   // #2A3242
+        if let pro { return pro.hairline }
+        return dark ? Color(red: 0.165, green: 0.196, blue: 0.259)   // #2A3242
              : Color(red: 0.890, green: 0.890, blue: 0.909)
     }
 
@@ -112,30 +132,35 @@ struct Palette {
     // MARK: Gasto e ingreso
 
     /// El color del gasto ahora sigue al tema.
-    var expense: Color { accent.color }
+    var expense: Color { pro?.accent ?? accent.color }
 
     /// Un punto más claro que el gasto, del mismo tono.
-    var expenseLight: Color { accent.color.shiftedHSL(lightness: 0.10, scheme: scheme) }
+    var expenseLight: Color { pro?.accentText ?? accent.color.shiftedHSL(lightness: 0.10, scheme: scheme) }
 
     /// Texto en el segundo acento, sólo en los temas de dos colores (`nil` en
     /// los demás, que se quedan con su gris). Títulos de las tiras, el
     /// monto sobre la barra elegida, el «vs. mes pasado» y las flechas del
     /// resumen.
     var duoText: Color? {
-        accent.isDuotone ? accent.secondaryOnSurface(scheme) : nil
+        // Los temas Pro son de un acento: títulos y flechas en gris.
+        if pro != nil { return nil }
+        return accent.isDuotone ? accent.secondaryOnSurface(scheme) : nil
     }
 
     /// Color para texto de gasto sobre la superficie con contraste verificado.
-    var expenseText: Color { accent.onSurface(scheme) }
+    var expenseText: Color { pro?.accentText ?? accent.onSurface(scheme) }
 
     /// Fondo del chip de delta de gasto.
-    var expenseSoft: Color { accent.color.opacity(dark ? 0.16 : 0.12) }
+    /// Con tema Pro va oscuro y translúcido: el chip cae sobre el cielo, que
+    /// puede ser claro (el sol de Atardecer).
+    var expenseSoft: Color { pro.map { $0.base.opacity(0.55) } ?? accent.color.opacity(dark ? 0.16 : 0.12) }
 
     /// El ingreso. En los temas de dos colores es el segundo acento —el gasto
     /// ya es el primero—, así ingreso, Neto positivo y deltas a la baja
     /// llevan los dos colores del tema. En los de un color, el verde de
     /// siempre: un segundo tono derivado se confundiría con el gasto.
     var income: Color {
+        if let pro { return pro.positive }
         if accent.isDuotone {
             return dark ? accent.secondaryColor : accent.secondaryOnSurface(scheme)
         }

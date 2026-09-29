@@ -23,7 +23,7 @@ enum PrivacyShield {
 
     /// «Tapar al cambiar de app» (Configuración › Bloqueo). Si nunca se
     /// tocó, tapa sólo con el bloqueo encendido, como antes.
-    static let coverKey = "privacyCoverOnSwitch"
+    nonisolated static let coverKey = "privacyCoverOnSwitch"
 
     static var coversOnSwitch: Bool {
         UserDefaults.standard.object(forKey: coverKey) as? Bool ?? AppLock.shared.isEnabled

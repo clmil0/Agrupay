@@ -35,7 +35,8 @@ struct ShellCircleButton: View {
     let action: () -> Void
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         Button(action: action) {
@@ -63,7 +64,8 @@ struct SubtabPill<Tab: AppSubtab>: View {
     var badge: (Tab) -> Int? = { _ in nil }
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -124,7 +126,8 @@ struct ShellHeaderBackground: View {
     let progress: ScrollProgress
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     /// Cuánto se alarga el degradado por debajo del header.
     private static let fadeBelow: CGFloat = 36
@@ -159,7 +162,8 @@ struct DrillHeader<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -181,7 +185,8 @@ struct ShellFAB: View {
     let action: () -> Void
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         Button(action: action) {
@@ -189,7 +194,7 @@ struct ShellFAB: View {
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(Color.white)
                 .frame(width: 62, height: 62)
-                .background(palette.expense, in: Circle())
+                .background(fabFill, in: Circle())
                 // Un halo pintado, no `.shadow`: la sombra se recalcula en cada
                 // fotograma mientras el contenido se desliza por debajo.
                 .background(
@@ -201,6 +206,13 @@ struct ShellFAB: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Registrar movimiento")
     }
+
+    /// Con tema Pro, el + lleva el degradado del tema.
+    private var fabFill: AnyShapeStyle {
+        guard let proTheme else { return AnyShapeStyle(palette.expense) }
+        return AnyShapeStyle(LinearGradient(colors: proTheme.fabGradient,
+                                            startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
 }
 
 /// «Dictar», la píldora de abajo a la izquierda.
@@ -209,7 +221,8 @@ struct ShellDictateButton: View {
     let action: () -> Void
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
 
     var body: some View {
@@ -220,7 +233,7 @@ struct ShellDictateButton: View {
                 Text("Dictar")
                     .font(.system(size: 13.5, weight: .semibold))
             }
-            .foregroundStyle(isDictating ? accent.onSurface(scheme) : palette.secondaryLabel)
+            .foregroundStyle(isDictating ? palette.expenseText : palette.secondaryLabel)
             .padding(.leading, 12)
             .padding(.trailing, 16)
             .frame(height: 46)

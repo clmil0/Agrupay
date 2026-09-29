@@ -10,7 +10,8 @@ struct ShellSectionHeader: View {
     var trailingTint: Color?
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -38,7 +39,8 @@ struct ShellCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         content
@@ -60,7 +62,8 @@ struct StatTile: View {
     var tint: Color?
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         ShellCard {
@@ -69,7 +72,8 @@ struct StatTile: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(palette.secondaryLabel)
                 Text(value)
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 20, weight: proTheme == .obsidian ? .medium : .bold,
+                                  design: proTheme?.numberDesign ?? .default))
                     .foregroundStyle(tint ?? palette.label)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -92,7 +96,8 @@ struct PaceBar: View {
     var height: CGFloat = 8
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     private var fill: Color {
         switch status {
@@ -137,7 +142,8 @@ struct ShellSegment<Item: Hashable>: View {
     let label: (Item) -> String
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -187,7 +193,8 @@ struct ShellTitle: View {
     var subtitle: String?
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -217,7 +224,8 @@ struct ShellEmptyState: View {
     let message: String
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -248,7 +256,8 @@ struct ShellNote: View {
     var tint: Color?
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {

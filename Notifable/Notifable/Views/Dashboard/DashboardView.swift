@@ -21,6 +21,7 @@ struct DashboardView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -113,7 +114,7 @@ struct DashboardView: View {
         return period
     }
 
-    private var palette: Palette { Palette(scheme) }
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
     private var rate: Double { rates.usdToPenRate }
     private var isCurrentMonth: Bool { monthOffset == 0 }
@@ -382,9 +383,10 @@ struct DashboardView: View {
             HStack(spacing: 8) {
                 Image(systemName: filter.selection == nil ? "building.columns.fill" : "creditcard.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(accent.onSurface(scheme))
+                    .foregroundStyle(proTheme?.accentText ?? accent.onSurface(scheme))
                     .frame(width: 22, height: 22)
-                    .background(accent.softFill(scheme), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .background(proTheme.map { $0.accent.opacity(0.22) } ?? accent.softFill(scheme),
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
 
                 Text(selectedAccountName)
                     .font(.system(size: 14, weight: .semibold))
@@ -447,10 +449,11 @@ struct DashboardView: View {
                 HStack(alignment: .lastTextBaseline, spacing: 6) {
                     // Tapado va sin céntimos: «S/ •••» y nada más.
                     Text(hidesAmounts ? AmountPrivacy.mask(formatted) : (split.map { String($0.0) } ?? formatted))
-                        .font(.system(size: 46, weight: .bold))
-                        .tracking(-1.8)
+                        .font(.system(size: 46, weight: proTheme == .obsidian ? .medium : .bold,
+                                      design: proTheme?.numberDesign ?? .default))
+                        .tracking(proTheme == .obsidian ? -0.6 : -1.8)
                         .monospacedDigit()
-                        .foregroundStyle(isEmpty ? palette.tertiaryLabel : palette.label)
+                        .foregroundStyle(heroAmountStyle(isEmpty: isEmpty))
                         // Las cifras ruedan al cambiar de mes; con el ojito
                         // cambian en seco bajo el velo (rodar «533» hasta
                         // «•••» no tiene sentido).
@@ -481,7 +484,7 @@ struct DashboardView: View {
                     } label: {
                         Text("Volver a este mes")
                             .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(accent.onSurface(scheme))
+                            .foregroundStyle(palette.expenseText)
                     }
                     .buttonStyle(.plain)
                 }
@@ -489,6 +492,18 @@ struct DashboardView: View {
         }
         .padding(.horizontal, 2)
         .padding(.top, 4)
+    }
+
+    /// El color del monto grande: el tema Pro puede pintarlo con un
+    /// degradado (oro en Obsidiana, cielo cálido en Atardecer).
+    private func heroAmountStyle(isEmpty: Bool) -> AnyShapeStyle {
+        if isEmpty { return AnyShapeStyle(palette.tertiaryLabel) }
+        if let colors = proTheme?.amountGradient {
+            return AnyShapeStyle(LinearGradient(colors: colors,
+                                                startPoint: proTheme == .sunset ? .top : .topLeading,
+                                                endPoint: proTheme == .sunset ? .bottom : .bottomTrailing))
+        }
+        return AnyShapeStyle(palette.label)
     }
 
     /// Abre y cierra el ojito: todos los montos del resumen a la vez.
@@ -588,7 +603,7 @@ struct DashboardView: View {
             .foregroundStyle(palette.duoText ?? (isUp ? palette.expenseText : palette.income))
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(accent.isDuotone ? accent.secondarySoftFill(scheme)
+            .background(accent.isDuotone && proTheme == nil ? accent.secondarySoftFill(scheme)
                                          : (isUp ? palette.expenseSoft : palette.incomeSoft),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -1183,7 +1198,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     bigNumber("\(count)",
                               caption: isCurrentMonth ? "de este mes" : "de " + monthName.lowercased(),
-                              tint: count > 0 ? accent.secondaryOnSurface(scheme) : nil)
+                              tint: count > 0 ? (proTheme?.accentText ?? accent.secondaryOnSurface(scheme)) : nil)
                     if earlierPending > 0 {
                         Text("\(earlierPending) de meses anteriores")
                             .font(.system(size: 11.5))
@@ -1218,7 +1233,8 @@ struct DashboardView: View {
     private func bigNumber(_ value: String, caption: String, tint: Color? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
-                .font(.system(size: 30, weight: .bold))
+                .font(.system(size: 30, weight: proTheme == .obsidian ? .medium : .bold,
+                              design: proTheme?.numberDesign ?? .default))
                 .monospacedDigit()
                 .foregroundStyle(tint ?? palette.label)
             Text(caption)
@@ -1302,7 +1318,8 @@ private struct DashboardTile<Content: View>: View {
     let content: () -> Content
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         let badge = self.badge()
@@ -1370,7 +1387,8 @@ private struct FriendsSummary: View {
 
     @Environment(\.hidesAmounts) private var hidesAmounts
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     /// Lo que asoma el personaje por debajo del borde de la tarjeta.
     static let characterHeight: CGFloat = 82
@@ -1385,7 +1403,7 @@ private struct FriendsSummary: View {
             VStack(alignment: .leading, spacing: 2) {
                 if open.isEmpty {
                     Text(friends == 0 ? "Invita" : "\(friends)")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 22, weight: .bold, design: proTheme?.numberDesign ?? .default))
                         .monospacedDigit()
                         .foregroundStyle(palette.label)
                     Text(friends == 1 ? "amigo" : (friends == 0 ? "a un amigo" : "amigos"))
@@ -1394,7 +1412,7 @@ private struct FriendsSummary: View {
                 } else {
                     Text(Money.formatCompact(owed).masked(hidesAmounts))
                         .amountVeil()
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 22, weight: .bold, design: proTheme?.numberDesign ?? .default))
                         .monospacedDigit()
                         .foregroundStyle(palette.label)
                         .lineLimit(1)

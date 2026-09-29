@@ -36,6 +36,7 @@ struct SettingsView: View {
     @State private var backup = ConfigBackupManager.shared
 
     @AppStorage(ProStore.enabledKey) private var isPro = false
+    @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.dark.rawValue
@@ -343,6 +344,10 @@ struct SettingsView: View {
     private var appearanceSubtitle: String {
         let count = DashboardStatsSettings.decode(statsRaw).count
         let stats = count == 0 ? "sin estadísticas" : "\(count) de \(DashboardStat.allCases.count) estadísticas"
+        // Con tema Pro, su nombre; y va siempre en oscuro.
+        if isPro, let pro = ProTheme(rawValue: proThemeRaw) {
+            return [pro.rawValue, AppAppearance.dark.rawValue, stats].joined(separator: " · ")
+        }
         return [accent.rawValue, appearance.rawValue, stats].joined(separator: " · ")
     }
 

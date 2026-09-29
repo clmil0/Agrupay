@@ -33,9 +33,10 @@ struct SpendBarChart: View {
     var isReady: Bool = true
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.hidesAmounts) private var hidesAmounts
-    private var palette: Palette { Palette(scheme) }
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     /// Las barras ya llenas; vuelve a `false` para repetir la entrada cuando
     /// cambian los periodos (Semana ↔ Mes, otro mes).
@@ -94,9 +95,9 @@ struct SpendBarChart: View {
                 if isSelected {
                     Text(Money.formatCompact(column.total).masked(hidesAmounts))
                         .amountVeil()
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 14, weight: .bold, design: proTheme?.numberDesign ?? .default))
                         .monospacedDigit()
-                        .foregroundStyle(palette.duoText ?? palette.expense)
+                        .foregroundStyle(palette.duoText ?? (proTheme == nil ? palette.expense : palette.expenseText))
                         .fixedSize()
                         .offset(y: -Self.labelRoom + max(0, Self.barArea - barHeight) - 4)
                         .transition(.opacity)
@@ -122,7 +123,36 @@ struct SpendBarChart: View {
 
     /// Degradado del gasto (más claro arriba) con la línea de la superficie;
     /// las no elegidas al 55 %.
+    @ViewBuilder
     private func bar(hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
+        if let proTheme {
+            proBar(proTheme, hasSpend: hasSpend, isSelected: isSelected, height: height)
+        } else {
+            plainBar(hasSpend: hasSpend, isSelected: isSelected, height: height)
+        }
+    }
+
+    /// Temas Pro (`3b`–`3e`): el degradado del tema, con brillo en la
+    /// elegida. Obsidiana usa cápsulas; los demás, la barra de siempre.
+    private func proBar(_ theme: ProTheme, hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: theme == .obsidian ? 40 : 6, style: .continuous)
+        return shape
+            .fill(hasSpend
+                  ? AnyShapeStyle(LinearGradient(colors: theme.barGradient, startPoint: .bottom, endPoint: .top))
+                  : AnyShapeStyle(palette.track))
+            .overlay(alignment: .top) {
+                if hasSpend && theme != .obsidian {
+                    Rectangle().fill(.white.opacity(isSelected ? 0.7 : 0.25)).frame(height: 1.5)
+                }
+            }
+            .clipShape(shape)
+            .frame(width: theme == .obsidian ? 22 : nil, height: height)
+            .frame(maxWidth: .infinity)
+            .opacity(!hasSpend || isSelected ? 1 : 0.5)
+            .shadow(color: theme.accent.opacity(isSelected && hasSpend ? 0.65 : 0), radius: 11)
+    }
+
+    private func plainBar(hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         let top = palette.expense.mixed(with: .white, amount: 0.28, scheme: scheme)
 
@@ -168,7 +198,8 @@ struct CompactSegment<Item: Hashable>: View {
     let label: (Item) -> String
 
     @Environment(\.colorScheme) private var scheme
-    private var palette: Palette { Palette(scheme) }
+    @Environment(\.proTheme) private var proTheme
+    private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -193,7 +224,7 @@ struct CompactSegment<Item: Hashable>: View {
             }
         }
         .padding(3)
-        .background(palette.background, in: Capsule())
+        .background(proTheme.map { $0.base.opacity(0.6) } ?? palette.background, in: Capsule())
         .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
     }
 }
