@@ -261,67 +261,84 @@ struct ProfileView: View {
 
     private func previewSection(shared: (total: Bool, categories: [String]),
                                 totals: PeriodTotals) -> some View {
+        VStack(spacing: 8) {
+            ShellSectionHeader(title: "Así te verán tus amigos")
+            ProfileFriendPreview(shared: shared, totals: totals)
+        }
+    }
+}
+
+
+/// La tarjeta «así te verán tus amigos»: la misma del feed de Actividad. La
+/// usan Social › Mi perfil y Configuración › Perfil (`4a`).
+struct ProfileFriendPreview: View {
+    let shared: (total: Bool, categories: [String])
+    let totals: PeriodTotals
+
+    @Environment(\.colorScheme) private var scheme
+    @State private var social = SocialProfileStore.shared
+
+    private var palette: Palette { Palette(scheme) }
+    private var accent: AppThemeColor { .current }
+
+    var body: some View {
         let categories = totals.byCategory
             .filter { shared.categories.contains($0.category) }
             .prefix(3)
 
-        return VStack(spacing: 8) {
-            ShellSectionHeader(title: "Así te verán tus amigos")
+        ShellCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    PenguinAvatar(look: social.penguin, size: 44,
+                                  background: palette.neutralSurface)
 
-            ShellCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        PenguinAvatar(look: social.penguin, size: 44,
-                                      background: palette.neutralSurface)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(social.displayName.isEmpty ? "Sin nombre" : social.displayName)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(palette.label)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(social.displayName.isEmpty ? "Sin nombre" : social.displayName)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(palette.label)
-
-                            Text(social.status.isEmpty
-                                 ? "Su gasto de " + Period.spanishMonthName(for: Date()).lowercased()
-                                 : "«" + social.status + "»")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(palette.secondaryLabel)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 6)
-
-                        if shared.total {
-                            Text(Money.format(totals.spent))
-                                .font(.system(size: 17, weight: .bold))
-                                .foregroundStyle(palette.label)
-                        }
-                    }
-
-                    if !categories.isEmpty {
-                        HStack(spacing: 6) {
-                            ForEach(Array(categories), id: \.id) { category in
-                                HStack(spacing: 4) {
-                                    Image(systemName: CategoryStyle.icon(for: category.category))
-                                        .font(.system(size: 10, weight: .semibold))
-                                    Text(category.category)
-                                        .font(.system(size: 11.5, weight: .semibold))
-                                }
-                                .foregroundStyle(CategoryStyle.color(for: category.category,
-                                                                    accent: accent.color))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(CategoryStyle.color(for: category.category,
-                                                                accent: accent.color).opacity(0.14),
-                                            in: Capsule())
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-
-                    if !shared.total && categories.isEmpty {
-                        Text("Ahora mismo no compartes nada con nadie.")
+                        Text(social.status.isEmpty
+                             ? "Su gasto de " + Period.spanishMonthName(for: Date()).lowercased()
+                             : "«" + social.status + "»")
                             .font(.system(size: 12.5))
-                            .foregroundStyle(palette.tertiaryLabel)
+                            .foregroundStyle(palette.secondaryLabel)
+                            .lineLimit(1)
                     }
+
+                    Spacer(minLength: 6)
+
+                    if shared.total {
+                        Text(Money.format(totals.spent))
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(palette.label)
+                    }
+                }
+
+                if !categories.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(categories), id: \.id) { category in
+                            HStack(spacing: 4) {
+                                Image(systemName: CategoryStyle.icon(for: category.category))
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text(category.category)
+                                    .font(.system(size: 11.5, weight: .semibold))
+                            }
+                            .foregroundStyle(CategoryStyle.color(for: category.category,
+                                                                accent: accent.color))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(CategoryStyle.color(for: category.category,
+                                                            accent: accent.color).opacity(0.14),
+                                        in: Capsule())
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+
+                if !shared.total && categories.isEmpty {
+                    Text("Ahora mismo no compartes nada con nadie.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(palette.tertiaryLabel)
                 }
             }
         }

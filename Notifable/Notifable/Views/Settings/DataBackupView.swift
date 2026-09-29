@@ -1,53 +1,113 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
-/// Datos y respaldo. El CSV vivía en una sección llamada "Funciones Online"
-/// junto a dos toggles de IA que no hacían nada; las acciones destructivas
-/// compartían sección con el diagnóstico BBVA, las dos en naranja.
+/// Datos y respaldo (`4l`): lo que hay en el teléfono, el respaldo en archivo
+/// (gratis), la nube (Pro), el diagnóstico y borrar.
+///
+/// El respaldo en archivo y la nube guardan lo mismo: ajustes, categorías,
+/// reglas, atajos, recurrentes y lo anotado a mano. Los gastos del correo no
+/// viajan en ninguno de los dos: se vuelven a leer solos.
 struct DataBackupView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
-    @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
-    @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
+    @AppStorage(ProStore.enabledKey) private var isPro = false
 
-    @Query private var expenses: [Expense]
     @StateObject private var gmailSync = GmailSyncService.shared
     @State private var syncManager = ConfigBackupManager.shared
-    @State private var summary = BackupSummary()
-    @State private var showBackupDetail = false
-    @State private var showEnableSyncHint = false
-    @State private var isBackingUp = false
+    @State private var counts = (movements: 0, categories: 0, rules: 0)
+    @State private var paywall: ProStore.Feature?
 
-    private var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .purple }
+    @State private var exportDocument: ExportDocument?
+    @State private var showsExporter = false
+    @State private var showsImporter = false
+    @State private var outcome: String?
+
     private var palette: Palette { Palette(scheme) }
 
-    private var ruleCount: Int { MerchantRules.all().count }
-    private var cachedEmailCount: Int {
-        (UserDefaults.standard.stringArray(forKey: "processedEmailIDs") ?? []).count
-    }
-
     var body: some View {
-        ScrollView {
-            VStack(spacing: 22) {
-                backupCard
-                inventory
-                configBackupRow
-                deleteDataRow
-                debugSection
+        SettingsPage(title: "Datos y respaldo") {
+            inventory
+
+            SettingsGroup(title: "Respaldo", footer: outcome) {
+                SettingsButton(icon: "square.and.arrow.down.fill", tint: Color(white: 0.4),
+                               title: "Guardar un respaldo", subtitle: "Archivo en Archivos o iCloud Drive") {
+                    guard let data = syncManager.fileBackupData() else {
+                        outcome = "No se pudo armar el respaldo. Inténtalo de nuevo."
+                        return
+                    }
+                    exportDocument = ExportDocument(data: data, type: .json,
+                                                    filename: "AgruPay respaldo " + Self.fileDate())
+                    showsExporter = true
+                }
+                SettingsDivider()
+                SettingsButton(icon: "clock.arrow.circlepath", tint: Color(white: 0.4),
+                               title: "Restaurar desde archivo") { showsImporter = true }
+                SettingsDivider()
+                SettingsButton(icon: "tablecells.fill", tint: Color(white: 0.4), title: "Exportar a CSV") {
+                    exportDocument = ExportDocument(data: csvData(), type: .commaSeparatedText,
+                                                    filename: "AgruPay movimientos " + Self.fileDate())
+                    showsExporter = true
+                }
             }
-            .padding(.vertical, 16)
+
+            SettingsGroup(title: "En la nube") {
+                if isPro {
+                    SettingsLink(icon: "icloud.and.arrow.up.fill", tint: Color(hex: 0x40C8E0),
+                                 title: "Respaldo automático", subtitle: cloudSubtitle) {
+                        ConfigBackupView()
+                    }
+                } else {
+                    SettingsButton(icon: "icloud.and.arrow.up.fill", tint: Color(hex: 0x40C8E0),
+                                   title: "Respaldo automático",
+                                   subtitle: syncManager.isEnabled
+                                    ? "En pausa: tu copia sigue en la nube y se retoma con Pro"
+                                    : "Preferencias, categorías y reglas, cada día",
+                                   pro: true) { paywall = .cloud }
+                }
+            }
+
+            SettingsGroup(title: "Ayuda") {
+                SettingsLink(icon: "stethoscope", tint: Color(white: 0.4), title: "Diagnóstico",
+                             subtitle: "Para enviar un informe si algo falla") {
+                    DiagnosticsView()
+                }
+            }
+
+            SettingsGroup(footer: "Elige qué borrar por grupos o por fechas.", destructive: true) {
+                NavigationLink {
+                    DeleteDataView()
+                } label: {
+                    HStack {
+                        Text("Borrar datos").foregroundStyle(palette.negative)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 52)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            debugSection
         }
-        .background(palette.background)
-        .navigationTitle("Datos y respaldo")
-        .navigationBarTitleDisplayMode(.inline)
+        .onAppear(perform: refreshCounts)
+        .fileExporter(isPresented: $showsExporter, document: exportDocument,
+                      contentType: exportDocument?.type ?? .json,
+                      defaultFilename: exportDocument?.filename) { result in
+            if case .failure(let error) = result { outcome = "No se pudo guardar: \(error.localizedDescription)" }
+        }
+        .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.json]) { result in
+            restore(result)
+        }
+        .proPaywall($paywall)
         .sheet(isPresented: $gmailSync.showDiagnostic) {
             NavigationStack {
                 ScrollView {
                     Text(gmailSync.diagnosticResult)
                         .padding()
                         .font(.system(.body, design: .monospaced))
-                        .fontDesign(.monospaced)
                         .textSelection(.enabled)
                 }
                 .navigationTitle("Diagnóstico")
@@ -61,284 +121,125 @@ struct DataBackupView: View {
         }
     }
 
-    // MARK: - Qué se guarda
+    // MARK: - En este dispositivo
 
-    /// Antes decía "412 gastos en este dispositivo" junto a un botón que los
-    /// subía a la nube. Los gastos ya no se suben —se rearman releyendo el
-    /// correo— así que ese número prometía justo lo contrario de lo que pasa.
-    /// Ahora cuenta lo que sí viaja: ajustes, deudas y lo anotado a mano.
-    private var backupCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(accent.color.opacity(0.18))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "icloud.and.arrow.up")
-                        .foregroundStyle(accent.onSurface(scheme))
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Lo que se guarda")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(palette.label)
-                    Text(summaryLine)
-                        .font(.caption)
-                        .foregroundStyle(palette.secondaryLabel)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    withAnimation(.snappy) { showBackupDetail.toggle() }
-                } label: {
-                    Image(systemName: showBackupDetail ? "info.circle.fill" : "info.circle")
-                        .font(.system(size: 17))
-                        .foregroundStyle(showBackupDetail ? accent.onSurface(scheme) : palette.tertiaryLabel)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if showBackupDetail {
-                VStack(spacing: 0) {
-                    ForEach(summary.rows) { row in
-                        HStack(spacing: 10) {
-                            Image(systemName: row.icon)
-                                .font(.caption)
-                                .frame(width: 18)
-                                .foregroundStyle(accent.onSurface(scheme))
-                            Text(row.title)
-                                .font(.caption)
-                                .foregroundStyle(palette.secondaryLabel)
-                            Spacer(minLength: 8)
-                            Text("\(row.count)")
-                                .font(.caption.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(palette.label)
-                        }
-                        .frame(height: 30)
-                    }
-                    Text("Tus gastos e ingresos del correo no se suben: se vuelven a leer solos.")
-                        .font(.caption2)
-                        .foregroundStyle(palette.tertiaryLabel)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                }
-                .transition(.opacity)
-            }
-
-            HStack(spacing: 10) {
-                secondaryButton(isBackingUp ? "Guardando…" : "Respaldar ahora",
-                                icon: "arrow.triangle.2.circlepath") {
-                    guard syncManager.isEnabled else {
-                        showEnableSyncHint = true
-                        return
-                    }
-                    Task {
-                        isBackingUp = true
-                        _ = await syncManager.syncNow()
-                        summary = syncManager.localSummary()
-                        isBackingUp = false
-                    }
-                }
-                secondaryButton("Exportar CSV", icon: "square.and.arrow.up") {
-                    // TODO: Implement CSV Export
-                }
-            }
-
-            if showEnableSyncHint {
-                Text("Primero activa la sincronización aquí abajo: sin ella no hay dónde guardarlo.")
-                    .font(.caption)
-                    .foregroundStyle(palette.secondaryLabel)
-            }
-        }
-        .padding(16)
-        .background(palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(palette.hairline, lineWidth: 0.5)
-        )
-        .padding(.horizontal, 16)
-        .task { summary = syncManager.localSummary() }
-        .onChange(of: syncManager.lastSyncedAt) { _, _ in
-            summary = syncManager.localSummary()
-        }
-    }
-
-    private var summaryLine: String {
-        let total = summary.total
-        guard total > 0 else { return "Todavía no has configurado nada que guardar." }
-        return "\(total) cosas: ajustes, cobros y lo anotado a mano"
-    }
-
-    private func secondaryButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text(title)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(palette.label)
-            .frame(maxWidth: .infinity)
-            .frame(height: 38)
-            .background(palette.track)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Inventario
-
-    /// El contexto que hace comprensible el bloque de abajo: sin saber cuántos
-    /// gastos hay, "borrar todo" no significa nada.
+    /// El contexto que hace comprensible el resto: sin saber cuánto hay,
+    /// «borrar» o «respaldar» no significan nada.
     private var inventory: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("EN ESTE DISPOSITIVO")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(palette.secondaryLabel)
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                stat(counts.movements, "movimientos")
+                stat(counts.categories, "categorías")
+                stat(counts.rules, "reglas")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(palette.hairline, lineWidth: 0.5))
+        .padding(.horizontal, 16)
+    }
+
+    private func stat(_ value: Int, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value.formatted())
+                .font(.system(size: 20, weight: .bold).monospacedDigit())
+                .foregroundStyle(palette.label)
+            Text(label)
                 .font(.caption)
                 .foregroundStyle(palette.secondaryLabel)
-                .padding(.horizontal, 20)
-
-            VStack(spacing: 0) {
-                inventoryRow("Gastos", value: "\(expenses.count)")
-                Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 16)
-                inventoryRow("Reglas de categoría", value: "\(ruleCount)")
-                Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 16)
-                inventoryRow("Correos en caché", value: "\(cachedEmailCount)")
-            }
-            .background(palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(palette.hairline, lineWidth: 0.5)
-            )
-            .padding(.horizontal, 16)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func inventoryRow(_ title: String, value: String) -> some View {
-        HStack {
-            Text(title).foregroundStyle(palette.label)
-            Spacer()
-            Text(value).foregroundStyle(palette.secondaryLabel)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 46)
+    private func refreshCounts() {
+        let movements = ((try? modelContext.fetchCount(FetchDescriptor<Expense>())) ?? 0)
+            + ((try? modelContext.fetchCount(FetchDescriptor<Income>())) ?? 0)
+        var all = FetchDescriptor<Expense>()
+        all.propertiesToFetch = [\.category]
+        let categories = Set(((try? modelContext.fetch(all)) ?? []).map(\.category))
+            .union(CategoryCatalog.shared.entries.keys)
+            .subtracting([Accounting.unclassified]).count
+        counts = (movements, categories, MerchantRules.all().count)
     }
 
-    // MARK: - Sincronización
+    // MARK: - Nube
 
-    /// El estado vive en el subtítulo de la fila: entrar a la pantalla sólo
-    /// para comprobar que todo va bien es un viaje que no debería hacer falta.
-    private var syncIcon: String {
-        if syncManager.lastErrorMessage != nil { return "exclamationmark.icloud.fill" }
-        if syncManager.isSyncing { return "arrow.triangle.2.circlepath.icloud" }
-        if syncManager.isEnabled { return "checkmark.icloud.fill" }
-        return syncManager.isPausedAfterWipe ? "pause.circle.fill" : "icloud.slash"
-    }
-
-    private var syncTint: Color {
-        if syncManager.lastErrorMessage != nil { return palette.negative }
-        if !syncManager.isEnabled { return palette.secondaryLabel }
-        return accent.onSurface(scheme)
-    }
-
-    private var syncSubtitle: String {
+    private var cloudSubtitle: String {
         if let error = syncManager.lastErrorMessage { return error }
         if syncManager.isSyncing { return "Sincronizando…" }
-        if syncManager.isEnabled {
-            guard let last = syncManager.lastSyncedAt else { return "Activada" }
-            let ago = Self.relative.localizedString(for: last, relativeTo: Date())
-            return "Activada · \(ago)"
+        guard syncManager.isEnabled else {
+            return syncManager.isPausedAfterWipe ? "En pausa" : "Preferencias, categorías y reglas, cada día"
         }
-        return syncManager.isPausedAfterWipe ? "Pausada" : "Desactivada"
+        guard let last = syncManager.lastSyncedAt else { return "Activado" }
+        return "Activado · " + Self.relative.localizedString(for: last, relativeTo: Date())
     }
 
     private static let relative: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "es_PE")
         f.unitsStyle = .short
         return f
     }()
 
-    // MARK: - Respaldo de configuración
+    // MARK: - Archivos
 
-    /// Reglas, categorías (con sus renombrados), presupuestos, bancos
-    /// activos, notificaciones, apariencia, atajos y gastos recurrentes —
-    /// todo lo que sobra si formateas el celular y no lo puedes recuperar
-    /// releyendo el correo.
-    private var configBackupRow: some View {
-        NavigationLink {
-            ConfigBackupView()
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(syncTint.opacity(0.18))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: syncIcon)
-                        .foregroundStyle(syncTint)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Sincronización")
-                        .foregroundStyle(palette.label)
-                    Text(syncSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(syncManager.lastErrorMessage == nil ? palette.secondaryLabel : palette.negative)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(palette.tertiaryLabel)
-            }
-            .padding(16)
-            .background(palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(palette.hairline, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
+    private static func fileDate() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
     }
 
-    // MARK: - Borrar datos
-
-    /// Ya no hay una lista plana de acciones irreversibles aquí: la elección
-    /// por intención (qué quieres conseguir) vive en DeleteDataView.
-    private var deleteDataRow: some View {
-        NavigationLink {
-            DeleteDataView()
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(palette.negative.opacity(0.14))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "trash.fill")
-                        .foregroundStyle(palette.negative)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Borrar datos")
-                        .foregroundStyle(palette.negative)
-                    Text("Elige qué borrar por grupos.")
-                        .font(.caption)
-                        .foregroundStyle(palette.secondaryLabel)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(palette.tertiaryLabel)
+    private func restore(_ result: Result<URL, Error>) {
+        switch result {
+        case .failure(let error):
+            outcome = "No se pudo abrir el archivo: \(error.localizedDescription)"
+        case .success(let url):
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                outcome = "No se pudo leer el archivo."
+                return
             }
-            .padding(16)
-            .background(palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(palette.negative.opacity(0.35), lineWidth: 1)
-            )
+            if let error = syncManager.restoreFromFile(data) {
+                outcome = error
+            } else {
+                outcome = "Listo: se restauró tu configuración. Tus movimientos del correo no se tocaron."
+                refreshCounts()
+            }
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
+    }
+
+    /// Todos los movimientos, del más nuevo al más viejo.
+    private func csvData() -> Data {
+        let expenses = (try? modelContext.fetch(FetchDescriptor<Expense>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]))) ?? []
+        let incomes = (try? modelContext.fetch(FetchDescriptor<Income>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]))) ?? []
+
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        func field(_ text: String) -> String {
+            "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        func amount(_ value: Double) -> String { String(format: "%.2f", value) }
+
+        var rows = ["Fecha,Tipo,Comercio,Categoría,Monto,Moneda,Banco,Notas"]
+        for e in expenses {
+            rows.append([f.string(from: e.date), "Gasto", field(Accounting.displayName(e.merchant)),
+                         field(e.category), amount(e.amount), e.currency,
+                         field(e.sourceBank ?? ""), field(e.notes ?? "")].joined(separator: ","))
+        }
+        for i in incomes {
+            rows.append([f.string(from: i.date), "Ingreso", field(i.source), field("Ingreso"),
+                         amount(i.amount), i.currency, field(""), field(i.notes ?? "")].joined(separator: ","))
+        }
+        // BOM para que Excel abra bien las tildes.
+        return Data(("\u{FEFF}" + rows.joined(separator: "\n")).utf8)
     }
 
     // MARK: - Debug
@@ -346,44 +247,22 @@ struct DataBackupView: View {
     @ViewBuilder
     private var debugSection: some View {
         #if DEBUG
-        VStack(alignment: .leading, spacing: 8) {
-            Text("DEBUG")
-                .font(.caption)
-                .foregroundStyle(palette.secondaryLabel)
-                .padding(.horizontal, 20)
-
-            VStack(spacing: 0) {
-                debugRow("Diagnóstico BBVA Pago", icon: "stethoscope") { gmailSync.diagnosticBBVA() }
-                Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 16)
-                debugRow("Diagnóstico BBVA Transf", icon: "arrow.left.arrow.right") { gmailSync.diagnosticBBVATransfer() }
-                Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 16)
-                debugRow("Diagnóstico Apple", icon: "apple.logo") { gmailSync.diagnosticApple() }
-                Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 16)
-                debugRow("Añadir gasto de prueba", icon: "dice", action: addRandomExpense)
-            }
-            .background(palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .padding(.horizontal, 16)
+        SettingsGroup(title: "Debug") {
+            SettingsToggle(title: "Pro (QA)", subtitle: "Cambia entre Gratis y Pro sin pasar por el paywall",
+                           isOn: Binding(get: { isPro }, set: { $0 ? ProStore.startTrial(plan: .anual) : ProStore.cancel() }))
+            SettingsDivider(inset: 14)
+            SettingsButton(title: "Diagnóstico BBVA Pago", chevron: false) { gmailSync.diagnosticBBVA() }
+            SettingsDivider(inset: 14)
+            SettingsButton(title: "Diagnóstico BBVA Transf", chevron: false) { gmailSync.diagnosticBBVATransfer() }
+            SettingsDivider(inset: 14)
+            SettingsButton(title: "Diagnóstico Apple", chevron: false) { gmailSync.diagnosticApple() }
+            SettingsDivider(inset: 14)
+            SettingsButton(title: "Añadir gasto de prueba", chevron: false, action: addRandomExpense)
         }
         #endif
     }
 
     #if DEBUG
-    private func debugRow(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon).frame(width: 24)
-                Text(title)
-                Spacer()
-            }
-            .foregroundStyle(palette.secondaryLabel)
-            .padding(.horizontal, 16)
-            .frame(height: 46)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func addRandomExpense() {
         let options = [
             ("Apple Store", "Entretenimiento"),
@@ -406,6 +285,30 @@ struct DataBackupView: View {
         )
         modelContext.insert(expense)
         try? modelContext.save()
+        refreshCounts()
     }
     #endif
+}
+
+/// Un archivo ya armado para `fileExporter`: el respaldo (JSON) o el CSV.
+struct ExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json, .commaSeparatedText] }
+
+    let data: Data
+    var type: UTType = .json
+    var filename: String = "AgruPay"
+
+    init(data: Data, type: UTType, filename: String) {
+        self.data = data
+        self.type = type
+        self.filename = filename
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
 }

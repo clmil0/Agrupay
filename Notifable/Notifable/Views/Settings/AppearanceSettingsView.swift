@@ -1,20 +1,22 @@
 import SwiftUI
 
-/// Apariencia (`1c`): un mini-Resumen fijo arriba y los ajustes por pestaña.
+/// Apariencia y resumen (`4h`): una vista previa del Resumen, los temas por
+/// familia —un color, dos colores y los Pro con fondo animado al final—,
+/// modo, texto, color y las estadísticas del Resumen.
 ///
-/// La vista previa es una miniatura del dashboard real —cuentas, monto,
-/// barras, tarjetas, Dictar y +— para que cada ajuste tenga dónde notarse, y
-/// marca con un anillo lo que acaba de cambiar.
+/// Antes eran pestañas (Color · Texto · Voz) con la vista previa fija arriba;
+/// ahora es una sola lista, y Estadísticas vive aquí en vez de tener fila
+/// propia en la raíz. La vista previa marca con un anillo lo que acaba de
+/// cambiar.
 struct AppearanceSettingsView: View {
-
-    enum Tab: String, CaseIterable {
-        case color = "Color"
-        case text = "Texto"
-        case voice = "Voz"
-    }
 
     /// La parte de la vista previa que se ilumina tras un cambio.
     enum Flash { case surface, cats, type, dict }
+
+    /// Los de la fila «Un color»: los clásicos. Los pastel de un color están
+    /// en «Ver todos los temas».
+    static let singleThemes: [AppThemeColor] = [.blue, .purple, .green, .orange, .red, .charcoal]
+    static let duoThemes: [AppThemeColor] = AppThemeColor.allCases.filter(\.isDuotone)
 
     @Environment(\.colorScheme) private var scheme
     @AppStorage(AppThemeColor.storageKey) private var appAccentColor = AppThemeColor.blue.rawValue
@@ -24,51 +26,45 @@ struct AppearanceSettingsView: View {
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
     @AppStorage(AppThemeColor.themedCategoryColorsKey) private var themedCategoryColors = false
     @AppStorage(DictationStyle.storageKey) private var dictationStyle = DictationStyle.bars.rawValue
+    @AppStorage(DashboardStatsSettings.key) private var statsRaw = DashboardStatsSettings.defaultValue
+    @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
+    @AppStorage(ProStore.enabledKey) private var isPro = false
 
-    @State private var tab: Tab = .color
     @State private var flash: Flash?
     @State private var flashTask: Task<Void, Never>?
-    @State private var recentThemes = AppThemeColor.recent()
     @State private var showsThemeGallery = false
+    @State private var paywall: ProStore.Feature?
 
     private var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .blue }
     private var appearance: AppAppearance { AppAppearance(rawValue: appearanceRaw) ?? .dark }
     private var palette: Palette { Palette(scheme, accent: accent, intense: intenseThemeTint) }
     private var textSize: AppTextSize { AppTextSize(rawValue: appTextSize) ?? .sistema }
     private var fontDesign: AppFontDesign { AppFontDesign(rawValue: appFontDesign) ?? .sistema }
+    private var activeProTheme: ProTheme? { isPro ? ProTheme(rawValue: proThemeRaw) : nil }
 
     var body: some View {
-        VStack(spacing: 0) {
+        SettingsPage(title: "Apariencia y resumen") {
             AppearancePreview(palette: palette, flash: flash, dictationStyle: dictationStyle,
                               amountScale: textSize.amountScale)
                 .padding(.horizontal, 16)
-                .padding(.top, 6)
 
-            ShellSegment(items: Tab.allCases, selection: $tab) { $0.rawValue }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
+            themesSection
+            modeSection
+            textSection
+            colorSection
+            voiceSection
 
-            ScrollView {
-                Group {
-                    switch tab {
-                    case .color: colorTab
-                    case .text: textTab
-                    case .voice: voiceTab
-                    }
+            SettingsGroup(title: "Resumen") {
+                SettingsLink(icon: "chart.xyaxis.line", tint: Color(hex: 0x5E5CE6),
+                             title: "Estadísticas", value: statsValue) {
+                    StatsSettingsView()
                 }
-                .padding(.top, 18)
-                .padding(.bottom, 40)
             }
-            .scrollIndicators(.hidden)
         }
-        .background(palette.background)
-        .navigationTitle("Apariencia")
-        .navigationBarTitleDisplayMode(.inline)
         .animation(.easeInOut(duration: 0.3), value: appAccentColor)
         .animation(.easeInOut(duration: 0.3), value: intenseThemeTint)
         .onChange(of: appAccentColor) { _, raw in
             if let theme = AppThemeColor(rawValue: raw) { AppThemeColor.noteUsed(theme) }
-            recentThemes = AppThemeColor.recent()
             ring(.surface)
         }
         .onChange(of: intenseThemeTint) { _, _ in ring(.surface) }
@@ -79,11 +75,12 @@ struct AppearanceSettingsView: View {
         .onDisappear { flashTask?.cancel() }
         .fullScreenCover(isPresented: $showsThemeGallery) {
             ThemeGalleryView(current: accent) { theme in
-                withAnimation(.easeInOut(duration: 0.2)) { appAccentColor = theme.rawValue }
+                withAnimation(.easeInOut(duration: 0.2)) { pick(theme) }
             }
             .appAppearance()
             .appTextSize()
         }
+        .proPaywall($paywall)
     }
 
     /// Enciende el anillo de una parte de la vista previa durante un segundo.
@@ -97,231 +94,156 @@ struct AppearanceSettingsView: View {
         }
     }
 
-    private func sectionTitle(_ text: String, trailing: (String, () -> Void)? = nil) -> some View {
-        HStack {
-            Text(text)
-                .font(.system(size: 11.5, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(palette.secondaryLabel)
-            Spacer()
-            if let trailing {
-                Button(trailing.0, action: trailing.1)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(accent.onSurface(scheme))
-            }
-        }
-        .padding(.horizontal, 20)
+    /// Un tema básico quita el tema Pro que hubiera.
+    private func pick(_ theme: AppThemeColor) {
+        proThemeRaw = ""
+        appAccentColor = theme.rawValue
     }
 
-    private func block<Content: View>(_ title: String, spacing: CGFloat = 8,
-                                      @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            sectionTitle(title)
-            content()
-        }
+    private var statsValue: String {
+        let count = DashboardStatsSettings.decode(statsRaw).count
+        return count == 0 ? "Ninguna" : "\(count) de \(DashboardStat.allCases.count)"
     }
 
-    // MARK: - Color
+    // MARK: - Temas
 
-    private var colorTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
+    private var themesSection: some View {
+        SettingsGroup(title: "Temas") {
             VStack(alignment: .leading, spacing: 10) {
-                sectionTitle("TEMA · " + accent.rawValue.uppercased(),
-                             trailing: ("Ver todos", { showsThemeGallery = true }))
-                themeRow
-            }
+                familyLabel("Un color")
+                swatchRow(Self.singleThemes)
 
-            block("TARJETAS") {
-                ShellSegment(items: [false, true], selection: $intenseThemeTint) { $0 ? "Con tinte" : "Neutras" }
-                    .overlay { segmentChips(count: 2) { index in intenseChip(index == 1) } }
-                    .padding(.horizontal, 16)
-            }
+                familyLabel("Dos colores")
+                    .padding(.top, 4)
+                swatchRow(Self.duoThemes)
 
-            block("CATEGORÍAS") {
-                ShellSegment(items: [false, true], selection: $themedCategoryColors) { $0 ? "Del tema" : "Propios" }
-                    .overlay { segmentChips(count: 2) { index in categoryDots(themed: index == 1) } }
-                    .padding(.horizontal, 16)
-            }
-
-            block("MODO") {
-                ShellSegment(items: AppAppearance.allCases, selection: appearanceBinding) { option in
-                    option == .system ? "Auto" : option.rawValue
+                HStack(spacing: 8) {
+                    familyLabel("Premium · con fondo animado")
+                    if !isPro { ProBadge() }
                 }
-                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                HStack(spacing: 14) {
+                    ForEach(ProTheme.allCases) { theme in
+                        let selected = activeProTheme == theme
+                        Button {
+                            guard isPro else { paywall = .themes; return }
+                            withAnimation(.easeInOut(duration: 0.2)) { proThemeRaw = theme.rawValue }
+                            ring(.surface)
+                        } label: {
+                            ProThemeSwatch(theme: theme, size: 40)
+                                .padding(3)
+                                .overlay(Circle().stroke(selected ? palette.label : .clear, lineWidth: 2))
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+
+                Button("Ver todos los temas") { showsThemeGallery = true }
+                    .font(.subheadline)
+                    .foregroundStyle(accent.onSurface(scheme))
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    /// Los seis temas usados más recientemente, en círculo; el elegido con
-    /// anillo. El resto, en «Ver todos».
-    private var themeRow: some View {
-        HStack {
-            ForEach(recentThemes) { theme in
-                let selected = theme == accent
+    private func familyLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(palette.secondaryLabel)
+    }
+
+    private func swatchRow(_ themes: [AppThemeColor]) -> some View {
+        HStack(spacing: 14) {
+            ForEach(themes) { theme in
+                let selected = theme == accent && activeProTheme == nil
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { appAccentColor = theme.rawValue }
+                    withAnimation(.easeInOut(duration: 0.2)) { pick(theme) }
                 } label: {
-                    ThemeSwatch(theme: theme, size: 36)
-                        .padding(4)
-                        .overlay(Circle().stroke(selected ? theme.onSurface(scheme) : .clear, lineWidth: 2))
+                    ThemeSwatch(theme: theme, size: 40)
+                        .padding(3)
+                        .overlay(Circle().stroke(selected ? palette.label : .clear, lineWidth: 2))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(theme.rawValue)
                 .accessibilityAddTraits(selected ? .isSelected : [])
-                if theme != recentThemes.last { Spacer(minLength: 0) }
             }
         }
-        .padding(.horizontal, 18)
     }
 
-    /// La muestra va dentro del segmento, delante del texto: se superpone en
-    /// la mitad que le toca a cada opción.
-    private func segmentChips<Chip: View>(count: Int, @ViewBuilder chip: @escaping (Int) -> Chip) -> some View {
-        HStack(spacing: 0) {
-            ForEach(0..<count, id: \.self) { index in
-                chip(index)
-                    .padding(.leading, 18)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    // MARK: - Modo, texto y color
+
+    private var modeSection: some View {
+        SettingsGroup(title: "Modo") {
+            ShellSegment(items: [AppAppearance.dark, .light, .system], selection: appearanceBinding) { option in
+                option == .system ? "Sistema" : option.rawValue
             }
+            .padding(8)
         }
-        .padding(4)
-        .allowsHitTesting(false)
     }
 
-    private func intenseChip(_ tinted: Bool) -> some View {
-        let sample = Palette(scheme, accent: accent, intense: tinted)
-        return RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(sample.surface)
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(tinted ? accent.color.opacity(0.6) : palette.label.opacity(0.18), lineWidth: 1))
-            .frame(width: 12, height: 12)
-    }
-
-    private func categoryDots(themed: Bool) -> some View {
-        let ramp = accent.categoryRamp(scheme)
-        let own: [Color] = ["Comida", "Supermercado", "Transporte"]
-            .map { CategoryStyle.defaultColor(for: $0, accent: accent.color) }
-        let colors = themed ? Array(ramp.prefix(3)) : own
-        return HStack(spacing: -3) {
-            ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
-                Circle()
-                    .fill(color)
-                    .frame(width: 10, height: 10)
-                    .overlay(Circle().stroke(palette.surface, lineWidth: 1.5))
+    private var textSection: some View {
+        SettingsGroup(title: "Texto") {
+            Menu {
+                Picker("Tipografía", selection: $appFontDesign) {
+                    ForEach(AppFontDesign.allCases) { option in
+                        Text(option.rawValue).tag(option.rawValue)
+                    }
+                }
+            } label: {
+                SettingsItem(title: "Tipografía") { SettingsValueChevron(value: fontDesign.rawValue) }
             }
+            .buttonStyle(.plain)
+            SettingsDivider(inset: 14)
+            Menu {
+                Picker("Tamaño", selection: $appTextSize) {
+                    ForEach(AppTextSize.allCases) { option in
+                        Text(option.rawValue).tag(option.rawValue)
+                    }
+                }
+            } label: {
+                SettingsItem(title: "Tamaño",
+                             subtitle: textSize == .sistema ? "El que tengas configurado en iOS" : nil) {
+                    SettingsValueChevron(value: textSize.rawValue)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var colorSection: some View {
+        SettingsGroup(title: "Color") {
+            SettingsToggle(title: "Intensificar el color del tema", subtitle: "Tiñe tarjetas y bordes",
+                           isOn: $intenseThemeTint)
+            SettingsDivider(inset: 14)
+            SettingsToggle(title: "Categorías con colores del tema", isOn: $themedCategoryColors)
+        }
+    }
+
+    private var voiceSection: some View {
+        SettingsGroup(title: "Dictado") {
+            Menu {
+                Picker("Animación al escuchar", selection: $dictationStyle) {
+                    Text("Barras").tag(DictationStyle.bars.rawValue)
+                    Text("Orgánica").tag(DictationStyle.blob.rawValue)
+                }
+            } label: {
+                SettingsItem(title: "Animación al escuchar",
+                             subtitle: "También se ve en la píldora «Dictar» de la vista previa") {
+                    SettingsValueChevron(value: dictationStyle == DictationStyle.blob.rawValue ? "Orgánica" : "Barras")
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
     private var appearanceBinding: Binding<AppAppearance> {
         Binding(get: { appearance }, set: { appearanceRaw = $0.rawValue })
-    }
-
-    // MARK: - Texto
-
-    private var textTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            block("TIPO DE LETRA", spacing: 10) {
-                HStack(spacing: 10) {
-                    ForEach(AppFontDesign.allCases) { option in
-                        fontTile(option)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-
-            block("TAMAÑO DE TEXTO", spacing: 10) {
-                ShellSegment(items: AppTextSize.allCases.map(\.rawValue), selection: $appTextSize) { $0 }
-                    .padding(.horizontal, 16)
-
-                Text(textSize == .sistema
-                     ? "Se usa el tamaño de letra que tengas configurado en iOS."
-                     : "Este tamaño manda sobre el que tengas configurado en iOS.")
-                    .font(.caption)
-                    .foregroundStyle(palette.secondaryLabel)
-                    .padding(.horizontal, 20)
-            }
-        }
-    }
-
-    /// Cada opción escrita en su propio diseño: se elige viendo la letra.
-    private func fontTile(_ option: AppFontDesign) -> some View {
-        let selected = fontDesign == option
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { appFontDesign = option.rawValue }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Aa")
-                    .font(.system(size: 26, weight: .semibold, design: option.design))
-                Text(option.rawValue)
-                    .font(.system(size: 13, weight: .semibold, design: option.design))
-            }
-            .foregroundStyle(palette.label)
-            .fontDesign(option.design)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(selected ? accent.color : palette.hairline, lineWidth: selected ? 2 : 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(option.rawValue): \(option.detail)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    // MARK: - Voz
-
-    private var voiceTab: some View {
-        block("ANIMACIÓN AL ESCUCHAR", spacing: 10) {
-            HStack(spacing: 10) {
-                dictationTile(.bars, name: "Barras", detail: "Siguen el volumen de tu voz.")
-                dictationTile(.blob, name: "Orgánica", detail: "Una forma que respira tras el micrófono.")
-            }
-            .padding(.horizontal, 16)
-
-            Text("También se ve en la píldora «Dictar» de la vista previa.")
-                .font(.caption)
-                .foregroundStyle(palette.secondaryLabel)
-                .padding(.horizontal, 20)
-        }
-    }
-
-    private func dictationTile(_ style: DictationStyle, name: String, detail: String) -> some View {
-        let selected = dictationStyle == style.rawValue
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { dictationStyle = style.rawValue }
-        } label: {
-            VStack(alignment: .leading, spacing: 9) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.background)
-                    DictationIndicator(style: style, size: .tile)
-                        .padding(.horizontal, 12)
-                }
-                .frame(height: 74)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(palette.label)
-                    Text(detail)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(palette.secondaryLabel)
-                        .lineLimit(2, reservesSpace: true)
-                }
-                .padding(.horizontal, 2)
-            }
-            .padding(10)
-            .background(palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(selected ? accent.color : palette.hairline, lineWidth: selected ? 2 : 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(name): \(detail)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

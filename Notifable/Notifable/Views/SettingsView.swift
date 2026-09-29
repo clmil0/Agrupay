@@ -1,13 +1,17 @@
 import SwiftUI
 import SwiftData
 
-/// Configuración.
+/// Configuración (`2a` gratis, `2b` Pro de «Configuración Pro»).
 ///
-/// Antes eran seis `NavigationLink` idénticos con nombres que no decían qué
-/// contenían ("Apariencia y Navegación", "Respaldo y Funciones Online"), ninguna
-/// fila mostraba su valor, y el dato que sostiene la app —si la lectura de
-/// correo funciona— estaba dos niveles adentro. Ahora: estado arriba, tres
-/// secciones agrupadas por intención, y el valor de cada fila a la vista.
+/// Menos filas que antes: el perfil va arriba en una tarjeta compacta, y Pro
+/// no tiene fila propia ni candados por todas partes — en Gratis es la
+/// pastilla junto al perfil; en Pro, la tarjeta entera se vuelve el hero con
+/// el espacio animado. Dentro de cada pantalla, lo que pide Pro aparece como
+/// una opción más con su «PRO».
+///
+/// Presupuesto y Categorías son ahora una sola fila, y «Leer un rango pasado»
+/// vive dentro de Gmail y bancos; Estadísticas, dentro de Apariencia y
+/// resumen; Diagnóstico, dentro de Datos y respaldo.
 struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
@@ -27,7 +31,11 @@ struct SettingsView: View {
     @AppStorage(GmailAuthService.pendingLinkFlowKey) private var pendingLinkFlow = false
     @State private var didReadInitialAuthState = false
     @StateObject private var gmailSync = GmailSyncService.shared
+    @State private var social = SocialProfileStore.shared
+    @State private var phone = PhoneVerification.shared
+    @State private var backup = ConfigBackupManager.shared
 
+    @AppStorage(ProStore.enabledKey) private var isPro = false
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.dark.rawValue
@@ -37,6 +45,7 @@ struct SettingsView: View {
     @AppStorage(NotificationSettings.budgetKey) private var notifyBudget = true
     @AppStorage(NotificationSettings.recurringKey) private var notifyRecurring = true
     @AppStorage(NotificationSettings.debtEnabledKey) private var notifyDebt = true
+    @AppStorage(NotificationSettings.reminderIntensityKey) private var reminderIntensity = PaymentReminder.Intensity.soft.rawValue
     @AppStorage("syncBBVA") private var syncBBVA = true
     @AppStorage("syncBCP") private var syncBCP = true
     @AppStorage("syncYape") private var syncYape = true
@@ -48,6 +57,7 @@ struct SettingsView: View {
     @AppStorage(DashboardStatsSettings.key) private var statsRaw = DashboardStatsSettings.defaultValue
 
     @State private var query = ""
+    @State private var showsPaywall = false
 
     private var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .purple }
     private var appearance: AppAppearance { AppAppearance(rawValue: appearanceRaw) ?? .dark }
@@ -58,16 +68,20 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 22) {
                     if query.isEmpty {
-                        // Conectado, la tarjeta sobra: la fila de Gmail ya dice
-                        // la cuenta y los bancos. Sin conectar, es la única
-                        // forma visible de empezar, y se queda arriba.
+                        profileCard
+
+                        // Conectado, la tarjeta sobra: la fila de Correo ya
+                        // dice la cuenta. Sin conectar, es la única forma
+                        // visible de empezar, y se queda arriba.
                         if !gmailAuth.isAuthenticated {
                             statusCard
                         }
 
+                        accountSection
                         moneySection
                         captureSection
-                        appSection
+                        personalSection
+                        privacySection
                         versionFooter
                     } else {
                         searchResults
@@ -77,6 +91,7 @@ struct SettingsView: View {
             }
             .background(palette.background)
             .onAppear(perform: refreshCounts)
+            .task { await phone.refresh() }
             .searchable(text: $query, prompt: "Buscar en configuración")
             .navigationTitle("Configuración")
             .navigationBarTitleDisplayMode(.large)
@@ -86,6 +101,7 @@ struct SettingsView: View {
                         .fontWeight(.semibold)
                 }
             }
+            .proPaywall(isPresented: $showsPaywall)
             .appAppearance()
             .appTextSize()
         }
@@ -108,6 +124,75 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Perfil
+
+    /// Gratis: tarjeta compacta con la pastilla «Pro» a un lado. Pro: la
+    /// misma tarjeta, pero con el espacio animado detrás.
+    private var profileCard: some View {
+        NavigationLink {
+            ProfileSettingsView()
+        } label: {
+            if isPro {
+                SettingsProHero(look: social.penguin, name: displayName,
+                                subtitle: ProStore.memberSinceLabel)
+            } else {
+                freeProfileCard
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+    }
+
+    private var displayName: String {
+        social.displayName.isEmpty ? "Tu perfil" : social.displayName
+    }
+
+    private var freeProfileCard: some View {
+        HStack(spacing: 12) {
+            PenguinAvatar(look: social.penguin, size: 54, background: palette.neutralSurface)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(palette.label)
+                    .lineLimit(1)
+                Text("Perfil, avatar y estado")
+                    .font(.caption)
+                    .foregroundStyle(palette.secondaryLabel)
+            }
+
+            Spacer(minLength: 8)
+
+            // Un botón dentro del enlace: tocar la pastilla abre Pro y no el
+            // perfil (el gesto más interno gana).
+            Button { showsPaywall = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("Pro")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(SettingsProHero.gold)
+                .padding(.horizontal, 11)
+                .frame(height: 30)
+                .background(SettingsProHero.gold.opacity(0.14), in: Capsule())
+                .overlay(Capsule().stroke(SettingsProHero.gold.opacity(0.5), lineWidth: 0.75))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Ver AgruPay Pro")
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(palette.tertiaryLabel)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(palette.hairline, lineWidth: 0.5))
+        .contentShape(Rectangle())
+    }
+
     // MARK: - Estado
 
     private var status: SettingsStatus {
@@ -119,12 +204,10 @@ struct SettingsView: View {
             activeBankCount: BankSource.activeCount,
             totalBankCount: BankSource.all.count,
             expensesThisMonth: counts.thisMonth,
-            unclassifiedMerchants: unclassifiedMerchantCount,
+            unclassifiedMerchants: counts.unclassifiedMerchants,
             pendingRecurring: 0
         )
     }
-
-    private var unclassifiedMerchantCount: Int { counts.unclassifiedMerchants }
 
     /// Se refresca al abrir la raíz y al volver a ella desde una pantalla
     /// interior, que es donde se pueden borrar o importar datos.
@@ -132,42 +215,45 @@ struct SettingsView: View {
         counts = SettingsCounts(context: modelContext)
     }
 
-    /// La tarjeta entera lleva a Gmail y bancos, pero sólo cuando hay cuenta:
-    /// sin conectar, el botón de dentro es la única acción y no debe quedar
-    /// tapado por un enlace.
-    @ViewBuilder
+    /// Sin cuenta, el botón de dentro es la única acción.
     private var statusCard: some View {
-        if gmailAuth.isAuthenticated {
-            NavigationLink {
-                GmailBanksView()
-            } label: {
-                SettingsStatusCard(status: status, accent: accent.color) {}
-            }
-            .buttonStyle(.plain)
-        } else {
-            SettingsStatusCard(status: status, accent: accent.color) {
-                gmailAuth.signIn()
-            }
+        SettingsStatusCard(status: status, accent: accent.color) {
+            gmailAuth.signIn()
         }
     }
 
     // MARK: - Secciones
 
+    private var accountSection: some View {
+        SettingsSection(title: "Cuenta") {
+            SettingsRow(title: "Correo", icon: "envelope.fill",
+                        tint: Color(hex: 0xEA4335), value: emailValue) {
+                EmailSettingsView()
+            }
+            SettingsSeparator()
+            SettingsRow(title: "Celular", icon: "phone.fill",
+                        tint: Color(hex: 0x30D158), value: phone.formattedPhone ?? "Sin verificar",
+                        valueSeal: phone.formattedPhone != nil) {
+                PhoneSettingsView()
+            }
+            SettingsSeparator()
+            SettingsRow(title: "Dispositivos", icon: "laptopcomputer.and.iphone",
+                        tint: Color(hex: 0x5E5CE6), value: "Este iPhone") {
+                DevicesSettingsView()
+            }
+        }
+    }
+
     private var moneySection: some View {
         SettingsSection(title: "Tu dinero") {
-            SettingsRow(title: "Presupuesto", icon: "chart.bar.fill",
-                        tint: .blue, value: budgetValue) {
-                BudgetScreen()
+            SettingsRow(title: "Presupuesto y categorías", icon: "chart.bar.fill",
+                        tint: Color(hex: 0x0A84FF), subtitle: budgetSubtitle) {
+                BudgetCategoriesView()
             }
             SettingsSeparator()
             SettingsRow(title: "Recurrentes y atajos", icon: "arrow.triangle.2.circlepath",
-                        tint: .blue, value: recurringValue) {
+                        tint: Color(hex: 0x0A84FF), subtitle: recurringValue) {
                 RecurringManagementView()
-            }
-            SettingsSeparator()
-            SettingsRow(title: "Categorías y reglas", icon: "tag.fill",
-                        tint: .blue, value: rulesValue) {
-                CategoryRulesScreen()
             }
         }
     }
@@ -175,51 +261,41 @@ struct SettingsView: View {
     private var captureSection: some View {
         SettingsSection(title: "Captura automática") {
             SettingsRow(title: "Gmail y bancos", icon: "building.columns.fill",
-                        tint: .teal, value: gmailValue,
-                        subtitle: gmailAuth.isAuthenticated ? "Sólo lectura del correo" : nil) {
+                        tint: Color(hex: 0x40C8E0), subtitle: gmailSubtitle) {
                 GmailBanksView()
-            }
-            SettingsSeparator()
-            SettingsRow(title: "Leer un rango pasado", icon: "calendar",
-                        tint: .green) {
-                RangeSyncView()
             }
         }
     }
 
-    private var appSection: some View {
-        SettingsSection(title: "La app") {
-            SettingsRow(title: "Apariencia", icon: "paintbrush.fill",
-                        tint: .purple, value: accent.rawValue + " · " + appearance.rawValue) {
+    private var personalSection: some View {
+        SettingsSection(title: "Personalización") {
+            SettingsRow(title: "Apariencia y resumen", icon: "paintbrush.fill",
+                        tint: Color(hex: 0xBF5AF2), subtitle: appearanceSubtitle) {
                 AppearanceSettingsView()
             }
             SettingsSeparator()
-            SettingsRow(title: "Estadísticas", icon: "chart.xyaxis.line",
-                        tint: .indigo, value: statsValue) {
-                StatsSettingsView()
+            SettingsRow(title: "Asistente", icon: "sparkles",
+                        tint: Color(hex: 0xBF5AF2), subtitle: isPro ? "Memoria extendida" : "Memoria básica") {
+                AssistantSettingsView()
             }
             SettingsSeparator()
             SettingsRow(title: "Notificaciones", icon: "bell.fill",
-                        tint: .red, value: notificationsValue) {
+                        tint: Color(hex: 0xFF453A), subtitle: notificationsValue) {
                 NotificationSettingsView()
             }
-            SettingsSeparator()
+        }
+    }
+
+    private var privacySection: some View {
+        SettingsSection(title: "Privacidad y datos") {
             SettingsRow(title: "Bloqueo", icon: AppLock.biometryIcon,
-                        tint: Color(white: 0.35), value: lockValue) {
+                        tint: Color(white: 0.35), subtitle: lockValue) {
                 AppLockSettingsView()
             }
             SettingsSeparator()
             SettingsRow(title: "Datos y respaldo", icon: "externaldrive.fill",
-                        tint: Color(white: 0.35)) {
+                        tint: Color(white: 0.35), subtitle: dataSubtitle) {
                 DataBackupView()
-            }
-            SettingsSeparator()
-            // Visible otra vez: hace falta para pedir el informe de Gmail a
-            // quien no puede buscarlo. FinanceKit sigue fuera: es una prueba
-            // de desarrollo y sólo existe en DEBUG (`SettingsEntry.searchable`).
-            SettingsRow(title: "Diagnóstico", icon: "stethoscope",
-                        tint: Color(white: 0.35)) {
-                DiagnosticsView()
             }
         }
     }
@@ -228,11 +304,19 @@ struct SettingsView: View {
     //
     // Ninguno queda vacío: "Sin definir" y "Ninguna" también son información.
 
-    private var budgetValue: String {
-        guard BudgetStore.hasBudget(monthlyBudget: monthlyBudget, enabled: budgetEnabled) else {
-            return "Sin definir"
-        }
-        return Money.format(monthlyBudget)
+    private var emailValue: String {
+        guard gmailAuth.isAuthenticated else { return gmailAuth.accessRevoked ? "Se desconectó" : "Sin conectar" }
+        if gmailAuth.missingGmailScope { return "Falta permiso" }
+        return gmailAuth.accountEmail ?? "Conectado"
+    }
+
+    /// «S/ 2,500 · 11 categorías · 9 reglas».
+    private var budgetSubtitle: String {
+        let budget = BudgetStore.hasBudget(monthlyBudget: monthlyBudget, enabled: budgetEnabled)
+            ? Money.format(monthlyBudget) : "Sin presupuesto"
+        let categories = counts.categories == 1 ? "1 categoría" : "\(counts.categories) categorías"
+        let rules = MerchantRules.all().count
+        return [budget, categories, rules == 1 ? "1 regla" : "\(rules) reglas"].joined(separator: " · ")
     }
 
     /// «6 activos · 3 atajos».
@@ -246,10 +330,20 @@ struct SettingsView: View {
         return parts.isEmpty ? "Ninguno" : parts.joined(separator: " · ")
     }
 
-    /// «5 de 7».
-    private var statsValue: String {
+    /// «5 bancos · leer rangos pasados».
+    private var gmailSubtitle: String {
+        guard gmailAuth.isAuthenticated else { return gmailAuth.accessRevoked ? "Se desconectó" : "Sin conectar" }
+        if gmailAuth.missingGmailScope { return "Falta el permiso de Gmail" }
+        let active = BankSource.activeCount
+        let banks = active == 0 ? "Ningún banco" : active == 1 ? "1 banco" : "\(active) bancos"
+        return banks + " · leer rangos pasados"
+    }
+
+    /// «Azul · Oscuro · 5 de 7 estadísticas».
+    private var appearanceSubtitle: String {
         let count = DashboardStatsSettings.decode(statsRaw).count
-        return count == 0 ? "Ninguna" : "\(count) de \(DashboardStat.allCases.count)"
+        let stats = count == 0 ? "sin estadísticas" : "\(count) de \(DashboardStat.allCases.count) estadísticas"
+        return [accent.rawValue, appearance.rawValue, stats].joined(separator: " · ")
     }
 
     private var lockValue: String {
@@ -257,23 +351,24 @@ struct SettingsView: View {
         return lockEnabled ? AppLock.biometryName : "Desactivado"
     }
 
-    /// «11 · 9 reglas»: las categorías y cuántas reglas las alimentan.
-    private var rulesValue: String {
-        let rules = MerchantRules.all().count
-        let rulesLabel = rules == 1 ? "1 regla" : "\(rules) reglas"
-        return "\(counts.categories) · " + rulesLabel
-    }
-
-    private var gmailValue: String {
-        guard gmailAuth.isAuthenticated else { return gmailAuth.accessRevoked ? "Se desconectó" : "Sin conectar" }
-        if gmailAuth.missingGmailScope { return "Falta permiso" }
-        return BankSource.summaryLabel
-    }
-
     private var notificationsValue: String {
         let count = NotificationSettings.activeCount()
-        if count == 0 { return "Ninguna" }
-        return count == 1 ? "1 activa" : "\(count) activas"
+        var text = count == 0 ? "Ninguna" : count == 1 ? "1 activa" : "\(count) activas"
+        if isPro, reminderIntensity == PaymentReminder.Intensity.intense.rawValue {
+            text += " · cobros intensos"
+        }
+        return text
+    }
+
+    /// «En la nube · hoy 9:12» con Pro y la nube encendida.
+    private var dataSubtitle: String {
+        guard backup.isEnabled else { return "Respaldo, exportar y diagnóstico" }
+        guard isPro else { return "Nube en pausa · respaldo y exportar" }
+        guard let last = backup.lastSyncedAt else { return "En la nube" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_PE")
+        f.dateFormat = Period.calendar.isDateInToday(last) ? "'hoy' H:mm" : "d MMM, H:mm"
+        return "En la nube · " + f.string(from: last)
     }
 
     // MARK: - Búsqueda
@@ -333,13 +428,18 @@ struct SettingsView: View {
     @ViewBuilder
     private func destination(for id: String) -> some View {
         switch id {
-        case "budget":        BudgetScreen()
+        case "profile":       ProfileSettingsView()
+        case "email":         EmailSettingsView()
+        case "phone":         PhoneSettingsView()
+        case "devices":       DevicesSettingsView()
+        case "budget":        BudgetCategoriesView()
         case "recurring":     RecurringManagementView()
         case "rules":         CategoryRulesScreen()
         case "gmail":         GmailBanksView()
         case "range":         RangeSyncView()
         case "appearance":    AppearanceSettingsView()
         case "stats":         StatsSettingsView()
+        case "assistant":     AssistantSettingsView()
         case "notifications": NotificationSettingsView()
         case "lock":          AppLockSettingsView()
         case "diagnostics":   DiagnosticsView()
@@ -367,18 +467,145 @@ struct SettingsView: View {
     }
 }
 
-/// Presupuesto: aquí, en "Tu dinero", y no dentro de "Apariencia y Navegación",
-/// que es donde estaba un ajuste financiero.
-struct BudgetScreen: View {
-    @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
-    @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
+// MARK: - Hero Pro
+
+/// La tarjeta del perfil con Pro (`2b`): el mismo tamaño que la de Gratis,
+/// con un cielo morado, estrellas que titilan y un planeta asomando.
+struct SettingsProHero: View {
+    let look: PenguinLook
+    let name: String
+    let subtitle: String
+
+    static let gold = Color(hex: 0xF6C64B)
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Posiciones fijas (en fracciones de la tarjeta): el cielo no cambia de
+    /// una apertura a otra.
+    private static let stars: [(x: CGFloat, y: CGFloat, size: CGFloat)] = [
+        (0.08, 0.14, 3), (0.22, 0.40, 2), (0.84, 0.12, 2), (0.92, 0.34, 3), (0.14, 0.62, 2),
+        (0.88, 0.58, 2), (0.30, 0.08, 3), (0.70, 0.06, 2), (0.06, 0.40, 2), (0.96, 0.78, 2),
+        (0.18, 0.84, 3), (0.62, 0.86, 2), (0.50, 0.04, 2), (0.60, 0.72, 3)
+    ]
 
     var body: some View {
-        Form {
-            BudgetSettingsSection(tint: AppThemeColor(rawValue: appAccentColor)?.color ?? .purple)
+        HStack(spacing: 12) {
+            PenguinAvatar(look: look, size: 56, background: Color(hex: 0x14122B))
+                .padding(4)
+                .overlay(
+                    Circle().strokeBorder(
+                        AngularGradient(colors: [Color(hex: 0xFFD60A), Color(hex: 0xFF6B9A), Color(hex: 0xBF5AF2),
+                                                 Color(hex: 0x0A84FF), Color(hex: 0x30D158), Color(hex: 0xFFD60A)],
+                                        center: .center),
+                        lineWidth: 3)
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(name)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Image(systemName: "rosette")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("PRO")
+                            .font(.system(size: 10, weight: .heavy))
+                            .tracking(0.5)
+                    }
+                    .foregroundStyle(Color(hex: 0x3A2A00))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(Self.gold, in: Capsule())
+                }
+                Text(subtitle)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xC4B5FD))
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.6))
         }
-        .navigationTitle("Presupuesto")
-        .navigationBarTitleDisplayMode(.inline)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 16)
+        .background(space)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.12), lineWidth: 0.5))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var space: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack {
+                LinearGradient(colors: [Color(hex: 0x1B1640), Color(hex: 0x2A1B54), Color(hex: 0x120F2B)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [Color(hex: 0x6D28D9).opacity(0.45), .clear],
+                               center: UnitPoint(x: 0.35, y: 0.2), startRadius: 0, endRadius: size.width * 0.5)
+
+                TimelineView(.animation(minimumInterval: 1 / 20, paused: reduceMotion)) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    ForEach(Array(Self.stars.enumerated()), id: \.offset) { index, star in
+                        let period = 2.2 + Double(index % 4) * 0.7
+                        let phase = (t + Double(index) * 0.37) / period * 2 * .pi
+                        let glow = reduceMotion ? 0.7 : 0.15 + 0.85 * (0.5 + 0.5 * sin(phase))
+                        Circle()
+                            .fill(.white)
+                            .frame(width: star.size, height: star.size)
+                            .opacity(glow)
+                            .position(x: star.x * size.width, y: star.y * size.height)
+                    }
+                }
+
+                // El planeta: una esfera naranja con su anillo, cortada por el
+                // borde de la tarjeta.
+                ZStack {
+                    Circle()
+                        .fill(RadialGradient(colors: [Color(hex: 0xFFC58A), Color(hex: 0xF28C28), Color(hex: 0x8A3A0A)],
+                                             center: UnitPoint(x: 0.3, y: 0.3), startRadius: 0, endRadius: 46))
+                        .frame(width: 70, height: 70)
+                    Ellipse()
+                        .stroke(Color(hex: 0xFFD8A8).opacity(0.55), lineWidth: 1.2)
+                        .frame(width: 118, height: 26)
+                        .rotationEffect(.degrees(-14))
+                }
+                .position(x: size.width - 10, y: size.height - 4)
+            }
+        }
+    }
+}
+
+/// Los tres números de la raíz de Configuración, contados en la base.
+private struct SettingsCounts {
+    var total = 0
+    var thisMonth = 0
+    var unclassifiedMerchants = 0
+    var categories = 0
+
+    init() {}
+
+    init(context: ModelContext) {
+        total = (try? context.fetchCount(FetchDescriptor<Expense>())) ?? 0
+
+        let month = Period(granularity: .mes, reference: Date()).interval
+        let start = month.start, end = month.end
+        thisMonth = (try? context.fetchCount(FetchDescriptor<Expense>(
+            predicate: #Predicate { $0.date >= start && $0.date < end }))) ?? 0
+
+        let unclassified = Accounting.unclassified
+        var pending = FetchDescriptor<Expense>(predicate: #Predicate { $0.category == unclassified && !$0.isTransfer && !$0.isVoided && !$0.isReversal && !$0.isSplit })
+        pending.propertiesToFetch = [\.merchant]
+        let merchants = ((try? context.fetch(pending)) ?? []).map(\.merchant)
+        unclassifiedMerchants = Set(merchants).count
+
+        var all = FetchDescriptor<Expense>()
+        all.propertiesToFetch = [\.category]
+        categories = Set(((try? context.fetch(all)) ?? []).map(\.category))
+            .subtracting([unclassified]).count
     }
 }
 
@@ -564,7 +791,7 @@ struct CategoryRulesScreen: View {
 }
 
 /// Los números de Categorías y reglas, contados una vez al entrar.
-private struct CategoryRulesStats {
+struct CategoryRulesStats {
     var active: [String] = []
     var unused: [String] = []
     var ruleCount = 0
@@ -654,34 +881,4 @@ struct MerchantRulesList: View {
     SettingsView()
         .modelContainer(for: [Expense.self, Income.self, RecurringExpense.self, QuickExpense.self],
                         inMemory: true)
-}
-
-/// Los tres números de la raíz de Configuración, contados en la base.
-private struct SettingsCounts {
-    var total = 0
-    var thisMonth = 0
-    var unclassifiedMerchants = 0
-    var categories = 0
-
-    init() {}
-
-    init(context: ModelContext) {
-        total = (try? context.fetchCount(FetchDescriptor<Expense>())) ?? 0
-
-        let month = Period(granularity: .mes, reference: Date()).interval
-        let start = month.start, end = month.end
-        thisMonth = (try? context.fetchCount(FetchDescriptor<Expense>(
-            predicate: #Predicate { $0.date >= start && $0.date < end }))) ?? 0
-
-        let unclassified = Accounting.unclassified
-        var pending = FetchDescriptor<Expense>(predicate: #Predicate { $0.category == unclassified && !$0.isTransfer && !$0.isVoided && !$0.isReversal && !$0.isSplit })
-        pending.propertiesToFetch = [\.merchant]
-        let merchants = ((try? context.fetch(pending)) ?? []).map(\.merchant)
-        unclassifiedMerchants = Set(merchants).count
-
-        var all = FetchDescriptor<Expense>()
-        all.propertiesToFetch = [\.category]
-        categories = Set(((try? context.fetch(all)) ?? []).map(\.category))
-            .subtracting([unclassified]).count
-    }
 }

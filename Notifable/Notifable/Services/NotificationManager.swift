@@ -169,14 +169,13 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             var dateComponents = DateComponents()
             dateComponents.hour = NotificationSettings.hour()
             dateComponents.minute = NotificationSettings.minute()
-            let date = NotificationSettings.date(hour: NotificationSettings.hour(),
-                                                 minute: NotificationSettings.minute())
-            
-            let frequency = UserDefaults.standard.string(forKey: "debtNotificationFrequency") ?? "Diario"
+            // El día lo elige el usuario en Notificaciones (`4j`); antes era
+            // el día de la semana (o del mes) en que tocó el ajuste.
+            let frequency = UserDefaults.standard.string(forKey: NotificationSettings.debtFrequencyKey) ?? "Diario"
             if frequency == "Semanal" {
-                dateComponents.weekday = Calendar.current.component(.weekday, from: date)
+                dateComponents.weekday = NotificationSettings.weekday()
             } else if frequency == "Mensual" {
-                dateComponents.day = Calendar.current.component(.day, from: date)
+                dateComponents.day = NotificationSettings.monthDay()
             }
             
             let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)

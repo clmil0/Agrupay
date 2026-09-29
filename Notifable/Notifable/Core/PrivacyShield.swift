@@ -21,8 +21,16 @@ enum PrivacyShield {
 
     private static var window: UIWindow?
 
+    /// «Tapar al cambiar de app» (Configuración › Bloqueo). Si nunca se
+    /// tocó, tapa sólo con el bloqueo encendido, como antes.
+    static let coverKey = "privacyCoverOnSwitch"
+
+    static var coversOnSwitch: Bool {
+        UserDefaults.standard.object(forKey: coverKey) as? Bool ?? AppLock.shared.isEnabled
+    }
+
     static func show() {
-        guard AppLock.shared.isEnabled, window == nil,
+        guard coversOnSwitch, window == nil,
               let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })
                 .first(where: { $0.activationState != .background })

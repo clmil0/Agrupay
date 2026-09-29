@@ -1,80 +1,76 @@
 import SwiftUI
 
-/// Ajuste del bloqueo con Face ID / Touch ID.
+/// Bloqueo (`4k`): Face ID y la privacidad de los montos.
 ///
-/// El interruptor no escribe la preferencia directamente: pide autenticarse y
-/// sólo entonces la guarda, tanto para encender como para apagar. Por eso no es
-/// un `@AppStorage` atado al `Toggle`, sino un `Binding` con acción.
+/// El interruptor del bloqueo no escribe la preferencia directamente: pide
+/// autenticarse y sólo entonces la guarda, tanto para encender como para
+/// apagar. Por eso no es un `@AppStorage` atado al `Toggle`, sino un
+/// `Binding` con acción.
 struct AppLockSettingsView: View {
 
     @StateObject private var lock = AppLock.shared
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
-
-    @AppStorage(WidgetSnapshotBuilder.showAmountsKey) private var widgetShowAmounts = false
+    @AppStorage(AmountPrivacy.hideOnLaunchKey) private var hideOnLaunch = false
+    /// Sólo para redibujar: los valores reales (con su regla por defecto) los
+    /// leen `WidgetSnapshotBuilder` y `PrivacyShield`.
+    @AppStorage(WidgetSnapshotBuilder.showAmountsKey) private var widgetKeyMirror = false
+    @AppStorage(PrivacyShield.coverKey) private var coverKeyMirror = false
 
     @State private var isWorking = false
     @State private var error: String?
 
-    private var tint: Color { (AppThemeColor(rawValue: appAccentColor) ?? .purple).color }
-
     var body: some View {
-        Form {
+        SettingsPage(title: "Bloqueo") {
             if AppLock.canLock {
-                Section {
-                    Toggle(isOn: toggleBinding) {
-                        Label("Pedir " + AppLock.biometryName + " al abrir",
-                              systemImage: AppLock.biometryIcon)
-                    }
-                    .tint(tint)
-                    .disabled(isWorking)
-                } footer: {
-                    Text(lock.isEnabled
-                         ? "Al abrir AgruPay habrá que verificar la identidad. Si \(AppLock.biometryName) falla, iOS ofrece el código del iPhone."
-                         : "Tus movimientos, deudas y sueldo quedan detrás de \(AppLock.biometryName). No cifra nada nuevo: los datos ya están protegidos por el cifrado del iPhone.")
-                }
+                SettingsHeroCard(icon: AppLock.biometryIcon, tint: Color(white: 0.75),
+                                 title: lock.isEnabled ? "AgruPay se abre con \(AppLock.biometryName)"
+                                                       : "Protege AgruPay con \(AppLock.biometryName)",
+                                 subtitle: lock.isEnabled
+                                    ? "Si no te reconoce, puedes usar el código del iPhone."
+                                    : "Tus movimientos, deudas y sueldo quedan detrás de \(AppLock.biometryName).")
 
-                if lock.isEnabled {
-                    Section {
-                        Picker("Bloquear", selection: graceBinding) {
-                            ForEach(AppLock.Grace.allCases) { option in
-                                Text(option.label).tag(option)
+                SettingsGroup(footer: error) {
+                    SettingsItem(title: "Bloquear con \(AppLock.biometryName)") {
+                        Toggle("", isOn: toggleBinding)
+                            .labelsHidden()
+                            .tint(AppThemeColor.current.color)
+                            .disabled(isWorking)
+                    }
+                    if lock.isEnabled {
+                        SettingsDivider(inset: 14)
+                        Menu {
+                            Picker("Pedir al volver", selection: graceBinding) {
+                                ForEach(AppLock.Grace.allCases) { option in
+                                    Text(option.label).tag(option)
+                                }
+                            }
+                        } label: {
+                            SettingsItem(title: "Pedir al volver") {
+                                SettingsValueChevron(value: lock.grace.label)
                             }
                         }
-                    } footer: {
-                        Text("Con un margen, salir un momento a otra app y volver no vuelve a pedir la verificación.")
-                    }
-
-                    Section {
-                        Toggle(isOn: $widgetShowAmounts) {
-                            Label("Mostrar montos en widgets", systemImage: "square.text.square")
-                        }
-                        .tint(tint)
-                    } footer: {
-                        Text(widgetShowAmounts
-                             ? "Los widgets de la pantalla de inicio muestran tus montos aunque la app esté bloqueada."
-                             : "Con el bloqueo encendido, los widgets muestran porcentajes y ocultan los montos.")
-                    }
-                }
-
-                if let error {
-                    Section {
-                        Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
+                        .buttonStyle(.plain)
                     }
                 }
             } else {
-                Section {
-                    Label("Sin código en este iPhone", systemImage: "lock.slash")
-                        .foregroundStyle(.secondary)
-                } footer: {
-                    Text("Para bloquear AgruPay hace falta un código de desbloqueo en el iPhone. Se configura en Ajustes de iOS → Face ID y código.")
-                }
+                SettingsHeroCard(icon: "lock.slash", tint: Color(white: 0.6),
+                                 title: "Sin código en este iPhone",
+                                 subtitle: "Para bloquear AgruPay hace falta un código de desbloqueo. Se configura en Ajustes de iOS → Face ID y código.")
+            }
+
+            SettingsGroup(title: "Privacidad") {
+                SettingsToggle(title: "Ocultar montos al abrir", subtitle: "Empieza con el ojito cerrado",
+                               isOn: $hideOnLaunch)
+                SettingsDivider(inset: 14)
+                SettingsToggle(title: "Montos en los widgets", subtitle: "Se ven en la pantalla de inicio",
+                               isOn: widgetBinding)
+                SettingsDivider(inset: 14)
+                SettingsToggle(title: "Tapar al cambiar de app",
+                               subtitle: "El selector de apps no enseña tus cifras",
+                               isOn: coverBinding)
             }
         }
-        .navigationTitle("Bloqueo")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     /// Encender y apagar pasan por `AppLock`, que exige autenticarse antes de
@@ -95,5 +91,19 @@ struct AppLockSettingsView: View {
 
     private var graceBinding: Binding<AppLock.Grace> {
         Binding(get: { lock.grace }, set: { lock.setGrace($0) })
+    }
+
+    private var widgetBinding: Binding<Bool> {
+        Binding(
+            get: { _ = widgetKeyMirror; _ = lock.isEnabled; return WidgetSnapshotBuilder.showsAmounts() },
+            set: { widgetKeyMirror = $0 }
+        )
+    }
+
+    private var coverBinding: Binding<Bool> {
+        Binding(
+            get: { _ = coverKeyMirror; _ = lock.isEnabled; return PrivacyShield.coversOnSwitch },
+            set: { coverKeyMirror = $0 }
+        )
     }
 }

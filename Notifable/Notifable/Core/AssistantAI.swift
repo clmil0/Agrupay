@@ -104,8 +104,9 @@ enum AssistantChatMemory {
     static let defaultLifetime = 3
     static let lifetimeOptions = [1, 2, 3, 5, 10, 15, 24]
 
-    /// Lo que el asistente recuerda hacia atrás.
-    static let memoryWindow: TimeInterval = 24 * 3600
+    /// Lo que el asistente recuerda hacia atrás: 7 días gratis, 30 con Pro
+    /// (Configuración › Asistente). Antes eran 24 horas para todos.
+    static var memoryWindow: TimeInterval { TimeInterval(ProStore.assistantMemoryDays) * 24 * 3600 }
     /// Cuántos mensajes de esa memoria viajan al modelo. El de Apple
     /// Intelligence tiene un contexto chico (unos 4 000 tokens, con
     /// instrucciones, datos del mes y respuesta), así que van los últimos.
@@ -113,14 +114,34 @@ enum AssistantChatMemory {
     /// Y cortados: una respuesta larga no puede comerse el contexto.
     static let contextCharacters = 280
 
+    /// Lo que recuerda ahora mismo, leído de lo guardado (para Configuración
+    /// › Asistente › Ver lo que recuerda).
+    static func stored(_ defaults: UserDefaults = .standard, now: Date = Date()) -> [AssistantMessage] {
+        pruned(AssistantChat.storedMessages(defaults), now: now)
+    }
+
+    /// Cuántos días de la ventana ya ocupa la memoria (del más viejo a hoy).
+    static func daysUsed(_ memory: [AssistantMessage], now: Date = Date()) -> Int {
+        guard let oldest = memory.map(\.date).min() else { return 0 }
+        let cal = Period.calendar
+        let days = (cal.dateComponents([.day], from: cal.startOfDay(for: oldest), to: cal.startOfDay(for: now)).day ?? 0) + 1
+        return min(days, ProStore.assistantMemoryDays)
+    }
+
+    /// «Borrar memoria»: se olvida todo lo hablado.
+    static func erase(_ defaults: UserDefaults = .standard) {
+        AssistantChat.eraseStored(defaults)
+    }
+
     static func lifetimeHours(_ defaults: UserDefaults = .standard) -> Int {
         let stored = defaults.integer(forKey: lifetimeKey)
         return lifetimeOptions.contains(stored) ? stored : defaultLifetime
     }
 
-    /// Sólo lo de las últimas 24 horas.
-    static func pruned(_ messages: [AssistantMessage], now: Date) -> [AssistantMessage] {
-        messages.filter { now.timeIntervalSince($0.date) < memoryWindow }
+    /// Sólo lo que cabe en la ventana de memoria.
+    static func pruned(_ messages: [AssistantMessage], now: Date,
+                       window: TimeInterval = memoryWindow) -> [AssistantMessage] {
+        messages.filter { now.timeIntervalSince($0.date) < window }
     }
 
     /// Desde cuándo se ve el chat. Si pasaron `lifetimeHours` desde el último
@@ -145,7 +166,8 @@ enum AssistantChatMemory {
     static func context(_ memory: [AssistantMessage], now: Date) -> String {
         memory.suffix(contextLimit).map { message in
             let hours = Int(now.timeIntervalSince(message.date) / 3600)
-            let when = hours < 1 ? "hace un rato" : hours == 1 ? "hace 1 h" : "hace \(hours) h"
+            let when = hours < 1 ? "hace un rato" : hours == 1 ? "hace 1 h"
+                : hours < 48 ? "hace \(hours) h" : "hace \(hours / 24) días"
             let text = message.text.count > contextCharacters
                 ? String(message.text.prefix(contextCharacters)) + "…" : message.text
             return (message.role == .user ? "Usuario" : "Asistente") + " (" + when + "): " + text
@@ -278,6 +300,16 @@ final class AssistantChat: ObservableObject {
         let stored = (memory.count, clearedAt)
         expire()
         if memory.count != stored.0 || clearedAt != stored.1 { persist() }
+    }
+
+    nonisolated static func storedMessages(_ defaults: UserDefaults) -> [AssistantMessage] {
+        guard let data = defaults.data(forKey: storageKey),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return [] }
+        return stored.messages
+    }
+
+    nonisolated static func eraseStored(_ defaults: UserDefaults) {
+        defaults.removeObject(forKey: storageKey)
     }
 
     private func persist() {

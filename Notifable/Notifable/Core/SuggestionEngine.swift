@@ -40,6 +40,10 @@ enum SuggestionEngine {
             return CategorySuggestion(category: exact, confidence: 1.0, reason: "Ya tienes una regla para este comercio")
         }
 
+        // Configuración › Asistente › Sugerencias de categoría. Apagadas, sólo
+        // queda la regla exacta, que no es una propuesta sino lo ya decidido.
+        guard AssistantSettings.suggestions else { return nil }
+
         let clean = normalize(Accounting.displayName(merchant))
 
         // 2. Misma raíz de nombre: "METRO 0231" contra la regla "Metro". No

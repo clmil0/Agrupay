@@ -27,10 +27,13 @@ struct AssistantChatMemoryTests {
         #expect(AssistantChatMemory.visible(chat, clearedAt: cleared).count == 2)
     }
 
-    @Test func loBorradoSigueEnLaMemoriaUnDia() {
-        let chat = [message("ayer temprano", hoursAgo: 30), message("anoche", hoursAgo: 10)]
-        let memory = AssistantChatMemory.pruned(chat, now: now)
+    /// Gratis recuerda 7 días (Configuración › Asistente); con Pro, 30.
+    @Test func loBorradoSigueEnLaMemoriaUnaSemana() {
+        let chat = [message("hace ocho días", hoursAgo: 8 * 24), message("anoche", hoursAgo: 10)]
+        let memory = AssistantChatMemory.pruned(chat, now: now, window: 7 * 24 * 3600)
         #expect(memory.map(\.text) == ["anoche"])
+        let pro = AssistantChatMemory.pruned(chat, now: now, window: 30 * 24 * 3600)
+        #expect(pro.count == 2)
 
         let cleared = AssistantChatMemory.clearedAt(memory, clearedAt: nil, lifetimeHours: 3, now: now)
         #expect(AssistantChatMemory.visible(memory, clearedAt: cleared).isEmpty)

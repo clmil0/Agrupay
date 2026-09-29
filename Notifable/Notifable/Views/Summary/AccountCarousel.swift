@@ -643,11 +643,4 @@ struct AccountsSheet: View {
     }
 }
 
-fileprivate extension Color {
-    /// `0xRRGGBB`, para escribir los colores de marca tal como se publican.
-    init(hex: UInt32) {
-        self.init(red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255)
-    }
-}
+// `Color(hex:)` vive en `ProTheme.swift`, compartido con los temas Pro.

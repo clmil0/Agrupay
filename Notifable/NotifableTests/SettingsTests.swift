@@ -114,8 +114,9 @@ struct SettingsTests {
 
     @Test("Cada entrada buscable lleva a un destino que existe")
     func destinosValidos() {
-        let known: Set<String> = ["budget", "recurring", "rules", "gmail", "range",
-                                  "appearance", "stats", "notifications", "lock", "data", "diagnostics"]
+        let known: Set<String> = ["profile", "email", "phone", "devices", "budget", "recurring", "rules",
+                                  "gmail", "range", "appearance", "stats", "assistant", "notifications",
+                                  "lock", "data", "diagnostics"]
         for entry in SettingsEntry.all {
             #expect(known.contains(entry.destination), "destino desconocido: \(entry.destination)")
             #expect(!entry.title.isEmpty)
@@ -261,14 +262,17 @@ struct SettingsTests {
     @Test("12. El contador de notificaciones refleja los avisos encendidos")
     func contadorDeNotificaciones() {
         let suite = Self.defaults("notif")
-        // Por defecto los tres están encendidos.
-        #expect(NotificationSettings.activeCount(suite) == 3)
+        // Por defecto los cinco están encendidos: presupuesto, recurrentes,
+        // deudas, límites por categoría y cada pago registrado.
+        #expect(NotificationSettings.activeCount(suite) == 5)
 
         suite.set(false, forKey: NotificationSettings.budgetKey)
-        #expect(NotificationSettings.activeCount(suite) == 2)
+        #expect(NotificationSettings.activeCount(suite) == 4)
 
         suite.set(false, forKey: NotificationSettings.recurringKey)
         suite.set(false, forKey: NotificationSettings.debtEnabledKey)
+        suite.set(false, forKey: NotificationManager.categoryLimitEnabledKey)
+        suite.set(false, forKey: NotificationManager.importedEnabledKey)
         #expect(NotificationSettings.activeCount(suite) == 0)
     }
 }

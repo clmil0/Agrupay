@@ -138,11 +138,16 @@ enum WidgetSnapshotBuilder {
 
     static let showAmountsKey = "widgetShowAmounts"
 
-    /// Con el bloqueo encendido los widgets ocultan los montos, salvo que el
-    /// usuario diga lo contrario en Ajustes › Bloqueo. Sin bloqueo se muestran:
-    /// quien no protege la app tampoco espera que el widget la proteja.
+    /// «Montos en los widgets» (Configuración › Bloqueo). Si nunca se tocó,
+    /// sigue la regla de antes: con el bloqueo encendido se ocultan, sin él se
+    /// muestran — quien no protege la app tampoco espera que el widget la
+    /// proteja.
+    static func showsAmounts(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: showAmountsKey) as? Bool ?? !defaults.bool(forKey: AppLock.enabledKey)
+    }
+
     @MainActor
     static func hideAmounts(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: AppLock.enabledKey) && !defaults.bool(forKey: showAmountsKey)
+        !showsAmounts(defaults: defaults)
     }
 }

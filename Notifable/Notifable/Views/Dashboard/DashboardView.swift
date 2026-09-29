@@ -306,7 +306,8 @@ struct DashboardView: View {
         loaded.brief = StoreRevision.current
         Self.briefDay = AssistantBrief.dayKey(Date())
         let inputs = AssistantData.inputs(context: modelContext, usdToPen: rate)
-        let news = AssistantSeenState().hasNews(AssistantBrief.cards(inputs))
+        // Configuración › Asistente › Resumen del día: sin él, el ✦ no lleva punto.
+        let news = AssistantSettings.briefDot && AssistantSeenState().hasNews(AssistantBrief.cards(inputs))
         guard news != AssistantDot.shared.hasNews else { return }
         withAnimation(.easeInOut(duration: 0.2)) { AssistantDot.shared.hasNews = news }
     }

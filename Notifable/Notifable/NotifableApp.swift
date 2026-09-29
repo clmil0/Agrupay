@@ -20,6 +20,8 @@ struct NotifableApp: App {
         // La hora del recordatorio de deuda se guardaba como fecha completa y
         // quedaba anclada al día en que se configuró.
         NotificationSettings.migrateIfNeeded()
+        // «Ocultar montos al abrir»: el ojito arranca cerrado.
+        AmountPrivacy.applyLaunchPreference()
         // Rebrand: el tema pasa a "Azul" (el azul del ícono), una sola vez.
         AppThemeColor.migrateToBrandBlueIfNeeded()
         // En `init` y no en el `.task` de la ventana: cuando Siri despierta la

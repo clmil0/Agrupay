@@ -25,7 +25,10 @@ struct ReminderComposerSheet: View {
     @State private var searchQuery = ""
     @State private var selected: Set<String> = []
     @State private var message = ReminderComposerSheet.defaultMessage
-    @State private var intensity: PaymentReminder.Intensity = .soft
+    /// Arranca con la de Notificaciones › Al cobrarle a un amigo.
+    @State private var intensity: PaymentReminder.Intensity = NotificationSettings.defaultIntensity
+    @AppStorage(ProStore.enabledKey) private var isPro = false
+    @State private var paywall: ProStore.Feature?
     @State private var splitEnabled = false
     /// Monto escrito por amigo. Lo que no esté aquí va sin cifra.
     @State private var amounts: [String: String] = [:]
@@ -112,6 +115,7 @@ struct ReminderComposerSheet: View {
                     Button("Cerrar") { dismiss() }
                 }
             }
+            .proPaywall($paywall)
             .appAppearance()
             .appTextSize()
         }
@@ -394,6 +398,8 @@ struct ReminderComposerSheet: View {
                                  title: String, detail: String) -> some View {
         let selected = intensity == value
         return Button {
+            // «Intenso» es de Pro: sin él, se abre el paywall y queda «Suave».
+            guard value == .soft || isPro else { paywall = .alerts; return }
             withAnimation(.easeOut(duration: 0.15)) { intensity = value }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -402,6 +408,7 @@ struct ReminderComposerSheet: View {
                         .font(.system(size: 13, weight: .semibold))
                     Text(title)
                         .font(.system(size: 15, weight: .semibold))
+                    if value == .intense && !isPro { ProBadge() }
                     Spacer(minLength: 0)
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16))
@@ -587,7 +594,7 @@ struct ReminderComposerSheet: View {
             occurredOn: debt.date,
             currency: currency,
             message: message.trimmingCharacters(in: .whitespacesAndNewlines),
-            intensity: intensity,
+            intensity: isPro ? intensity : .soft,
             to: sendableFriends,
             amounts: byFriend
         )

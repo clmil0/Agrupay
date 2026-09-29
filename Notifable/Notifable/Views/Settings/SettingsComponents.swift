@@ -16,6 +16,8 @@ struct SettingsRow<Destination: View>: View {
     var subtitle: String? = nil
     /// Punto de color delante del valor (el acento actual, en Apariencia).
     var valueDot: Color?
+    /// Sello verde delante del valor (el celular verificado).
+    var valueSeal = false
     @ViewBuilder let destination: () -> Destination
 
     @Environment(\.colorScheme) private var scheme
@@ -52,6 +54,12 @@ struct SettingsRow<Destination: View>: View {
                     Circle()
                         .fill(valueDot)
                         .frame(width: 13, height: 13)
+                }
+
+                if valueSeal {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.positive)
                 }
 
                 if !value.isEmpty {

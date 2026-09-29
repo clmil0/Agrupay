@@ -9,6 +9,13 @@ import SwiftUI
 /// un porcentaje se ven igual.
 enum AmountPrivacy {
     static let storageKey = "dashboardHidesAmounts"
+    /// «Ocultar montos al abrir» (Configuración › Bloqueo): cada arranque
+    /// empieza con el ojito cerrado, se haya dejado como se haya dejado.
+    static let hideOnLaunchKey = "hideAmountsOnLaunch"
+
+    static func applyLaunchPreference(_ defaults: UserDefaults = .standard) {
+        if defaults.bool(forKey: hideOnLaunchKey) { defaults.set(true, forKey: storageKey) }
+    }
 
     static let hiddenDigits = "•••"
 

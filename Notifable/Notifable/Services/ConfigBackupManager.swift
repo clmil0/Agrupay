@@ -94,6 +94,10 @@ final class ConfigBackupManager {
     var lastErrorMessage: String?
 
     var isEnabled: Bool { mode != .off }
+
+    /// Activada pero sin Pro: no sube nada; lo guardado en la nube queda
+    /// intacto y se retoma al volver a Pro («Configuración Pro», `4l`).
+    var isPausedForPro: Bool { isEnabled && !ProStore.isPro }
     var accountEmail: String? { BackupAccount.shared.email ?? GmailAuthService.shared.accountEmail }
 
     /// `true` si activar la sincronización no le va a pedir nada al usuario.
@@ -347,6 +351,9 @@ final class ConfigBackupManager {
         }
         if isSyncing { changedDuringSync = true; return }
         hasPendingChanges = true
+        // Sin Pro se anota que hay cambios y nada más: `ProStore` vuelve a
+        // llamar aquí al encenderse, y entonces sí se suben.
+        guard ProStore.isPro else { return }
         debounce?.cancel()
         debounce = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -516,7 +523,7 @@ final class ConfigBackupManager {
 
     @discardableResult
     private func sync(force: Bool) async -> Bool {
-        guard isEnabled, backupCode != nil, !isSyncing else { return false }
+        guard isEnabled, backupCode != nil, !isSyncing, ProStore.isPro else { return false }
         guard let snapshot = buildSnapshot() else { return false }
 
         let fingerprint = Self.fingerprint(of: snapshot)
@@ -736,6 +743,37 @@ final class ConfigBackupManager {
             expenseEdits: snapshot.expenseEdits.filter(\.isUserEdit).count,
             manualExpenses: snapshot.manualTransactions.filter { $0.kind == "expense" }.count,
             manualIncomes: snapshot.manualTransactions.filter { $0.kind == "income" }.count)
+    }
+
+    // MARK: - Respaldo en archivo
+
+    /// «Guardar un respaldo» (Datos y respaldo, `4l`): lo mismo que se sube a
+    /// la nube, pero en un archivo que el usuario guarda donde quiera. No
+    /// necesita cuenta ni Pro.
+    func fileBackupData() -> Data? {
+        guard let s = buildSnapshot() else { return nil }
+        let payload = ConfigBackupPayload(
+            backupCode: nil, updatedAt: Date(), accountEmail: nil,
+            merchantRules: s.merchantRules, categoryCatalog: s.categoryCatalog,
+            categoryBudgets: s.categoryBudgets, budgetSettings: s.budgetSettings,
+            bankSources: s.bankSources, notificationSettings: s.notificationSettings,
+            appearance: s.appearance, preferences: s.preferences,
+            quickExpenses: s.quickExpenses, recurringExpenses: s.recurringExpenses,
+            expenseEdits: s.expenseEdits, manualTransactions: s.manualTransactions)
+        let encoder = Self.makeEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(payload)
+    }
+
+    /// «Restaurar desde archivo». Devuelve `nil` si salió bien, o el motivo.
+    func restoreFromFile(_ data: Data) -> String? {
+        do {
+            let payload = try Self.makeDecoder().decode(ConfigBackupPayload.self, from: data)
+            apply(payload)
+            return nil
+        } catch {
+            return "Ese archivo no es un respaldo de AgruPay, o es de una versión que ésta no entiende."
+        }
     }
 
     // MARK: - Fotografía del dispositivo

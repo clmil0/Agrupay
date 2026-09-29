@@ -1,8 +1,8 @@
 import SwiftUI
 import SwiftData
 
-/// Leer un rango pasado. Sale de la pantalla de Gmail porque es una acción
-/// puntual, no un ajuste.
+/// Leer un rango de fechas (`4g` › Cuánto atrás). Gratis llega hasta 3 meses
+/// atrás; con Pro, hasta el primer correo del banco.
 struct RangeSyncView: View {
 
     @Environment(\.modelContext) private var modelContext
@@ -11,6 +11,8 @@ struct RangeSyncView: View {
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
 
     @StateObject private var gmailSync = GmailSyncService.shared
+    @AppStorage(ProStore.enabledKey) private var isPro = false
+    @State private var paywall: ProStore.Feature?
 
     @State private var startDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @State private var endDate: Date = Date()
@@ -45,11 +47,25 @@ struct RangeSyncView: View {
             } else {
                 Section {
                     DatePicker("Desde", selection: $startDate,
-                               in: ...endDate, displayedComponents: .date)
+                               in: GmailLookback.earliestRangeStart...endDate, displayedComponents: .date)
                     DatePicker("Hasta", selection: $endDate,
                                in: startDate...Date(), displayedComponents: .date)
                 } footer: {
                     Text(explanation)
+                }
+
+                if !isPro {
+                    Section {
+                        Button {
+                            paywall = .history
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("Leer más atrás de 3 meses")
+                                    .foregroundStyle(accent.onSurface(scheme))
+                                ProBadge()
+                            }
+                        }
+                    }
                 }
 
                 if let error = gmailSync.lastSyncError {
@@ -82,23 +98,18 @@ struct RangeSyncView: View {
             }
         }
         .onAppear {
+            // Gratis no puede empezar antes de 3 meses atrás; si venía una
+            // fecha más vieja (se quitó Pro), se sube al límite.
+            if startDate < GmailLookback.earliestRangeStart { startDate = GmailLookback.earliestRangeStart }
             // El resumen es de la última lectura, que pudo ser hace rato y con
             // otros datos («3 ya estaban» después de borrar esos 3 confunde).
             if !gmailSync.isSyncing { gmailSync.lastRunSummary = nil }
         }
-        .navigationTitle("Leer un rango pasado")
+        .navigationTitle("Un rango de fechas")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Recuperación de Gastos", isPresented: $showRecoveryAlert) {
-            Button("Sí, recuperar") {
-                gmailSync.recoverExpenses(ids: DeletedEmails.all())
-            }
-            Button("No, seguir sin ellos") {
-                DeletedEmails.decline()
-                gmailSync.syncEmails(force: true, startDate: startDate, endDate: endDate)
-            }
-            Button("Cancelar", role: .cancel) {}
-        } message: {
-            Text("Borraste movimientos que venían del correo. Si no los recuperas, seguirán borrados aunque leas su periodo.")
+        .gmailRecoveryAlert(isPresented: $showRecoveryAlert) {
+            gmailSync.syncEmails(force: true, startDate: startDate, endDate: endDate)
         }
+        .proPaywall($paywall)
     }
 }

@@ -47,7 +47,7 @@ enum AssistantAction: Hashable, Codable {
 // MARK: - Tarjetas
 
 struct BriefCard: Identifiable, Equatable {
-    enum Kind: String { case rhythm, limits, comparison, committed, friends }
+    enum Kind: String { case rhythm, limits, comparison, committed, friends, unusual }
 
     let kind: Kind
     let icon: String
@@ -76,7 +76,7 @@ enum AssistantBrief {
     static let debtAgeDays = 7
 
     static func cards(_ input: AssistantInputs) -> [BriefCard] {
-        [rhythm(input), limits(input), comparison(input), committed(input), friends(input)]
+        [rhythm(input), limits(input), unusual(input), comparison(input), committed(input), friends(input)]
             .compactMap { $0 }
             .map { card in
                 var card = card
@@ -286,6 +286,68 @@ enum AssistantBrief {
                          cta: "Enviar recordatorio", action: .reminder(first.id), signature: signature)
     }
 
+    // MARK: Gastos raros
+
+    /// Cuántos días atrás se mira en busca de un gasto fuera de lo habitual.
+    static let unusualDays = 3
+
+    /// Un gasto de los últimos días que es varias veces lo que sueles gastar
+    /// en esa categoría (Configuración › Asistente › Avisos de gastos raros).
+    /// Hace falta historia: al menos cinco gastos de la categoría en los tres
+    /// meses anteriores, y que el monto sea de verdad llamativo.
+    static func unusual(_ input: AssistantInputs) -> BriefCard? {
+        guard AssistantSettings.unusualAlerts else { return nil }
+        let cal = Period.calendar
+        let today = cal.startOfDay(for: input.now)
+        guard let recentStart = cal.date(byAdding: .day, value: -unusualDays, to: today),
+              let historyStart = cal.date(byAdding: .month, value: -3, to: recentStart) else { return nil }
+
+        let spending = input.expenses.filter {
+            !$0.isTransfer && !$0.isVoided && !$0.isDebt && $0.category != Accounting.unclassified
+        }
+        func pen(_ expense: ExpenseSnapshot) -> Double {
+            Accounting.amountInPEN(expense, fallbackRate: input.usdToPen)
+        }
+
+        var best: (expense: ExpenseSnapshot, ratio: Double)?
+        for expense in spending where expense.date >= recentStart && expense.date <= input.now {
+            let past = spending
+                .filter { $0.category == expense.category && $0.date >= historyStart && $0.date < recentStart }
+                .map(pen)
+                .sorted()
+            guard past.count >= 5 else { continue }
+            let median = past[past.count / 2]
+            let amount = pen(expense)
+            guard median > 0, amount >= 50 else { continue }
+            let ratio = amount / median
+            guard ratio >= 3, ratio > (best?.ratio ?? 0) else { continue }
+            best = (expense, ratio)
+        }
+        guard let found = best else { return nil }
+
+        let name = Accounting.displayName(found.expense.merchant)
+        let times = Int(found.ratio.rounded())
+        let text = "«\(name)» te cobró \(Money.formatCompact(pen(found.expense))) \(relativePast(found.expense.date, now: input.now)): "
+            + "unas \(times) veces lo que sueles gastar en \(found.expense.category)."
+        let signature = "unusual:\(dayKey(found.expense.date)):\(found.expense.merchant):\(Money.cents(found.expense.amount))"
+        return BriefCard(kind: .unusual, icon: "exclamationmark.triangle.fill", title: "GASTO RARO", text: text,
+                         cta: "Ver " + found.expense.category, action: .category(found.expense.category),
+                         signature: signature)
+    }
+
+    /// «hoy», «ayer», «el martes».
+    static func relativePast(_ date: Date, now: Date) -> String {
+        let cal = Period.calendar
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: now)).day ?? 0
+        switch days {
+        case 0: return "hoy"
+        case 1: return "ayer"
+        default:
+            let names = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+            return "el " + names[(cal.component(.weekday, from: date) - 1) % 7]
+        }
+    }
+
     // MARK: Utilidades
 
     static func dayKey(_ date: Date) -> String {
@@ -339,4 +401,25 @@ struct AssistantSeenState {
     func markSeen(_ cards: [BriefCard]) {
         defaults.set(cards.map(\.signature), forKey: Self.key)
     }
+}
+
+// MARK: - Ajustes del asistente
+
+/// Configuración › Asistente (`4i`): qué propone y qué avisa. Todo encendido
+/// por defecto, que es como funcionaba antes de tener interruptores.
+enum AssistantSettings {
+    /// «Resumen del día»: el punto en ✦ cuando hay algo nuevo.
+    static let briefDotKey = "assistantBriefDot"
+    /// «Sugerencias de categoría»: proponer categoría y regla para comercios.
+    static let suggestionsKey = "assistantCategorySuggestions"
+    /// «Avisos de gastos raros»: la tarjeta de montos fuera de lo habitual.
+    static let unusualKey = "assistantUnusualAlerts"
+
+    private static func flag(_ key: String) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? true
+    }
+
+    static var briefDot: Bool { flag(briefDotKey) }
+    static var suggestions: Bool { flag(suggestionsKey) }
+    static var unusualAlerts: Bool { flag(unusualKey) }
 }
