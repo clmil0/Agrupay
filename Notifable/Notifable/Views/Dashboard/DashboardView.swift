@@ -343,7 +343,7 @@ struct DashboardView: View {
             accountChip
             Spacer(minLength: 8)
             AssistantHeaderButton(action: openAssistant)
-            ShellCircleButton(icon: "slider.horizontal.3", label: "Configuración", action: onSettings)
+            ShellCircleButton(icon: "gearshape", label: "Configuración", action: onSettings)
         }
         .padding(.horizontal, ShellMetrics.sideInset)
         .frame(height: ShellMetrics.headerHeight)
@@ -413,6 +413,12 @@ struct DashboardView: View {
         return name + " " + String(calendar.component(.year, from: month.reference))
     }
 
+    /// «Septiembre 2026»: el titular siempre lleva el año.
+    private var heroMonthTitle: String {
+        Period.spanishMonthName(for: month.reference) + " "
+            + String(Period.calendar.component(.year, from: month.reference))
+    }
+
     private func hero(totals: PeriodTotals, previous: PeriodTotals) -> some View {
         let spent = totals.spent
         let isEmpty = Money.isZero(spent) && Money.isZero(totals.income)
@@ -423,10 +429,8 @@ struct DashboardView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text("Gastado en " + monthName.lowercased())
-                    .textCase(.uppercase)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .tracking(0.25)
+                Text("Gastos en " + heroMonthTitle)
+                    .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(palette.secondaryLabel)
 
                 Spacer(minLength: 8)

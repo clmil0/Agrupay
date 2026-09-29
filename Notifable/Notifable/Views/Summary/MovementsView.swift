@@ -32,12 +32,14 @@ struct MovementsView: View {
     @State private var visibleCount = pageSize
     @State private var selectedExpense: Expense?
     @State private var selectedIncome: Income?
-    @State private var expenseToCategorize: Expense?
     @State private var splitting: Expense?
     /// Pagos divididos que el usuario plegó. Abiertos por defecto: la división
     /// es lo que se quiere ver.
     @State private var collapsedSplits: Set<UUID> = []
     @State private var showsAccounts = false
+    /// Las tarjetas ocupan casi una pantalla chica: se pliegan con la
+    /// flechita y se quedan como las dejaste.
+    @AppStorage("movements.accountsCollapsed") private var accountsCollapsed = false
     /// Los movimientos del correo que no habías visto: se resaltan dos
     /// segundos al entrar y quedan como vistos.
     @State private var highlighted: Set<String> = []
@@ -75,6 +77,38 @@ struct MovementsView: View {
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
     private var rate: Double { rates.usdToPenRate }
+
+    /// «Tus cuentas» con su flechita. Plegado, dice qué cuenta filtra: el
+    /// filtro sigue puesto aunque no se vean las tarjetas.
+    private func accountsHeader(_ carousel: [DetectedAccount]) -> some View {
+        let chosen = filter.selection.flatMap { key in carousel.first { $0.key == key } }
+        return Button {
+            withAnimation(.easeInOut(duration: 0.25)) { accountsCollapsed.toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                Text("TUS CUENTAS")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(palette.secondaryLabel)
+                if accountsCollapsed {
+                    Text(chosen.map { accountBook.preferences.name(for: $0) } ?? "Todas")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(chosen == nil ? palette.secondaryLabel : accent.onSurface(scheme))
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(palette.secondaryLabel)
+                    .rotationEffect(.degrees(accountsCollapsed ? -90 : 0))
+            }
+            .padding(.horizontal, 2)
+            .padding(.bottom, accountsCollapsed ? 12 : 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accountsCollapsed ? "Mostrar tus cuentas" : "Ocultar tus cuentas")
+    }
 
     // MARK: - Datos
 
@@ -156,24 +190,27 @@ struct MovementsView: View {
                 // Con alguna cuenta detectada, aunque ninguna esté marcada
                 // como tuya: «Editar» es la puerta para marcarlas.
                 if !catalog.accounts.isEmpty {
-                    AccountCarousel(accounts: carousel,
-                                    name: { accountBook.preferences.name(for: $0) },
-                                    counts: counts(in: source, catalog: catalog),
-                                    total: source.count,
-                                    selection: $filter.selection,
-                                    onEdit: { showsAccounts = true })
-                        .padding(.horizontal, -ShellMetrics.sideInset)
-                        .padding(.bottom, 12)
-                        // Una cuenta que dejó de ser tuya ya no está en el
-                        // carrusel: el filtro vuelve a «Todas».
-                        .onChange(of: carousel.map(\.key), initial: true) { _, keys in
-                            if let key = filter.selection, !keys.contains(key) { filter.selection = nil }
+                    VStack(spacing: 0) {
+                        accountsHeader(carousel)
+
+                        if !accountsCollapsed {
+                            AccountCarousel(accounts: carousel,
+                                            name: { accountBook.preferences.name(for: $0) },
+                                            counts: counts(in: source, catalog: catalog),
+                                            total: source.count,
+                                            selection: $filter.selection,
+                                            onEdit: { showsAccounts = true })
+                                .padding(.horizontal, -ShellMetrics.sideInset)
+                                .padding(.bottom, 12)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                         }
-                        .sheet(isPresented: $showsAccounts) {
-                            AccountsSheet(catalog: catalog, preferences: accountBook.preferences)
-                                .presentationDragIndicator(.visible)
-                                .presentationCornerRadius(28)
-                        }
+                    }
+                    // Una cuenta que dejó de ser tuya ya no está en el
+                    // carrusel: el filtro vuelve a «Todas». Fuera del
+                    // carrusel, para que valga también plegado.
+                    .onChange(of: carousel.map(\.key), initial: true) { _, keys in
+                        if let key = filter.selection, !keys.contains(key) { filter.selection = nil }
+                    }
                 }
 
                 HStack(spacing: 8) {
@@ -231,6 +268,11 @@ struct MovementsView: View {
             geometry.contentOffset.y + geometry.contentInsets.top
         } action: { _, offset in
             progress.update(offset)
+        }
+        .sheet(isPresented: $showsAccounts) {
+            AccountsSheet(catalog: catalog, preferences: accountBook.preferences)
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
         }
         .onChange(of: searchText) { _, _ in visibleCount = Self.pageSize }
         .onChange(of: kind) { _, newKind in
@@ -291,17 +333,6 @@ struct MovementsView: View {
         .sheet(item: $selectedExpense) { ExpenseDetailsView(expense: $0) }
         .sheet(item: $selectedIncome) { IncomeDetailsView(income: $0) }
         .sheet(item: $splitting) { SplitExpenseSheet(parent: $0) }
-        .sheet(item: $expenseToCategorize) { expense in
-            AssignCategorySheet(context: .expense(expense), history: expenses) { newCategory, createRule in
-                expense.category = newCategory
-                ExpenseEditStore.record(expense, category: newCategory)
-                if createRule { MerchantRules.set(newCategory, for: expense.merchant) }
-                try? modelContext.save()
-            }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
-        }
     }
 
     /// Resalta lo nuevo y lo da por visto. Si todo lo nuevo son ingresos, abre
@@ -454,8 +485,7 @@ struct MovementsView: View {
                         case .expense(let expense):
                             MovementRow(expense: expense,
                                         showsTime: true,
-                                        onTap: { selectedExpense = expense },
-                                        onAssignCategory: { expenseToCategorize = expense })
+                                        onTap: { selectedExpense = expense })
                         case .income(let income):
                             IncomeRow(income: income, showsTime: true, onTap: { selectedIncome = income })
                         }

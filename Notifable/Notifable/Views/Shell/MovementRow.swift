@@ -140,7 +140,10 @@ struct MovementRow: View {
     /// origen: categoría y hora, nada más.
     var showsTime = false
     var onTap: () -> Void = {}
-    var onAssignCategory: () -> Void = {}
+    /// Quien quiera decidir qué pasa al categorizar (p. ej. aplicarlo a todo
+    /// el comercio). Sin él, la fila abre la hoja de un gasto, la misma que
+    /// su detalle: con «Quitar categoría» si ya tiene una.
+    var onAssignCategory: (() -> Void)? = nil
     /// En modo selección (Pendientes «Por día», Movimientos › Seleccionar):
     /// `true`/`false` dibuja la casilla a la izquierda y el toque elige. `nil`
     /// fuera de ese modo. Es la misma fila en los dos sitios a propósito: un
@@ -150,8 +153,14 @@ struct MovementRow: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
     @State private var confirmsDelete = false
+    @State private var categorizing = false
+    @State private var tagging = false
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
+
+    private func assignCategory() {
+        if let onAssignCategory { onAssignCategory() } else { categorizing = true }
+    }
 
     /// Un traslado o una anulación no se clasifican: no son gasto.
     private var isUnclassified: Bool {
@@ -284,9 +293,15 @@ struct MovementRow: View {
             }
 
             Button {
-                onAssignCategory()
+                assignCategory()
             } label: {
-                Label("Categorizar", systemImage: "tag")
+                Label("Categoría", systemImage: "square.grid.2x2")
+            }
+
+            Button {
+                tagging = true
+            } label: {
+                Label("Etiquetas", systemImage: "tag")
             }
 
             // Se confirma aparte: el menú se abre con una pulsación larga y
@@ -300,6 +315,19 @@ struct MovementRow: View {
                     Label("Eliminar", systemImage: "trash")
                 }
             }
+        }
+        .sheet(isPresented: $categorizing) { ExpenseCategorySheet(expense: expense) }
+        .sheet(isPresented: $tagging) {
+            // `toggleTag` anota la edición y guarda: sobrevive a la relectura
+            // del correo, igual que desde el detalle.
+            TagPickerSheet(selected: expense.tags) { tag in
+                withAnimation(.snappy(duration: 0.2)) {
+                    expense.toggleTag(tag, in: modelContext)
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
         }
         .confirmationDialog("¿Eliminar movimiento?", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("Eliminar", role: .destructive) {
@@ -318,7 +346,7 @@ struct MovementRow: View {
     /// La fila de «sin categoría», con o sin el origen del movimiento.
     private func assignRow(showsSource: Bool) -> some View {
         HStack(spacing: 5) {
-            Button(action: onAssignCategory) {
+            Button(action: assignCategory) {
                 Text("Asignar categoría")
                     .font(.system(size: 11, weight: .semibold))
                     .fixedSize()

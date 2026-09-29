@@ -226,6 +226,8 @@ struct ContentView: View {
                 await startFriendsSession()
                 if SupabaseAuthManager.shared.isReady { await FriendsManager.shared.refresh() }
                 await reminders.refresh()
+                // Lo que te pagaron entra como ingreso sin tener que abrir Amigos.
+                await FriendDebts.shared.refresh()
             }
             // Los cobros se piden al abrir, no sólo al visitar Amigos: el
             // modo intenso tiene que salir apenas se abre la app.
@@ -234,6 +236,7 @@ struct ContentView: View {
                 Task {
                     await reminders.refresh()
                     await FriendsManager.shared.refresh()
+                    await FriendDebts.shared.refresh()
                 }
             }
             .onChange(of: scenePhase) { _, phase in

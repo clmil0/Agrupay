@@ -15,29 +15,27 @@ struct BulkActionBar: View {
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
 
+    // Tres botones sueltos, cada uno con su propia cápsula: dentro de una
+    // cápsula común con uno relleno se leían como un control segmentado.
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             barButton(icon: "square.grid.2x2", title: "Categorizar",
                       tint: .white, fill: accent.color, action: onCategorize)
                 .accessibilityLabel("Categorizar \(count)")
 
-            barButton(icon: "tag", title: "Etiquetas",
-                      tint: palette.label, fill: nil, action: onTags)
+            barButton(icon: "tag", title: "Etiquetar",
+                      tint: palette.label, fill: palette.surface, action: onTags)
                 .accessibilityLabel("Etiquetar \(count)")
 
             barButton(icon: "trash", title: "Eliminar",
-                      tint: palette.negative, fill: nil, action: onDelete)
+                      tint: palette.negative, fill: palette.surface, action: onDelete)
                 .accessibilityLabel(count == 1 ? "Eliminar el movimiento elegido"
                                                : "Eliminar los \(count) movimientos elegidos")
         }
-        .padding(6)
-        .background(palette.surface, in: Capsule())
-        .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
-        .shadow(color: Color.black.opacity(0.14), radius: 12, y: 6)
         .padding(.horizontal, ShellMetrics.sideInset)
     }
 
-    private func barButton(icon: String, title: String, tint: Color, fill: Color?,
+    private func barButton(icon: String, title: String, tint: Color, fill: Color,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
@@ -50,9 +48,11 @@ struct BulkActionBar: View {
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .background(fill ?? Color.clear, in: Capsule())
+            .frame(height: 46)
+            .background(fill, in: Capsule())
+            .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
             .contentShape(Capsule())
+            .shadow(color: Color.black.opacity(0.12), radius: 10, y: 5)
         }
         .buttonStyle(.plain)
     }

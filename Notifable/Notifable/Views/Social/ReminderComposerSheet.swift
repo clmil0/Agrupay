@@ -75,6 +75,7 @@ struct ReminderComposerSheet: View {
 
     private var canSend: Bool {
         debt != nil && !sendableFriends.isEmpty && !isSending
+            && !(splitEnabled && Money.cents(mine) < 0)
     }
 
     /// Los elegidos a los que hoy sí se les puede escribir.
@@ -493,7 +494,7 @@ struct ReminderComposerSheet: View {
 
             TextField("0.00", text: Binding(
                 get: { amounts[friend.id] ?? "" },
-                set: { amounts[friend.id] = $0 }
+                set: { amounts[friend.id] = clampedAmount($0, for: friend.id) }
             ))
             .keyboardType(.decimalPad)
             .multilineTextAlignment(.trailing)
@@ -503,6 +504,17 @@ struct ReminderComposerSheet: View {
             .frame(height: 36)
             .background(palette.neutralSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
+    }
+
+    /// Lo que se teclea para un amigo: sin signo, a lo más dos decimales
+    /// (`sanitizedAmount`) y nunca más de lo que queda de la cuenta. Entre
+    /// todos no pasan del total: lo mínimo que te toca a ti es 0.
+    private func clampedAmount(_ input: String, for id: String) -> String {
+        let text = TransactionDraft.sanitizedAmount(input)
+        guard let value = Money.parse(text) else { return text }
+        let others = Money.sum(Array(selected.filter { $0 != id })) { amounts[$0].flatMap(Money.parse) ?? 0 }
+        let available = max(0, Money.subtract(total, others))
+        return Money.cents(value) > Money.cents(available) ? Money.decimalText(available) : text
     }
 
     /// En partes iguales contando a quien cobra: la cuenta de 120 entre dos

@@ -64,8 +64,10 @@ struct NotifableApp: App {
                     // nube, Amigos ni recordatorios.
                     guard GmailSyncService.qaToken == nil else {
                         GmailSyncService.shared.modelContext = sharedModelContainer.mainContext
+                        FriendDebts.shared.start(container: sharedModelContainer)
                         #if DEBUG
                         QAMode.seedSocial()
+                        QAMode.seedDebts(container: sharedModelContainer)
                         #endif
                         // Sólo avisos locales y el numerito del ícono: nada
                         // sale del teléfono.
@@ -83,6 +85,9 @@ struct NotifableApp: App {
                     // Y re-publica lo que les compartes cada vez que cambia
                     // el gasto del mes.
                     ShareAutoSync.shared.start(container: sharedModelContainer)
+                    // Los pagos entre amigos: detectar los tuyos y anotar
+                    // los que te hicieron.
+                    FriendDebts.shared.start(container: sharedModelContainer)
                     Task {
                         await PaymentReminders.shared.uploadStoredToken()
                         await PaymentReminders.shared.refresh()

@@ -93,6 +93,63 @@ enum QAMode {
         ])
     }
 
+    // MARK: - Deudas entre amigos
+
+    /// `-qaDeudas`: le debes a Vale la pizza y a Diego el cine, hay un Yape a
+    /// «VALERIA GOMEZ» y un Plin a «DIEGO RAMOS» sin vincular (dos preguntas),
+    /// y Alejo te pagó S/ 50 de la parrilla (entra como ingreso abonado).
+    /// `-qaDeudas auto` deja a VALERIA GOMEZ ya vinculada con Vale: su Yape
+    /// exacto se paga solo, con el aviso y «Deshacer».
+    @MainActor
+    static func seedDebts(container: ModelContainer) {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard isOn, let flag = arguments.firstIndex(of: "-qaDeudas") else { return }
+        let defaults = UserDefaults.standard
+        // Lo del que debe se siembra de nuevo en cada arranque; el pago de
+        // Alejo, en cambio, deja un ingreso en la base: sólo se olvida que ya
+        // se anotó cuando la base también se vacía.
+        for key in ["friendDebts.payeeLinks", "friendDebts.rejectedLinks", "friendDebts.handledCandidates"] {
+            defaults.removeObject(forKey: key)
+        }
+        if wantsReset { defaults.removeObject(forKey: "friendDebts.processedPayments") }
+        if arguments.indices.contains(flag + 1), arguments[flag + 1] == "auto" {
+            defaults.set([AccountResolver.payeeKey("VALERIA GOMEZ"): "qa-vale"], forKey: "friendDebts.payeeLinks")
+        }
+
+        let context = container.mainContext
+        let existing = Set(((try? context.fetch(FetchDescriptor<Expense>())) ?? []).map(\.merchant))
+        let sends: [(String, Double, Int, String)] = [
+            ("YAPE - VALERIA GOMEZ", 42.50, 1, "Yape"),
+            ("PLIN - DIEGO RAMOS", 20.00, 2, "Plin"),
+        ]
+        for (merchant, amount, days, bank) in sends where !existing.contains(merchant) {
+            let expense = Expense(amount: amount, merchant: merchant, date: daysAgo(days, hour: 20),
+                                  category: "Comida")
+            expense.sourceBank = bank
+            context.insert(expense)
+        }
+        try? context.save()
+
+        let parrilla = (try? context.fetch(FetchDescriptor<Expense>()))?
+            .first { $0.merchant == "PARRILLAS EL GAUCHO" }
+        FriendDebts.shared.seedForQA(
+            owed: [
+                OwedShare(id: "qa-deuda-vale", creditor: "qa-vale", debtKey: "qa", merchant: "Pizzería Mamma Mia",
+                          occurredOn: daysAgo(6), amount: 42.50, currency: "PEN", paidAmount: 0, isPaid: false,
+                          createdAt: daysAgo(5), paidAt: nil),
+                OwedShare(id: "qa-deuda-diego", creditor: "qa-diego", debtKey: "qa", merchant: "Cineplanet",
+                          occurredOn: daysAgo(4), amount: 30.00, currency: "PEN", paidAmount: 0, isPaid: false,
+                          createdAt: daysAgo(4), paidAt: nil),
+            ],
+            incoming: parrilla.map { debt in
+                [FriendDebts.IncomingPayment(id: "qa-pago-alejo", debtor: "qa-alejo",
+                                             debtKey: TransactionKey.key(for: debt), merchant: "Parrillas El Gaucho",
+                                             amount: 50, currency: "PEN", paidAt: daysAgo(0, hour: 9),
+                                             via: "Yape", allPaid: false)]
+            } ?? []
+        )
+    }
+
     // MARK: - Gastos a mano
 
     private static func daysAgo(_ days: Int, hour: Int = 13) -> Date {

@@ -41,6 +41,7 @@ struct FriendsActionsSection: View {
             } else {
                 actions
                 remindersSection
+                FriendDebtsSection()
                 requestsSection
             }
         }

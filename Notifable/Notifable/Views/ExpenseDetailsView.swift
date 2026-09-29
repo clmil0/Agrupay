@@ -121,30 +121,7 @@ struct ExpenseDetailsView: View {
             .sheet(item: $editingRule) { RecurringExpenseEditor(rule: $0) }
             .sheet(isPresented: $showingCategoryPicker) {
                 // `6a`: el mismo componente que la Bandeja y el modal de alta.
-                AssignCategorySheet(context: .expense(expense),
-                                    history: allExpenses,
-                                    onClear: {
-                    // Vuelve a Pendientes. También se anota, o la relectura
-                    // del correo le devolvería la categoría que tenía.
-                    expense.category = Accounting.unclassified
-                    ExpenseEditStore.record(expense, category: Accounting.unclassified)
-                    try? modelContext.save()
-                }) { newCategory, createRule in
-                    expense.category = newCategory
-                    // Se anota aunque haya regla: la regla sólo mira hacia
-                    // adelante, y sin la anotación la próxima relectura del
-                    // correo devolvería este gasto a su categoría original.
-                    ExpenseEditStore.record(expense, category: newCategory)
-                    if createRule {
-                        // Sólo para lo que llegue: el historial del comercio
-                        // se reclasifica desde Pendientes, no desde aquí.
-                        MerchantRules.set(newCategory, for: expense.merchant)
-                    }
-                    try? modelContext.save()
-                }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
+                ExpenseCategorySheet(expense: expense)
             }
             .sheet(isPresented: $showingEditor) {
                 EditExpenseSheet(expense: expense)

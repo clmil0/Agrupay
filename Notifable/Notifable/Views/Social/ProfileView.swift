@@ -19,6 +19,8 @@ struct ProfileView: View {
 
     @State private var showProfileSheet = false
     @State private var editing: MyProfileSheet.Section?
+    @State private var phone = PhoneVerification.shared
+    @State private var showsPhone = false
 
     init(scrollToTopTrigger: Binding<Bool>, progress: ScrollProgress) {
         self._scrollToTopTrigger = scrollToTopTrigger
@@ -78,6 +80,8 @@ struct ProfileView: View {
         .socialSession(showProfileSheet: $showProfileSheet)
         .sheet(isPresented: $showProfileSheet) { MyProfileSheet() }
         .sheet(item: $editing) { MyProfileSheet(section: $0) }
+        .sheet(isPresented: $showsPhone) { PhoneVerificationSheet() }
+        .task { await phone.refresh() }
     }
 
     // MARK: - Identidad
@@ -126,7 +130,48 @@ struct ProfileView: View {
             editorRow(icon: "quote.bubble", title: "Estado",
                       value: social.status.isEmpty ? "Sin definir" : social.status,
                       section: .status)
+            MovementSeparator()
+            phoneRow
         }
+    }
+
+    /// El celular no es parte de lo que ven tus amigos: abre su propia hoja.
+    private var phoneRow: some View {
+        Button {
+            showsPhone = true
+        } label: {
+            HStack(spacing: 12) {
+                MovementIcon(icon: "phone", color: accent.color, size: 38)
+
+                Text("Celular")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(palette.label)
+
+                Spacer(minLength: 8)
+
+                if let number = phone.formattedPhone {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.positive)
+                    Text(number)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(palette.secondaryLabel)
+                        .lineLimit(1)
+                } else {
+                    Text("Sin verificar")
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(palette.secondaryLabel)
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.tertiaryLabel)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func editorRow(icon: String, title: String, value: String,
