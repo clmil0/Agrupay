@@ -65,6 +65,8 @@ struct AppleParser: BankEmailParser {
             let month = months[monthWord] ?? monthWord
             
             let formatter = DateFormatter()
+            
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "dd MM yyyy"
             if let parsed = formatter.date(from: "\(day) \(month) \(year)") {

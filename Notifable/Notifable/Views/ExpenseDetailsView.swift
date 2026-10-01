@@ -861,6 +861,7 @@ struct ExpenseDetailsView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             expense.settleDebt(in: modelContext)
         }
+        ProHaptics.play(.settled)
     }
 
     private func delete() {

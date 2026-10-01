@@ -66,12 +66,19 @@ struct AddTransactionSheet: View {
     /// Desde un enlace `agrupay://` (widget o Atajos): ingreso con la fuente
     /// ya elegida, o un gasto rápido que se registra al abrir con la opción de
     /// deshacer — el mismo camino que el doble toque.
-    init(transactionType: TransactionType, source: String?, savingQuick quickID: UUID?) {
+    init(transactionType: TransactionType, source: String?, savingQuick quickID: UUID?,
+         isLockedEntry: Bool = false) {
         var draft = Self.blankDraft(transactionType)
         if let source { draft.source = source }
         _draft = State(initialValue: draft)
         _pendingQuickSave = State(initialValue: quickID)
+        self.isLockedEntry = isLockedEntry
     }
+
+    /// Abierto desde el widget con la app bloqueada: se anota, pero no se
+    /// enseña nada de los demás —los cobros pendientes llevan nombres y montos
+    /// de amigos—, que eso sigue detrás de Face ID.
+    private var isLockedEntry = false
 
     /// Gasto rápido por registrar al aparecer. Se consume una sola vez.
     @State private var pendingQuickSave: UUID?
@@ -161,7 +168,11 @@ struct AddTransactionSheet: View {
             }
         }
         .sheet(isPresented: $showDatePicker) { datePickerSheet }
-        .sheet(isPresented: $showAllCategories) { categoryListSheet }
+        .sheet(isPresented: $showAllCategories) {
+            // Bloqueada: sólo los nombres. La hoja completa enseña el saldo de
+            // cada límite y deja editar o borrar categorías.
+            if isLockedEntry { lockedCategorySheet } else { categoryListSheet }
+        }
         .sheet(isPresented: $showDebtPicker) { debtPickerSheet }
         .sheet(isPresented: $showSourcePicker) { sourcePickerSheet }
         .sheet(isPresented: $showDetail, onDismiss: suggestCategoryFromTitle) { detailSheet }
@@ -543,7 +554,7 @@ struct AddTransactionSheet: View {
     /// rellena la de siempre: la misma sugerencia que antes daba el campo de
     /// comercio mientras se escribía.
     private func suggestCategoryFromTitle() {
-        guard draft.type == .gasto, draft.category.trimmed.isEmpty else { return }
+        guard draft.type == .gasto, draft.category.trimmed.isEmpty, !isLockedEntry else { return }
         let title = draft.merchant.trimmed
         guard !title.isEmpty else { return }
         let match = history.first {
@@ -867,6 +878,8 @@ struct AddTransactionSheet: View {
     /// Los comercios más frecuentes. Tocar uno llena el campo y preselecciona la
     /// categoría que ese comercio ya tiene: el atajo que hace innecesario escribir.
     private var merchantSuggestions: [String] {
+        // Con la app bloqueada, dónde sueles comprar sigue detrás de Face ID.
+        guard !isLockedEntry else { return [] }
         var counts: [String: Int] = [:]
         for expense in history where !expense.merchant.isEmpty {
             counts[expense.merchant, default: 0] += 1
@@ -908,7 +921,8 @@ struct AddTransactionSheet: View {
     private var suggestionReason: String? {
         let merchant = draft.merchant.trimmed
         let category = draft.category
-        guard !merchant.isEmpty, !category.isEmpty, category != Accounting.unclassified else { return nil }
+        guard !merchant.isEmpty, !category.isEmpty, category != Accounting.unclassified,
+              !isLockedEntry else { return nil }
 
         if MerchantRules.category(for: merchant) == category {
             return "Por tu regla para " + merchant
@@ -1090,7 +1104,7 @@ struct AddTransactionSheet: View {
     /// lo único que hay que decidir, y sólo si hay algo por cobrar.
     @ViewBuilder
     private var incomeFields: some View {
-        if !activeDebts.isEmpty {
+        if !activeDebts.isEmpty && !isLockedEntry {
             debtToggle
         }
 
@@ -1153,7 +1167,7 @@ struct AddTransactionSheet: View {
     /// La distinción que ACCOUNTING.md §3 y §4 exigen y que ninguna pantalla
     /// explicaba: por qué un abono no aparece en el balance.
     private var explanationNote: some View {
-        Text(activeDebts.isEmpty
+        Text(activeDebts.isEmpty || isLockedEntry
              ? "Un ingreso normal cuenta en tu balance. Un cobro no: sólo reduce lo que te deben."
              : "Al activarlo, el monto se abona a una deuda y deja de contar como ingreso del mes.")
             .font(.footnote)
@@ -1534,6 +1548,53 @@ struct AddTransactionSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(28)
+    }
+
+    /// La lista de categorías del registro rápido con la app bloqueada:
+    /// alfabética (el orden por uso diría en qué gastas más), sin montos ni
+    /// edición.
+    private var lockedCategorySheet: some View {
+        NavigationStack {
+            List(CategoryStyle.alphabetical(history: []), id: \.self) { name in
+                Button {
+                    draft.category = name
+                    showAllCategories = false
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: CategoryStyle.icon(for: name))
+                            .foregroundStyle(CategoryStyle.color(for: name, accent: themeAccent.color))
+                            .frame(width: 30)
+                        Text(name)
+                            .foregroundStyle(palette.label)
+                        Spacer()
+                        if draft.category == name {
+                            Image(systemName: "checkmark")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(accentText)
+                        }
+                    }
+                }
+                .accessibilityAddTraits(draft.category == name ? [.isSelected] : [])
+            }
+            .navigationTitle("Categoría")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") { showAllCategories = false }
+                }
+                if !draft.category.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Quitar") {
+                            draft.category = ""
+                            showAllCategories = false
+                        }
+                    }
+                }
+            }
+        }
+        .tint(accentText)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 
     private var debtPickerSheet: some View {

@@ -61,6 +61,15 @@ final class AppLock: ObservableObject {
     /// terminaría nunca.
     private var isAuthenticating = false
     private var leftForegroundAt: Date?
+    /// El diálogo de Face ID en curso, para poder retirarlo si llega un
+    /// registro rápido desde el widget.
+    private var currentContext: LAContext?
+
+    /// Registro rápido desde el widget con la app bloqueada: el formulario se
+    /// abre sin pedir la cara (anotar un gasto no enseña nada) y la puerta se
+    /// aplaza hasta que el formulario baja. Mientras tanto la app sigue
+    /// bloqueada: detrás del formulario sólo está el blindaje.
+    @Published private(set) var defersForQuickEntry = false
 
     private let defaults: UserDefaults
 
@@ -160,13 +169,32 @@ final class AppLock: ObservableObject {
     /// biometría está bloqueada o sin configurar, iOS va directo al teclado del
     /// código, que es justo la salida que el usuario acaba de pedir.
     func unlock(preferPasscode: Bool = false) async {
-        guard isLocked else { return }
-        lastFailure = await attempt(reason: "Desbloquea AgruPay para ver tus movimientos.",
+        guard isLocked, !defersForQuickEntry else { return }
+        let failure = await attempt(reason: "Desbloquea AgruPay para ver tus movimientos.",
                                     preferPasscode: preferPasscode)
+        // Retirado por un registro rápido: no es un fallo que enseñar.
+        guard !defersForQuickEntry else { return }
+        lastFailure = failure
         if lastFailure == nil {
             isLocked = false
             leftForegroundAt = nil
         }
+    }
+
+    /// Abre el paréntesis del registro rápido. Si el diálogo de Face ID ya
+    /// estaba en pantalla (la app volvía bloqueada), se retira: el usuario
+    /// tocó el widget para anotar, no para entrar.
+    func beginQuickEntry() {
+        guard isLocked else { return }
+        defersForQuickEntry = true
+        currentContext?.invalidate()
+    }
+
+    /// El formulario bajó: vuelve la puerta y, con ella, Face ID.
+    func endQuickEntry() {
+        guard defersForQuickEntry else { return }
+        lastFailure = nil
+        defersForQuickEntry = false
     }
 
     /// Quitar el bloqueo **sin** autenticarse. Sólo cuando el iPhone no tiene
@@ -217,6 +245,8 @@ final class AppLock: ObservableObject {
         defer { isAuthenticating = false }
 
         let context = LAContext()
+        currentContext = context
+        defer { currentContext = nil }
         context.localizedCancelTitle = "Cancelar"
         // Sin título de reserva, iOS espera a los tres intentos fallidos antes
         // de ofrecer el código. Nombrarlo lo pone desde el primer segundo.

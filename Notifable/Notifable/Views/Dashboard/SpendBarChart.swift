@@ -36,6 +36,7 @@ struct SpendBarChart: View {
     @Environment(\.proTheme) private var proTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.hidesAmounts) private var hidesAmounts
+    @AppStorage(ProStore.enabledKey) private var isPro = false
     private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     /// Las barras ya llenas; vuelve a `false` para repetir la entrada cuando
@@ -154,11 +155,15 @@ struct SpendBarChart: View {
 
     private func plainBar(hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        let top = palette.expense.mixed(with: .white, amount: 0.28, scheme: scheme)
+        // Pro en el tema básico: del acento a su vecino en la rueda, y un
+        // halo suave en la elegida. Sin Pro, el acento aclarado con blanco.
+        let pro = ProTouches.isActive(isPro: isPro, theme: proTheme)
+        let colors = pro ? ProTouches.accentGradient(.current, scheme)
+                         : [palette.expense, palette.expense.mixed(with: .white, amount: 0.28, scheme: scheme)]
 
         return shape
             .fill(hasSpend
-                  ? AnyShapeStyle(LinearGradient(colors: [palette.expense, top], startPoint: .bottom, endPoint: .top))
+                  ? AnyShapeStyle(LinearGradient(colors: colors, startPoint: .bottom, endPoint: .top))
                   : AnyShapeStyle(palette.track))
             .overlay(alignment: .top) {
                 if hasSpend {
@@ -173,6 +178,7 @@ struct SpendBarChart: View {
                     .padding(-2)
             )
             .opacity(!hasSpend || isSelected ? 1 : 0.55)
+            .shadow(color: colors[0].opacity(pro && isSelected && hasSpend ? 0.45 : 0), radius: 8, y: 2)
     }
 
     /// Nunca cero del todo: un periodo sin gasto se ve como una raya, no como

@@ -49,7 +49,8 @@ enum EmailAccountDetails {
     /// anuncio al pie— no cuenta.
     ///
     /// También reconoce:
-    /// - «Cuenta Digital *2368», «Cuenta de origen 2368» → "Cuenta": no es una
+    /// - «Cuenta Digital *2368», «Cuenta de origen 2368», «Cuenta de ahorros*
+    ///   **** 5092» → "Cuenta": no es una
     ///   tarjeta, es la cuenta de la que salen Plin, transferencias y retiros.
     /// - El chip del retiro en cajero: «Número de tarjeta · 8156 … (EMV) VISA
     ///   CREDITO».
@@ -62,7 +63,7 @@ enum EmailAccountDetails {
            let chip = firstCapture("\\(EMV\\)\\s*[A-Za-z ]*?\\b(CR[EÉ]DITO|D[EÉ]BITO)\\b", in: text) {
             return AccountResolver.folded(chip).hasPrefix("d") ? "Débito" : "Crédito"
         }
-        if firstCapture("\\b(Cuenta)\\s+[A-Za-zÁÉÍÓÚáéíóú ]{0,20}?:?\\s*[·•*]*\\s*\(digits)", in: text) != nil {
+        if firstCapture("\\b(Cuenta)\\s+[A-Za-zÁÉÍÓÚáéíóú ]{0,20}?:?[\\s·•*]*\(digits)", in: text) != nil {
             return "Cuenta"
         }
         return nil

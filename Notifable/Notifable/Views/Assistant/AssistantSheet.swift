@@ -83,17 +83,33 @@ struct AssistantHeaderButton: View {
     private var hasNews: Bool { AssistantDot.shared.hasNews }
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
+    @AppStorage(ProStore.enabledKey) private var isPro = false
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
+    /// Pro en el tema básico: el ✦ y su aro en el degradado del acento.
+    private var proTouches: Bool { ProTouches.isActive(isPro: isPro, theme: proTheme) }
+
+    private var iconStyle: AnyShapeStyle {
+        guard proTouches else { return AnyShapeStyle(accent.onSurface(scheme)) }
+        return AnyShapeStyle(LinearGradient(colors: ProTouches.accentGradient(accent, scheme),
+                                            startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+    private var ringStyle: AnyShapeStyle {
+        guard proTouches else { return AnyShapeStyle(palette.hairline) }
+        return AnyShapeStyle(LinearGradient(colors: ProTouches.accentGradient(accent, scheme).map { $0.opacity(0.55) },
+                                            startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
 
     var body: some View {
         Button(action: action) {
             Image(systemName: "sparkles")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(accent.onSurface(scheme))
+                .foregroundStyle(iconStyle)
                 .frame(width: ShellMetrics.circleButton, height: ShellMetrics.circleButton)
                 .background(palette.surface, in: Circle())
-                .overlay(Circle().stroke(palette.hairline, lineWidth: 0.5))
+                .overlay(Circle().stroke(ringStyle, lineWidth: proTouches ? 1 : 0.5))
                 .overlay(alignment: .topTrailing) {
                     if hasNews {
                         Circle()

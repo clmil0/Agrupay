@@ -27,12 +27,13 @@ create table if not exists public.app_settings (
 alter table public.app_settings enable row level security;
 -- Sin políticas: se lee por las funciones de abajo.
 
--- ⚠️ Cambia esto por el número de WhatsApp Business de AgruPay, sin «+» ni
--- espacios (51 + los 9 dígitos). Mientras pruebas con el número de prueba de
--- Meta, pon ése.
+-- El número de WhatsApp de AgruPay, sin «+» ni espacios. Por ahora el número
+-- de prueba de Meta (+1 555 181 9031); al pasar a un número propio:
+--   update public.app_settings set value = '51XXXXXXXXX'
+--   where key = 'whatsapp_verify_number';
 insert into public.app_settings (key, value)
-values ('whatsapp_verify_number', '51900000000')
-on conflict (key) do nothing;
+values ('whatsapp_verify_number', '15551819031')
+on conflict (key) do update set value = excluded.value;
 
 -- ── Códigos ────────────────────────────────────────────────────────────
 

@@ -28,6 +28,10 @@ class GmailSyncService: ObservableObject {
     /// cancelaba al segundo.
     @Published var lastRunSummary: String?
     @Published var showDiagnostic: Bool = false
+    /// Correos de banco que se encontraron pero no se pudieron descargar
+    /// (red, error de Gmail). Se reintentan solos en cada lectura; mientras
+    /// queden, el Resumen y Gmail y bancos lo dicen con un «Reintentar».
+    @Published private(set) var failedEmailCount = FailedEmails.load().count
     
     let baseURL = "https://gmail.googleapis.com/gmail/v1/users/me"
     
@@ -153,7 +157,7 @@ class GmailSyncService: ObservableObject {
         // hubiera elegido leer su pasado, y a veces antes de que le llegara la
         // pregunta. El pasado sólo se descarga cuando lo pide: en la pantalla
         // de "¿Cuánto correo miramos?" o en Gmail y bancos.
-        if startDate == nil, endDate == nil, lastSyncDate == nil {
+        if startDate == nil, endDate == nil, lastSyncDate == nil, FailedEmails.load().isEmpty {
             print("Sync skipped: sin lectura previa y sin rango elegido por el usuario.")
             Diagnostics.shared.log("Sync Gmail: omitida, nunca se eligió desde cuándo leer (lastSyncDate vacío y sin rango)")
             completion?()
@@ -288,8 +292,8 @@ class GmailSyncService: ObservableObject {
             let safeEpoch = Int(lastSync.timeIntervalSince1970) - 3600 // 1 hr margen
             query = "(\(query)) AND after:\(safeEpoch)"
         } else {
-            // Sin rango y sin lectura previa no se inventa una ventana: ver
-            // `syncEmails`, que ya corta antes de llegar aquí.
+            // Sin rango y sin lectura previa no se inventa una ventana: sólo
+            // se reintentan los correos que fallaron (`processMessages`).
             completion(.success([]))
             return
         }
@@ -518,15 +522,29 @@ class GmailSyncService: ObservableObject {
         return DispatchQueue.main.sync { self.existingEmailIDs() }
     }
 
-    private func processMessages(_ messages: [[String: Any]],
+    private func processMessages(_ listed: [[String: Any]],
                                  token: String,
                                  isRangeSync: Bool = false,
                                  coversNow: Bool = true,
                                  quiet: Bool = false) {
-        let processedIDs = UserDefaults.standard.stringArray(forKey: "processedEmailIDs") ?? []
+        // Lista en el orden de llegada (para podar lo más viejo) y conjunto
+        // para preguntar: con años de uso, `contains` sobre el array costaba
+        // una vuelta entera por cada correo.
+        let processedList = UserDefaults.standard.stringArray(forKey: "processedEmailIDs") ?? []
+        let processedIDs = Set(processedList)
         // Borrados a propósito: no se resucitan solos. Para recuperarlos está
         // "Recuperación de Gastos" en Ajustes.
         let deletedIDs = Set(UserDefaults.standard.stringArray(forKey: "pendingRecoveryIDs") ?? [])
+
+        // Los que no se pudieron descargar en lecturas anteriores. La búsqueda
+        // normal mira sólo la última hora, así que ya no los trae: se piden
+        // por su ID. Antes un corte de red los perdía para siempre.
+        let listedIDs = Set(listed.compactMap { $0["id"] as? String })
+        let retries = FailedEmails.load().keys.filter { !listedIDs.contains($0) && !deletedIDs.contains($0) }
+        let messages = listed + retries.sorted().map { ["id": $0] as [String: Any] }
+        if !retries.isEmpty {
+            Diagnostics.shared.log("Sync Gmail: se reintentan \(retries.count) correos que fallaron antes")
+        }
 
         let newMessages = messages.filter { msg in
             guard let id = msg["id"] as? String else { return false }
@@ -556,7 +574,7 @@ class GmailSyncService: ObservableObject {
         
         let skippedDeleted = messages.filter { ($0["id"] as? String).map(deletedIDs.contains) ?? false }.count
         Diagnostics.shared.log("Sync Gmail: \(newMessages.count) correos por procesar de \(messages.count) (rango: \(isRangeSync), ya procesados antes: \(processedIDs.count), borrados a propósito omitidos: \(skippedDeleted))")
-        if !quiet, messages.isEmpty {
+        if !quiet, listed.isEmpty, retries.isEmpty {
             let summary = "Gmail no devolvió ningún correo de los bancos compatibles en ese periodo."
             DispatchQueue.main.async { self.lastRunSummary = summary }
         }
@@ -566,7 +584,9 @@ class GmailSyncService: ObservableObject {
         var unrecognized = 0
         var failedFetches = 0
         var alreadyImportedCount = 0
-        var newIDs = processedIDs
+        var newIDs = processedList
+        var newIDSet = processedIDs
+        var failedIDs: [String] = []
         let queue = DispatchQueue(label: "com.notifable.syncQueue") // Para evitar race conditions
         
         let group = DispatchGroup()
@@ -591,7 +611,7 @@ class GmailSyncService: ObservableObject {
                     
                     var foundBankName: String? = nil
                     
-                    if body == nil { queue.sync { failedFetches += 1 } }
+                    if body == nil { queue.sync { failedFetches += 1; failedIDs.append(id) } }
                     if let body = body {
                         let alreadyImported = queue.sync { knownIDs.contains(id) }
                         let parsed = alreadyImported ? nil : self?.parseEmailBody(body, receivedAt: receivedAt)
@@ -646,7 +666,7 @@ class GmailSyncService: ObservableObject {
                         }
                         // Only add to processed if we successfully fetched it (prevents skipping on network failure)
                         queue.async {
-                            if !newIDs.contains(id) {
+                            if newIDSet.insert(id).inserted {
                                 newIDs.append(id)
                             }
                         }
@@ -666,9 +686,16 @@ class GmailSyncService: ObservableObject {
             // de después de leer recorre todo el historial varias veces, y en
             // el hilo principal congelaba la app 4 s al final de cada lectura
             // con algo nuevo (bitácora del 23/09, 3.0.2).
-            queue.sync {
-                UserDefaults.standard.set(newIDs, forKey: "processedEmailIDs")
+            let (failedNow, attempted) = queue.sync {
+                // Tope: lo más viejo sobra. La lectura normal mira sólo la
+                // última hora, y una por rango se apoya en la base para no
+                // duplicar (`knownIDs`).
+                UserDefaults.standard.set(Array(newIDs.suffix(Self.processedIDsCap)), forKey: "processedEmailIDs")
+                return (failedIDs, newMessages.compactMap { $0["id"] as? String })
             }
+            let pendingFailed = FailedEmails.record(failed: failedNow, attempted: attempted,
+                                                    gone: self?.takeGoneEmailIDs() ?? [])
+            DispatchQueue.main.async { self?.failedEmailCount = pendingFailed }
             self?.tidyUpAfterReading()
             DispatchQueue.main.async {
                 // Una sincronización histórica acotada no marca "al día": si lo
@@ -819,7 +846,38 @@ class GmailSyncService: ObservableObject {
         #endif
     }
 
+    /// «Reintentar» del aviso de correos que no se pudieron leer.
+    func retryFailedEmails() {
+        syncEmails(force: true)
+    }
+
+    /// Al desvincular: los IDs pendientes son de esa cuenta.
+    func clearFailedEmails() {
+        FailedEmails.clear()
+        DispatchQueue.main.async { self.failedEmailCount = 0 }
+    }
+
+    /// Cuántos IDs procesados se guardan como mucho.
+    static let processedIDsCap = 5000
+
+    /// Correos que Gmail ya no tiene (404/410: el usuario los borró): no
+    /// tiene sentido reintentarlos.
+    private var goneEmailIDs: Set<String> = []
+    private let goneLock = NSLock()
+
+    private func markGone(_ id: String) {
+        goneLock.lock(); goneEmailIDs.insert(id); goneLock.unlock()
+    }
+
+    private func takeGoneEmailIDs() -> Set<String> {
+        goneLock.lock(); defer { goneLock.unlock() }
+        let ids = goneEmailIDs
+        goneEmailIDs = []
+        return ids
+    }
+
     func resetSyncState() {
+        clearFailedEmails()
         UserDefaults.standard.removeObject(forKey: "processedEmailIDs")
         UserDefaults.standard.removeObject(forKey: "lastSyncDate")
         DispatchQueue.main.async {
@@ -1014,6 +1072,7 @@ class GmailSyncService: ObservableObject {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             guard (200...299).contains(status) else {
                 Diagnostics.shared.log("Sync Gmail: ✗ correo \(id) HTTP \(status): \(Self.bodyExcerpt(data))")
+                if status == 404 || status == 410 { self.markGone(id) }
                 completion(nil, nil)
                 return
             }
@@ -1070,16 +1129,8 @@ class GmailSyncService: ObservableObject {
             return plainText
         } else if !htmlText.isEmpty {
             // Strip HTML tags roughly by replacing them with spaces
-            var stripped = htmlText.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression, range: nil)
-            stripped = stripped.replacingOccurrences(of: "&nbsp;", with: " ")
-            stripped = stripped.replacingOccurrences(of: "&aacute;", with: "á")
-            stripped = stripped.replacingOccurrences(of: "&eacute;", with: "é")
-            stripped = stripped.replacingOccurrences(of: "&iacute;", with: "í")
-            stripped = stripped.replacingOccurrences(of: "&oacute;", with: "ó")
-            stripped = stripped.replacingOccurrences(of: "&uacute;", with: "ú")
-            stripped = stripped.replacingOccurrences(of: "&ntilde;", with: "ñ")
-            stripped = stripped.replacingOccurrences(of: "&bull;", with: "")
-            return stripped
+            let stripped = htmlText.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression, range: nil)
+            return Self.decodeHTMLEntities(stripped)
         }
         
         return json["snippet"] as? String ?? ""
@@ -1197,7 +1248,66 @@ class GmailSyncService: ObservableObject {
         return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
     }
     
-    private func decodeQuotedPrintable(_ input: String, encoding: String.Encoding = .isoLatin1) -> String {
+    /// Las entidades que traen los correos de los bancos: con nombre (las
+    /// letras acentuadas en minúscula y mayúscula, `&amp;`, `&nbsp;`…) y
+    /// numéricas (`&#243;`, `&#xF3;`). Antes sólo se traducían ocho; una
+    /// plantilla nueva con `&#243;` dejaba «Operaci&#243;n» y el lector ya no
+    /// reconocía el correo.
+    static func decodeHTMLEntities(_ text: String) -> String {
+        guard text.contains("&") else { return text }
+        let named: [String: String] = [
+            "nbsp": " ", "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+            "aacute": "á", "eacute": "é", "iacute": "í", "oacute": "ó", "uacute": "ú",
+            "Aacute": "Á", "Eacute": "É", "Iacute": "Í", "Oacute": "Ó", "Uacute": "Ú",
+            "ntilde": "ñ", "Ntilde": "Ñ", "uuml": "ü", "Uuml": "Ü",
+            "iexcl": "¡", "iquest": "¿", "ordm": "º", "ordf": "ª", "deg": "°",
+            "middot": "·", "ndash": "–", "mdash": "—", "laquo": "«", "raquo": "»",
+            "euro": "€", "copy": "©", "reg": "®",
+            // Las viñetas se quitaban: los lectores ya cuentan con eso.
+            "bull": ""
+        ]
+        guard let regex = try? NSRegularExpression(pattern: "&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z]{2,8});") else { return text }
+        let ns = text as NSString
+        var result = ""
+        var last = 0
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            result += ns.substring(with: NSRange(location: last, length: match.range.location - last))
+            let body = ns.substring(with: match.range(at: 1))
+            var replacement: String?
+            if body.hasPrefix("#") {
+                let digits = body.dropFirst()
+                let value = digits.first == "x" || digits.first == "X"
+                    ? UInt32(digits.dropFirst(), radix: 16)
+                    : UInt32(digits)
+                // 160 es el espacio duro: como `&nbsp;`, un espacio normal.
+                if value == 160 {
+                    replacement = " "
+                } else if let value, let scalar = Unicode.Scalar(value) {
+                    replacement = String(Character(scalar))
+                }
+            } else {
+                replacement = named[body]
+            }
+            result += replacement ?? ns.substring(with: match.range)
+            last = match.range.location + match.range.length
+        }
+        result += ns.substring(from: last)
+        return result
+    }
+
+    /// Gmail ya entrega el cuerpo sin el Quoted-Printable del correo: volver a
+    /// decodificarlo siempre convertía un `?id=AB` de un enlace en un byte
+    /// suelto, y un `=C3=B1` en «Ã±». Sólo se decodifica si el texto aún lo
+    /// parece (un correo mal armado que lo trae dos veces), y los bytes se
+    /// leen primero como UTF-8.
+    static func looksQuotedPrintable(_ text: String) -> Bool {
+        if text.contains("=\r\n") || text.contains("=\n") || text.contains("=3D") { return true }
+        guard let regex = try? NSRegularExpression(pattern: "=[0-9A-F]{2}") else { return false }
+        return regex.numberOfMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) >= 3
+    }
+
+    private func decodeQuotedPrintable(_ input: String) -> String {
+        guard Self.looksQuotedPrintable(input) else { return input }
         // 1. Remove soft line breaks: "=" followed by "\r\n" or "\n"
         var processed = input.replacingOccurrences(of: "=\\r\\n", with: "", options: .regularExpression)
         processed = processed.replacingOccurrences(of: "=\\n", with: "", options: .regularExpression)
@@ -1226,7 +1336,7 @@ class GmailSyncService: ObservableObject {
             i += 1
         }
         
-        return String(data: outputData, encoding: encoding) ?? String(data: outputData, encoding: .utf8) ?? processed
+        return String(data: outputData, encoding: .utf8) ?? String(data: outputData, encoding: .isoLatin1) ?? processed
     }
     
     /// ¿Ya existe un movimiento de este correo? Se pregunta a la base justo

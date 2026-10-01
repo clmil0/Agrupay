@@ -329,6 +329,7 @@ struct PendingConfirmationView: View {
         guard let rule = rule(for: occurrence) else { return }
         let created = RecurringEngine.confirm(occurrence, rule: rule, amountOverride: override, in: modelContext)
         try? modelContext.save()
+        ProHaptics.play(.confirmed)
         offerUndo(created)
     }
 
@@ -339,6 +340,7 @@ struct PendingConfirmationView: View {
             created += RecurringEngine.confirm(occurrence, rule: rule, in: modelContext)
         }
         try? modelContext.save()
+        ProHaptics.play(.confirmed)
         offerUndo(created)
     }
 

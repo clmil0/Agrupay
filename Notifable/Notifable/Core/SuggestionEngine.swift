@@ -19,7 +19,7 @@ struct CategorySuggestion: Equatable {
 /// Yape/Plin/transferencias) → catálogo de comercios conocidos
 /// (`MerchantCatalog`, descargado de Supabase y guardado en el teléfono).
 ///
-/// Yape, Plin y las transferencias bancarias ("YAPE - ", "PLIN - ", "BBVA - ")
+/// Yape, Plin y las transferencias bancarias ("YAPE - ", "PLIN - ", "BBVA - ", "BCP - ")
 /// llevan el nombre de la **persona** destinataria como comercio, no el de un
 /// negocio: no se repite de forma predecible ni dice nada de la categoría del
 /// gasto. Por eso sólo cuentan para la regla 1 (ya clasificaste exactamente a
@@ -105,6 +105,7 @@ enum SuggestionEngine {
     /// aquí también.
     private static func isPersonToPerson(_ merchant: String) -> Bool {
         merchant.hasPrefix("YAPE - ") || merchant.hasPrefix("PLIN - ") || merchant.hasPrefix("BBVA - ")
+            || merchant.hasPrefix("BCP - ")
     }
 
     private static func normalize(_ text: String) -> String {

@@ -124,6 +124,7 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
         UserDefaults.standard.removeObject(forKey: Keys.hasIdentity)
         UserDefaults.standard.removeObject(forKey: Keys.accountEmail)
         setAccessRevoked(false)
+        GmailSyncService.shared.clearFailedEmails()
         DispatchQueue.main.async {
             self.isAuthenticated = false
         }

@@ -46,6 +46,9 @@ struct DashboardView: View {
     @AppStorage(DashboardStatsSettings.key) private var statsRaw = DashboardStatsSettings.defaultValue
     /// El ojito junto al monto grande: tapa todos los montos del resumen.
     @AppStorage(AmountPrivacy.storageKey) private var hidesAmounts = false
+    @AppStorage(ProStore.enabledKey) private var isPro = false
+    /// Cada aumento hace pasar el brillo por el monto (Pro, tema básico).
+    @State private var shimmerTick = 0
     /// La transición del ojito (`amountVeil`): sube, se cambian las cifras,
     /// baja.
     @State private var amountVeil = 0.0
@@ -118,6 +121,8 @@ struct DashboardView: View {
     private var accent: AppThemeColor { .current }
     private var rate: Double { rates.usdToPenRate }
     private var isCurrentMonth: Bool { monthOffset == 0 }
+    /// Pro sin tema Pro: brillo en el monto.
+    private var proTouches: Bool { ProTouches.isActive(isPro: isPro, theme: proTheme) }
 
     // MARK: - Filtro de cuenta
 
@@ -193,6 +198,11 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     hero(totals: totals, previous: previous)
                         .padding(.bottom, 20)
+
+                    // Un gasto que no llegó pesa más que cualquier cifra.
+                    if isCurrentMonth {
+                        FailedEmailsBanner(bottomPadding: 20)
+                    }
 
                     chartBlock(chart)
                         .padding(.bottom, 30)
@@ -468,6 +478,9 @@ struct DashboardView: View {
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+                .proShimmer(trigger: shimmerTick, tint: shimmerTint)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: shimmerAmount)
                 .amountVeil()
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Gasto de " + monthName + ": " + formatted.masked(hidesAmounts))
@@ -492,6 +505,27 @@ struct DashboardView: View {
         }
         .padding(.horizontal, 2)
         .padding(.top, 4)
+        .task {
+            // La primera vez del día, cuando el gráfico ya entró.
+            guard proTouches, !reduceMotion else { return }
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled, !hidesAmounts, ProTouches.claimDailyShimmer() else { return }
+            shimmerTick += 1
+        }
+    }
+
+    /// Sobre cifras negras, luz blanca; sobre cifras blancas (oscuro), un
+    /// destello del acento, que el blanco no se vería.
+    private var shimmerTint: Color {
+        scheme == .dark ? ProTouches.accentGradient(accent, scheme)[1].shiftedHSL(lightness: 0.12, scheme: scheme)
+                        : .white
+    }
+
+    /// Tocar el monto lo hace brillar (Pro, tema básico, montos a la vista).
+    private func shimmerAmount() {
+        guard proTouches, !hidesAmounts, !reduceMotion else { return }
+        shimmerTick += 1
+        ProHaptics.play(.shimmer)
     }
 
     /// El color del monto grande: el tema Pro puede pintarlo con un

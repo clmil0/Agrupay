@@ -12,6 +12,7 @@ struct BCPParser: BankEmailParser {
     
     func parse(cleanText: String) -> Expense? {
         if let refund = parseRefund(cleanText) { return refund }
+        if let transfer = parseTransfer(cleanText) { return transfer }
 
         // Asegurarnos que es un consumo de tarjeta de débito
         guard cleanText.contains("Consumo Tarjeta de D") || cleanText.contains("Realizaste un consumo") else {
@@ -77,6 +78,8 @@ struct BCPParser: BankEmailParser {
             dStr = dStr.replacingOccurrences(of: " ", with: "") // e.g. 03092026-01:14pm
             
             let formatter = DateFormatter()
+            
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "ddMMyyyy-hh:mma"
             if let parsed = formatter.date(from: dStr) {
@@ -134,6 +137,8 @@ struct BCPParser: BankEmailParser {
             dStr = dStr.replacingOccurrences(of: " ", with: "")
 
             let formatter = DateFormatter()
+
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "ddMMyyyy-hh:mma"
             if let parsed = formatter.date(from: dStr) {
@@ -171,19 +176,7 @@ struct BCPParser: BankEmailParser {
         }
         let card = Self.capture("N[uú]mero de Tarjeta[\\s*]*([0-9]{4})", in: cleanText)
 
-        var date = Date()
-        let datePattern = "Fecha y hora[\\s*]*([0-9]{1,2})\\s+de\\s+([a-zA-Z]+)\\s+de\\s+([0-9]{4})\\s*-\\s*([0-9]{1,2}:[0-9]{2})\\s*([AP]M)"
-        if let regex = try? NSRegularExpression(pattern: datePattern, options: [.caseInsensitive]),
-           let match = regex.firstMatch(in: cleanText, range: NSRange(location: 0, length: cleanText.utf16.count)) {
-            let parts = (1...5).compactMap { Range(match.range(at: $0), in: cleanText).map { String(cleanText[$0]) } }
-            let months = ["enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05", "junio": "06", "julio": "07", "agosto": "08", "septiembre": "09", "setiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12"]
-            if parts.count == 5, let month = months[parts[1].lowercased()] {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.dateFormat = "d MM yyyy h:mm a"
-                date = formatter.date(from: "\(parts[0]) \(month) \(parts[2]) \(parts[3]) \(parts[4].uppercased())") ?? date
-            }
-        }
+        let date = Self.operationDate(in: cleanText) ?? Date()
 
         let expense = Expense(amount: amount,
                               merchant: ReversalMatcher.merchantPrefix + (label.isEmpty ? "Devolución" : label),
@@ -191,6 +184,58 @@ struct BCPParser: BankEmailParser {
                               cardLastDigits: card)
         expense.isReversal = true
         return expense
+    }
+
+    // MARK: - Transferencias
+
+    /// «Constancia de Transferencia a Otros Bancos»: «Realizaste una
+    /// transferencia de S/ 424.05 desde tu Cuenta de ahorros», con Monto
+    /// enviado, Comisión, Total cobrado, Enviado a (nombre y `**** 0144`),
+    /// Banco destino y Desde (`Cuenta de ahorros **** 5092`). En texto plano
+    /// cada valor viene entre asteriscos; en el HTML, sin ellos.
+    ///
+    /// Es un envío a una persona como un Yape o un Plin: el comercio es
+    /// «BCP - <nombre>» para que el destinatario sea una cuenta
+    /// (`AccountResolver.payee`). El correo no dice si esa cuenta es tuya —el
+    /// nombre del titular no basta—: pasa a traslado cuando el usuario la
+    /// marca como suya en «Tus cuentas» (`TransferDetector`).
+    private func parseTransfer(_ cleanText: String) -> Expense? {
+        guard cleanText.range(of: "Realizaste una transferencia", options: .caseInsensitive) != nil,
+              // Total cobrado primero: incluye la comisión, cuando la hay.
+              let money = ["Total cobrado", "Monto enviado"].lazy.compactMap({
+                  Self.capture2($0 + "[\\s*]*(S/\\.?|US\\$|\\$)\\s*([0-9][0-9.,]*)", in: cleanText)
+              }).first,
+              let amount = Money.parse(money.1) else { return nil }
+        let currency = money.0.contains("$") ? "USD" : "PEN"
+
+        // El nombre acaba donde empiezan los dígitos enmascarados de su
+        // cuenta o, si no vienen, el siguiente campo.
+        let name = Self.capture("Enviado a[\\s*]*(.+?)[\\s*]*(?:[0-9]{4}\\s*)?(?:Banco destino|Moneda|Tipo de env)", in: cleanText)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let account = Self.capture("Desde[\\s*]+(?:Cuenta|Tarjeta)[^0-9*]{0,30}?[\\s*]*([0-9]{4})", in: cleanText)
+
+        return Expense(amount: amount,
+                       merchant: "BCP - " + (name.isEmpty ? "Transferencia" : name),
+                       date: Self.operationDate(in: cleanText) ?? Date(),
+                       category: "Sin Clasificar", currency: currency,
+                       cardLastDigits: account)
+    }
+
+    /// «Fecha y hora 28 de septiembre de 2026 - 08:34 PM». La constancia de
+    /// transferencia separa «P M» con un espacio duro, y en texto plano el
+    /// valor viene entre asteriscos.
+    private static func operationDate(in text: String) -> Date? {
+        let pattern = "Fecha y hora[\\s*]*([0-9]{1,2})\\s+de\\s+([a-zA-Z]+)\\s+de\\s+([0-9]{4})\\s*-\\s*([0-9]{1,2}:[0-9]{2})[\\s\\u00A0]*([AP])[\\s\\u00A0]*M"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)) else { return nil }
+        let parts = (1...5).compactMap { Range(match.range(at: $0), in: text).map { String(text[$0]) } }
+        let months = ["enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05", "junio": "06", "julio": "07", "agosto": "08", "septiembre": "09", "setiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12"]
+        guard parts.count == 5, let month = months[parts[1].lowercased()] else { return nil }
+        let formatter = DateFormatter()
+        formatter.timeZone = BankEmailTime.zone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MM yyyy h:mm a"
+        return formatter.date(from: "\(parts[0]) \(month) \(parts[2]) \(parts[3]) \(parts[4].uppercased())M")
     }
 
     private static func capture(_ pattern: String, in text: String) -> String? {

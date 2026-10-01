@@ -22,6 +22,15 @@ enum AppDeepLink: Equatable {
     /// Amigos, sin invitación: lo que abre un recordatorio de cobro.
     case friends
 
+    /// Anotar un gasto o ingreso: lo único que se abre sin desbloquear la app
+    /// (Face ID se pide al cerrar el formulario).
+    var isQuickEntry: Bool {
+        switch self {
+        case .add, .quick: return true
+        default: return false
+        }
+    }
+
     var url: URL {
         var c = URLComponents()
         c.scheme = Self.scheme

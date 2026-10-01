@@ -98,7 +98,13 @@ struct ContentView: View {
     // MARK: - Enlaces
 
     private func applyPendingLinkIfReady() {
-        guard let link = pendingLink, !appLock.isLocked, !showSplash else { return }
+        guard let link = pendingLink, !showSplash else { return }
+        if appLock.isLocked {
+            // Anotar desde el widget no espera al desbloqueo: Face ID se pide
+            // al bajar el formulario. Lo demás sí espera.
+            guard link.isQuickEntry else { return }
+            appLock.beginQuickEntry()
+        }
         pendingLink = nil
         showSettings = false
 
@@ -284,8 +290,10 @@ struct ContentView: View {
             .sheet(item: $selectedTransactionType, onDismiss: {
                 linkedSource = nil
                 linkedQuickID = nil
+                appLock.endQuickEntry()
             }) { type in
-                AddTransactionSheet(transactionType: type, source: linkedSource, savingQuick: linkedQuickID)
+                AddTransactionSheet(transactionType: type, source: linkedSource, savingQuick: linkedQuickID,
+                                    isLockedEntry: appLock.defersForQuickEntry)
             }
             .sheet(isPresented: $showsDictation) {
                 DictationSheet()
@@ -334,7 +342,9 @@ struct ContentView: View {
             // La puerta va por encima de todo lo de esta pantalla, y por
             // debajo del splash: al abrir se ve primero la marca y luego el
             // bloqueo, no los dos peleándose.
-            if appLock.isLocked {
+            // Con un registro rápido del widget encima, sólo el blindaje: la
+            // pantalla de bloqueo pediría Face ID detrás del formulario.
+            if appLock.isLocked && !appLock.defersForQuickEntry {
                 // Siempre en oscuro (`5l`), sea cual sea el tema: es la
                 // pantalla previa a la app, y así no destella al desbloquear.
                 LockScreenView(lock: appLock)

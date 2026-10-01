@@ -36,7 +36,7 @@ enum QAMode {
 
         try? context.delete(model: Expense.self)
         try? context.delete(model: Income.self)
-        for key in ["processedEmailIDs", DeletedEmails.key, DeletedEmails.declinedKey, "lastSyncDate", MerchantRules.key] {
+        for key in ["processedEmailIDs", FailedEmails.key, DeletedEmails.key, DeletedEmails.declinedKey, "lastSyncDate", MerchantRules.key] {
             defaults.removeObject(forKey: key)
         }
         seed(in: context)

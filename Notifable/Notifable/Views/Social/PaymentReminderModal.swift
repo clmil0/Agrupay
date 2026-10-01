@@ -244,7 +244,11 @@ struct PaymentReminderModal: View {
         motion = kind == .paid ? Self.paidExit() : Self.laterExit()
         let close: Double = kind == .paid ? 1350 : 1450
         Self.addClose(to: &motion, at: close)
-        UIImpactFeedbackGenerator(style: kind == .paid ? .medium : .light).impactOccurred()
+        if kind == .paid && ProStore.isPro {
+            ProHaptics.play(.settled)
+        } else {
+            UIImpactFeedbackGenerator(style: kind == .paid ? .medium : .light).impactOccurred()
+        }
         Task {
             try? await Task.sleep(for: .milliseconds(Int(close) + 580))
             onFinish(kind)

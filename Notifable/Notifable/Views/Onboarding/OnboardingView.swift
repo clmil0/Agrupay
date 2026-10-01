@@ -132,7 +132,7 @@ struct OnboardingView: View {
         OnboardingSlide(
             isActive: page == 0,
             title: "Tus gastos se anotan solos",
-            subtitle: "Vincula tu Gmail o tu Outlook y AgruPay lee los avisos de tu banco. Mantén presionado un gasto para categorizarlo, editarlo o marcarlo por cobrar.",
+            subtitle: "Vincula tu Gmail y AgruPay lee los avisos de tu banco. Mantén presionado un gasto para categorizarlo, editarlo o marcarlo por cobrar.",
             footnote: (icon: "lock.fill",
                        text: "Solo lectura. No escribimos ni enviamos correos, y tus gastos se quedan en tu iPhone.")
         ) { beat in
@@ -182,7 +182,7 @@ struct OnboardingView: View {
                 categorizeMail(beat: beat, mailDelay: 1.3, rowDelay: 1.9, collapseAt: collapseAt)
 
                 // La fila de bancos ya cumplió su papel en la primera mitad
-                // (vincula Gmail u Outlook); una vez categorizado el segundo
+                // (vincula Gmail); una vez categorizado el segundo
                 // gasto, lo que sigue conviene es la prueba de que esto va a
                 // seguir pasando solo: más gastos, en categorías distintas,
                 // cayendo abajo. El propio correo de Yape también colapsa
@@ -245,8 +245,9 @@ struct OnboardingView: View {
     }
 
     /// El correo que llega, tal cual se ve arriba del gasto que produce. El
-    /// icono de la izquierda es el proveedor real (Gmail u Outlook): sin él,
-    /// "vincula tu Gmail o tu Outlook" no se reconocía en la ilustración.
+    /// icono de la izquierda es el proveedor real: sin él, "vincula tu Gmail"
+    /// no se reconocía en la ilustración. Sólo Gmail mientras Outlook no
+    /// exista: enseñar su icono prometía algo que la app no hace.
     private func mailBanner(beat: Double, mailDelay: Double, provider: String,
                             sender: String, time: String, subject: String) -> some View {
         HStack(spacing: 9) {
@@ -327,7 +328,7 @@ struct OnboardingView: View {
 
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
-                mailBanner(beat: beat, mailDelay: mailDelay, provider: "outlook_icon",
+                mailBanner(beat: beat, mailDelay: mailDelay, provider: "gmail_icon",
                            sender: "notificaciones@yape.pe", time: "21:04",
                            subject: "Constancia de Yapeo · Monto S/ 120.00 a JORGE M.")
                 registeredLabel(beat: beat, mailDelay: mailDelay, rowDelay: rowDelay)
@@ -961,7 +962,7 @@ struct OnboardingView: View {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(palette.tertiaryLabel)
-                    Text("Permiso de solo lectura sobre Gmail u Outlook. Nunca escribimos, enviamos ni borramos correos.")
+                    Text("Permiso de solo lectura sobre tu Gmail. Nunca escribimos, enviamos ni borramos correos.")
                         .font(.caption2)
                         .foregroundStyle(palette.tertiaryLabel)
                 }

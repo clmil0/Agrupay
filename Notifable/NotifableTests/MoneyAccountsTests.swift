@@ -250,6 +250,54 @@ extension MoneyAccountsTests {
         #expect(AccountResolver.payee(merchant: expense.merchant)?.name == "Carmen Rosa Vega Rojas")
     }
 
+    /// «Constancia de Transferencia a Otros Bancos» de BCP (28/09/2026), parte
+    /// de texto plano: cada valor entre asteriscos y «P M» con espacio duro.
+    static let bcpTransferPlain = """
+        Hola *Alejandro Gabriel,*  Realizaste una transferencia de *S/ 424.05* desde tu *Cuenta de ahorros.*  \
+        A continuación, te enviamos los datos de tu operación.   *Montos*  Monto enviado *S/ 424.05* \
+        Comisión *Gratis* *Total cobrado* *S/ 424.05*   *Datos de la operación*  Operación realizada \
+        *Transferencia a otros bancos* Fecha y hora *28 de septiembre de 2026 - 08:34 P\u{00A0}M* \
+        Enviado a *Quispe Toscano Alejandro G.* **** 0144 Banco destino *Compartamos Banco* Moneda *Soles* \
+        Tipo de envío *Inmediato* Desde *Cuenta de ahorros* **** 5092 Mensaje Canal *Banca Móvil BCP* \
+        Número de operación *06425425*   *¿No reconoces esta operación?*
+        """
+
+    /// La misma constancia desde el HTML, ya sin etiquetas.
+    static let bcpTransferHTML = """
+        Hola  Alejandro Gabriel,   Realizaste una transferencia de  S/ 424.05  desde tu  Cuenta de ahorros.   \
+        A continuación, te enviamos los datos de tu operación.      Montos      Monto enviado    S/ 424.05    \
+        Comisión    Gratis    Total cobrado    S/ 424.05      Datos de la operación      Operación realizada    \
+        Transferencia a otros bancos    Fecha y hora    28 de septiembre de 2026 - 08:34 P\u{00A0}M    \
+        Enviado a    Quispe Toscano Alejandro G.   **** 0144    Banco destino    Compartamos Banco    \
+        Moneda    Soles    Tipo de envío    Inmediato    Desde    Cuenta de ahorros   **** 5092    Mensaje    \
+        Canal    Banca Móvil BCP    Número de operación    06425425    ¿No reconoces esta operación?
+        """
+
+    @Test("Transferencia a otros bancos de BCP: destinatario, monto, fecha y cuenta de origen",
+          arguments: [bcpTransferPlain, bcpTransferHTML])
+    func bcpTransferencia(text: String) throws {
+        let expense = try #require(BCPParser().parse(cleanText: text))
+        #expect(expense.merchant == "BCP - Quispe Toscano Alejandro G.")
+        #expect(Money.cents(expense.amount) == 42405)
+        #expect(expense.currency == "PEN")
+        #expect(expense.cardLastDigits == "5092")
+        #expect(expense.date == Self.day(2026, 9, 28, hour: 20, minute: 34))
+        #expect(EmailAccountDetails.cardKind(in: text, digits: expense.cardLastDigits) == "Cuenta")
+        #expect(AccountResolver.originKey(sourceBank: "BCP", merchant: expense.merchant,
+                                          cardLastDigits: expense.cardLastDigits, fromEmail: true) == "o:bcp:5092")
+        let payee = try #require(AccountResolver.payee(merchant: expense.merchant))
+        #expect(payee.name == "Quispe Toscano Alejandro G.")
+        #expect(payee.via == .bcp)
+    }
+
+    @Test("La transferencia BCP es gasto hasta que el usuario marca al destinatario como suyo")
+    func bcpTransferenciaTraslado() throws {
+        let expense = try #require(BCPParser().parse(cleanText: Self.bcpTransferPlain))
+        let key = try #require(expense.payeeKey)
+        #expect(!TransferDetector.isTransfer(payeeKey: key, minePayees: []))
+        #expect(TransferDetector.isTransfer(payeeKey: key, minePayees: [key]))
+    }
+
     @Test("«Destino» sólo acepta bancos y billeteras conocidos")
     func destinoDesconocido() {
         #expect(EmailAccountDetails.destinationWallet(in: "Destino: Yape  ITF") == "Yape")

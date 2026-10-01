@@ -138,6 +138,7 @@ enum AccountResolver {
         if merchant.hasPrefix("YAPE - ") { return "Yape" }
         if merchant.hasPrefix("PLIN - ") { return "BBVA" }
         if merchant.hasPrefix("BBVA - ") { return "BBVA" }
+        if merchant.hasPrefix("BCP - ") { return "BCP" }
         if merchant.lowercased().contains("apple") { return "Apple" }
         return nil
     }
@@ -158,13 +159,13 @@ enum AccountResolver {
 
     /// Los prefijos con los que los parsers escriben un envío a una persona.
     static let payeePrefixes: [(prefix: String, via: Institution)] = [
-        ("YAPE - ", .yape), ("PLIN - ", .plin), ("BBVA - ", .bbva)
+        ("YAPE - ", .yape), ("PLIN - ", .plin), ("BBVA - ", .bbva), ("BCP - ", .bcp)
     ]
 
     /// Los nombres de relleno que ponen los parsers cuando el correo no trae
     /// uno: no son una persona.
     private static let placeholderNames: Set<String> = [
-        "desconocido", "transferencia a terceros", "pago de servicio", "servicio"
+        "desconocido", "transferencia a terceros", "transferencia", "pago de servicio", "servicio"
     ]
 
     /// A quién va un gasto, y por dónde. `nil` si es un comercio sin prefijo.

@@ -59,6 +59,7 @@ struct BBVAParser: BankEmailParser {
                 dStr = dStr.replacingOccurrences(of: " de ", with: " ")
                 dStr = dStr.replacingOccurrences(of: ",", with: "")
                 let formatter = DateFormatter()
+                formatter.timeZone = BankEmailTime.zone
                 formatter.locale = Locale(identifier: "en_US_POSIX")
                 formatter.dateFormat = "dd MM yyyy HH:mm"
                 if let parsed = formatter.date(from: dStr) {
@@ -133,6 +134,8 @@ struct BBVAParser: BankEmailParser {
             let month = months[monthWord] ?? monthWord
             
             let formatter = DateFormatter()
+            
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             
             // Si la hora tiene segundos
@@ -210,8 +213,8 @@ struct BBVAParser: BankEmailParser {
         
         if !dateString.isEmpty && !timeString.isEmpty {
             let formatter = DateFormatter()
+            formatter.timeZone = BankEmailTime.zone
             formatter.dateFormat = "dd/MM/yyyy HH:mm:ss"
-            formatter.timeZone = TimeZone.current
             if let parsedDate = formatter.date(from: "\(dateString) \(timeString)") {
                 expenseDate = parsedDate
             }
@@ -275,6 +278,8 @@ struct BBVAParser: BankEmailParser {
             for (name, num) in months { dateStr = dateStr.replacingOccurrences(of: name, with: num) }
             
             let formatter = DateFormatter()
+            
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "dd MM yyyy HH:mm"
             if let parsedDate = formatter.date(from: dateStr) {
@@ -334,6 +339,7 @@ struct BBVAParser: BankEmailParser {
             let months = ["enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05", "junio": "06", "julio": "07", "agosto": "08", "septiembre": "09", "setiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12"]
             if let month = months[String(cleanText[monthRange]).lowercased()] {
                 let formatter = DateFormatter()
+                formatter.timeZone = BankEmailTime.zone
                 formatter.locale = Locale(identifier: "en_US_POSIX")
                 formatter.dateFormat = "dd MM yyyy HH:mm"
                 if let parsed = formatter.date(from: "\(cleanText[dayRange]) \(month) \(cleanText[yearRange]) \(cleanText[timeRange])") {
@@ -406,6 +412,7 @@ struct BBVAParser: BankEmailParser {
         let months = ["enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05", "junio": "06", "julio": "07", "agosto": "08", "septiembre": "09", "setiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12"]
         guard let month = months[text[monthName].lowercased()] else { return nil }
         let formatter = DateFormatter()
+        formatter.timeZone = BankEmailTime.zone
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "dd MM yyyy HH:mm"
         return formatter.date(from: "\(text[day]) \(month) \(text[year]) \(text[time])")
@@ -441,6 +448,7 @@ struct BBVAParser: BankEmailParser {
         if let day = Self.capture("Fecha:?\\s*([0-9]{2}/[0-9]{2}/[0-9]{4})", in: cleanText) {
             let time = Self.capture("Hora:?\\s*([0-9]{2}:[0-9]{2}(?::[0-9]{2})?)", in: cleanText) ?? "00:00"
             let formatter = DateFormatter()
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = time.count > 5 ? "dd/MM/yyyy HH:mm:ss" : "dd/MM/yyyy HH:mm"
             date = formatter.date(from: day + " " + time) ?? date

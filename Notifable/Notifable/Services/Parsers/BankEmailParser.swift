@@ -19,3 +19,11 @@ protocol BankEmailParser {
 extension BankEmailParser {
     func parseIncome(cleanText: String) -> Income? { nil }
 }
+
+/// La hora que escriben los bancos en sus correos es siempre la de Perú.
+/// Leerla en la zona del teléfono corría cada gasto las horas de diferencia
+/// cuando el usuario viajaba: los de cerca de medianoche cambiaban de día, y
+/// a fin de mes, de mes.
+enum BankEmailTime {
+    static let zone = TimeZone(identifier: "America/Lima") ?? .current
+}

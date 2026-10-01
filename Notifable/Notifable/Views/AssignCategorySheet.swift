@@ -670,6 +670,7 @@ struct AssignCategorySheet: View {
             case .past, .pending: onAssign(category, AssignCategoryRules(past: on))
             }
         }
+        ProHaptics.play(.categorized)
         dismiss()
     }
 }

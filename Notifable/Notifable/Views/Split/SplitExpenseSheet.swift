@@ -548,6 +548,7 @@ struct SplitExpenseSheet: View {
         guard isBalanced else { return }
         let parts = drafts.map { SplitPart(amount: Money.value($0.cents), category: $0.category, tags: $0.tags) }
         if ExpenseSplit.apply(parts, to: parent, in: modelContext) {
+            ProHaptics.play(.split)
             dismiss()
         }
     }

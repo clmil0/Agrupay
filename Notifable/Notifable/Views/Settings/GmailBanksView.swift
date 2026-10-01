@@ -72,6 +72,17 @@ struct GmailBanksView: View {
                 SettingsDivider()
                 SettingsButton(icon: "bolt.fill", tint: Color(hex: 0x40C8E0), title: "Leer ahora",
                                subtitle: "Busca gastos nuevos en tu correo", action: readNow)
+                if gmailSync.failedEmailCount > 0 {
+                    SettingsDivider()
+                    SettingsButton(icon: "exclamationmark.arrow.triangle.2.circlepath", tint: palette.warning,
+                                   title: "Reintentar correos fallidos",
+                                   subtitle: gmailSync.failedEmailCount == 1
+                                       ? "1 correo no se pudo descargar"
+                                       : "\(gmailSync.failedEmailCount) correos no se pudieron descargar") {
+                        gmailSync.modelContext = modelContext
+                        gmailSync.retryFailedEmails()
+                    }
+                }
             }
         }
     }

@@ -74,6 +74,7 @@ struct YapeParser: BankEmailParser {
             if let month = months[monthWord] {
                 let dateStr = "\(day) \(month) \(year) \(time)\(ampm)"
                 let formatter = DateFormatter()
+                formatter.timeZone = BankEmailTime.zone
                 formatter.locale = Locale(identifier: "en_US_POSIX")
                 formatter.dateFormat = "dd MM yyyy hh:mma"
                 if let parsed = formatter.date(from: dateStr) {
@@ -123,6 +124,8 @@ struct YapeParser: BankEmailParser {
             dStr = dStr.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: " ", with: "")
             
             let formatter = DateFormatter()
+            
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "ddMMyyyy-hh:mma"
             if let parsed = formatter.date(from: dStr) {
@@ -192,6 +195,8 @@ struct YapeParser: BankEmailParser {
             dStr = dStr.replacingOccurrences(of: " ", with: "") // e.g. 03092026-01:14pm
             
             let formatter = DateFormatter()
+            
+            formatter.timeZone = BankEmailTime.zone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "ddMMyyyy-hh:mma"
             if let parsed = formatter.date(from: dStr) {

@@ -116,6 +116,8 @@ struct ScotiabankParser: BankEmailParser {
         let dateStr = "\(day) \(month) \(currentYear) \(time)\(ampm)"
 
         let formatter = DateFormatter()
+
+        formatter.timeZone = BankEmailTime.zone
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "dd MM yyyy hh:mma"
         guard var parsed = formatter.date(from: dateStr) else { return nil }
