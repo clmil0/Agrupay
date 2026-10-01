@@ -53,6 +53,9 @@ struct NotifableApp: App {
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
+    /// Sólo para redibujar el tinte: con tema Pro, el acento es el del tema.
+    @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
+    @AppStorage(ProStore.enabledKey) private var isPro = false
 
     var body: some Scene {
         WindowGroup {

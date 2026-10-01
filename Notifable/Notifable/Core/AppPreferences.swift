@@ -42,6 +42,11 @@ enum AppPreferences {
         // El tema Pro elegido. Sin Pro no se aplica, pero se recuerda para
         // cuando vuelva (el plan en sí no viaja: es del dispositivo/cuenta).
         .init(key: ProTheme.storageKey, kind: .string, note: "Tema Pro del Resumen"),
+        .init(key: ProTheme.nebula.toneKey, kind: .string, note: "Variante de Nebulosa"),
+        .init(key: ProTheme.obsidian.toneKey, kind: .string, note: "Variante de Obsidiana"),
+        .init(key: ProTheme.aurora.toneKey, kind: .string, note: "Variante de Aurora"),
+        .init(key: ProTheme.sunset.toneKey, kind: .string, note: "Variante de Atardecer"),
+        .init(key: ProTheme.skyIntensityKey, kind: .double, note: "Intensidad del cielo de los temas Pro"),
 
         // Privacidad
         .init(key: AmountPrivacy.hideOnLaunchKey, kind: .bool, note: "Empezar con los montos ocultos"),

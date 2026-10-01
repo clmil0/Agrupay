@@ -17,6 +17,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
 
     /// Conteos de la raíz, pedidos a la base con `fetchCount` y no con un
     /// `@Query` del historial entero: esa consulta se volvía a recorrer en cada
@@ -90,7 +91,13 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 16)
             }
-            .background(palette.background)
+            .background {
+                if let proTheme {
+                    ProThemeBackdrop(theme: proTheme, calm: true)
+                } else {
+                    palette.background
+                }
+            }
             .onAppear(perform: refreshCounts)
             .task { await phone.refresh() }
             .searchable(text: $query, prompt: "Buscar en configuración")

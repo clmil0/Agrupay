@@ -8,8 +8,20 @@ import SwiftUI
 /// un `Canvas`, sin `blur`: un desenfoque que se mueve se recalcula en cada
 /// fotograma y es lo que más batería cuesta. Con «Reducir movimiento» el
 /// cielo queda quieto.
+///
+/// `calm` es la versión de las demás pantallas: el mismo cielo, más tenue y
+/// más corto, sin estrella fugaz, para que acompañe sin competir con el texto.
 struct ProThemeBackdrop: View {
     let theme: ProTheme
+    var calm = false
+
+    /// La variante y la intensidad del cielo elegidas en Apariencia; también
+    /// para redibujar al moverlas con «Reducir movimiento» (sin animación).
+    @AppStorage(ProTheme.skyIntensityKey) private var intensity = 1.0
+    @AppStorage("proThemeTone.Nebulosa") private var nebulaTone = ""
+    @AppStorage("proThemeTone.Obsidiana") private var obsidianTone = ""
+    @AppStorage("proThemeTone.Aurora") private var auroraTone = ""
+    @AppStorage("proThemeTone.Atardecer") private var sunsetTone = ""
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -21,19 +33,25 @@ struct ProThemeBackdrop: View {
                 let t = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
                 ZStack(alignment: .top) {
                     theme.base
-                    switch theme {
-                    case .nebula:   NebulaSky(t: t, size: size)
-                    case .obsidian: ObsidianSky(t: t, size: size)
-                    case .aurora:   AuroraSky(t: t, size: size)
-                    case .sunset:   SunsetSky(t: t, size: size)
+                    Group {
+                        switch theme {
+                        case .nebula:   NebulaSky(t: t, size: size, calm: calm)
+                        case .obsidian: ObsidianSky(t: t, size: size)
+                        case .aurora:   AuroraSky(t: t, size: size)
+                        case .sunset:   SunsetSky(t: t, size: size)
+                        }
                     }
+                    // La variante gira el tono del cielo igual que el de
+                    // los colores; la intensidad lo apaga hacia el fondo liso.
+                    .hueRotation(.degrees(theme.tone(named: toneName).degrees))
+                    .opacity((calm ? 0.45 : 1) * min(max(intensity, ProTheme.skyIntensityRange.lowerBound), 1))
                     // Hacia abajo, liso: las tarjetas no compiten con el cielo.
                     LinearGradient(stops: [.init(color: theme.base.opacity(0), location: 0),
                                            .init(color: theme.base.opacity(0.9), location: 0.55),
                                            .init(color: theme.base, location: 1)],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: size.height * 0.5)
-                        .offset(y: size.height * 0.5)
+                        .frame(height: size.height * (calm ? 0.7 : 0.5))
+                        .offset(y: size.height * (calm ? 0.12 : 0.5))
                 }
                 .frame(width: size.width, height: size.height, alignment: .top)
             }
@@ -41,6 +59,15 @@ struct ProThemeBackdrop: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private var toneName: String {
+        switch theme {
+        case .nebula:   return nebulaTone
+        case .obsidian: return obsidianTone
+        case .aurora:   return auroraTone
+        case .sunset:   return sunsetTone
+        }
     }
 
     /// Una onda suave entre 0 y 1 con el periodo dado.
@@ -109,6 +136,7 @@ private func glow(_ color: Color, opacity: Double, diameter: CGFloat) -> some Vi
 private struct NebulaSky: View {
     let t: Double
     let size: CGSize
+    var calm = false
 
     var body: some View {
         let breathe = ProThemeBackdrop.wave(t, period: 14)
@@ -123,9 +151,10 @@ private struct NebulaSky: View {
                 .scaleEffect(1 + 0.12 * ProThemeBackdrop.wave(t, period: 20, phase: 0.6))
                 .position(x: size.width * 0.45, y: size.height * 0.46)
 
-            StarField(t: t, size: size, count: 80, depth: 0.6, tint: Color(hex: 0xE9E3FF))
+            StarField(t: t, size: size, count: calm ? 40 : 80, depth: calm ? 0.3 : 0.6,
+                      tint: Color(hex: 0xE9E3FF))
 
-            shootingStar
+            if !calm { shootingStar }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }

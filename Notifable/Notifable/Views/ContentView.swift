@@ -24,6 +24,9 @@ struct ContentView: View {
     var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .purple }
     var themeColor: Color { accent.color }
     @State private var showSettings = false
+    /// Ver el `.id` del `NavigationStack`.
+    @State private var paletteRevision = 0
+    @State private var appliedTones = ProTheme.toneSignature
 
     @Environment(\.colorScheme) private var systemScheme
     @State private var selectedTransactionType: TransactionType? = nil
@@ -222,6 +225,9 @@ struct ContentView: View {
                     DrillScreen(entry: section)
                 }
             }
+            // Las variantes de los temas Pro no pasan por el entorno: al volver
+            // de Configuración con otra variante, el Resumen se vuelve a armar.
+            .id(paletteRevision)
             .background(Palette(systemScheme).background.ignoresSafeArea())
             .ignoresSafeArea(.keyboard)
             .onAppear(perform: resolveRecurring)
@@ -267,7 +273,12 @@ struct ContentView: View {
                 presentReminderIfReady()
             }
             .onChange(of: reminders.pendingModal?.arrivalKey) { _, _ in presentReminderIfReady() }
-            .fullScreenCover(isPresented: $showSettings) {
+            .fullScreenCover(isPresented: $showSettings, onDismiss: {
+                let tones = ProTheme.toneSignature
+                guard tones != appliedTones else { return }
+                appliedTones = tones
+                paletteRevision += 1
+            }) {
                 SettingsView()
             }
             .sheet(item: $selectedTransactionType, onDismiss: {

@@ -49,6 +49,10 @@ struct AppearanceSettingsView: View {
                 .padding(.horizontal, 16)
 
             themesSection
+            if let activeProTheme {
+                ProThemeTuningSection(theme: activeProTheme, onChange: { ring(.surface) })
+                    .id(activeProTheme)
+            }
             modeSection
             textSection
             colorSection
@@ -252,6 +256,116 @@ struct AppearanceSettingsView: View {
 
     private var appearanceBinding: Binding<AppAppearance> {
         Binding(get: { appearance }, set: { appearanceRaw = $0.rawValue })
+    }
+}
+
+// MARK: - Ajustes del tema Pro
+
+/// Matiz e intensidad del cielo del tema Pro elegido. El matiz es una lista
+/// cerrada de variantes y no una rueda libre: cada una gira el tono sin
+/// tocar la luminosidad, así que todos los textos se siguen leyendo.
+private struct ProThemeTuningSection: View {
+    let theme: ProTheme
+    let onChange: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage private var toneName: String
+    @AppStorage(ProTheme.skyIntensityKey) private var intensity = 1.0
+
+    init(theme: ProTheme, onChange: @escaping () -> Void) {
+        self.theme = theme
+        self.onChange = onChange
+        _toneName = AppStorage(wrappedValue: "", theme.toneKey)
+    }
+
+    private var palette: Palette { Palette(scheme).themed(theme) }
+    private var selected: ProThemeTone { theme.tone(named: toneName) }
+    private var isDefault: Bool { selected == theme.tones[0] && intensity >= 1 }
+
+    var body: some View {
+        SettingsGroup(title: "Ajustar \(theme.rawValue)",
+                      footer: "Con el cielo más tenue el fondo se oscurece y las tarjetas resaltan más.") {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Matiz")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(palette.label)
+                        Spacer()
+                        Text(selected.name)
+                            .font(.subheadline)
+                            .foregroundStyle(palette.secondaryLabel)
+                    }
+                    HStack(spacing: 14) {
+                        ForEach(theme.tones) { tone in
+                            toneButton(tone)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Brillo del cielo")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(palette.label)
+                        Spacer()
+                        Text("\(Int((intensity * 100).rounded())) %")
+                            .font(.subheadline)
+                            .monospacedDigit()
+                            .foregroundStyle(palette.secondaryLabel)
+                    }
+                    HStack(spacing: 10) {
+                        Image(systemName: "moon.fill")
+                            .font(.footnote)
+                            .foregroundStyle(palette.secondaryLabel)
+                        Slider(value: $intensity, in: ProTheme.skyIntensityRange) { editing in
+                            if !editing { onChange() }
+                        }
+                        .accessibilityLabel("Brillo del cielo")
+                        Image(systemName: "sparkles")
+                            .font(.footnote)
+                            .foregroundStyle(palette.secondaryLabel)
+                    }
+                }
+
+                if !isDefault {
+                    Button("Restablecer \(theme.rawValue)") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            toneName = ""
+                            intensity = 1
+                        }
+                        onChange()
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(palette.expenseText)
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func toneButton(_ tone: ProThemeTone) -> some View {
+        let isSelected = tone == selected
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                toneName = tone == theme.tones[0] ? "" : tone.name
+            }
+            onChange()
+        } label: {
+            Circle()
+                .fill(RadialGradient(colors: [Color.white.opacity(0.55),
+                                              theme.accent(for: tone), theme.base],
+                                     center: UnitPoint(x: 0.3, y: 0.3), startRadius: 0, endRadius: 30))
+                .frame(width: 40, height: 40)
+                .padding(3)
+                .overlay(Circle().stroke(isSelected ? palette.label : .clear, lineWidth: 2))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tone.name)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -555,7 +669,7 @@ struct ThemeGalleryView: View {
     }
 
     /// La galería se pinta con el tema que se está probando, no con el guardado.
-    private var palette: Palette { Palette(scheme, accent: draft) }
+    private var palette: Palette { Palette(scheme, accent: draft).withoutPro() }
 
     private var themes: [AppThemeColor] {
         let filtered = AppThemeColor.allCases.filter { theme in
@@ -728,11 +842,11 @@ private struct ThemeGalleryCard: View {
         }
         .padding(9)
         // Seleccionado = tinte del propio tema, sin borde de color.
-        .background(isSelected ? theme.softFill(scheme) : Palette(scheme, accent: theme).surface)
+        .background(isSelected ? theme.softFill(scheme) : Palette(scheme, accent: theme).withoutPro().surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Palette(scheme, accent: theme).hairline, lineWidth: 0.5)
+                .stroke(Palette(scheme, accent: theme).withoutPro().hairline, lineWidth: 0.5)
         )
     }
 }

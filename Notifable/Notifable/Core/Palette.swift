@@ -19,21 +19,34 @@ struct Palette {
     /// superficies y bordes son los grises neutros de siempre.
     let intense: Bool
 
-    /// Tema Pro del Resumen (`3b`–`3e`). Sólo lo lleva la paleta de las
-    /// vistas del dashboard (`themed(_:)`); en el resto de la app es `nil`.
-    private(set) var pro: ProTheme? = nil
+    /// Tema Pro (`3b`–`3e`). Lo lleva toda la app en oscuro: superficies,
+    /// textos y acento salen del tema; el cielo animado completo queda para
+    /// el Resumen y el resto lo lleva atenuado (`ProThemeBackdrop.calm`).
+    private(set) var pro: ProTheme?
 
     init(_ scheme: ColorScheme, accent: AppThemeColor = .current,
-         intense: Bool = AppThemeColor.usesIntenseTint) {
+         intense: Bool = AppThemeColor.usesIntenseTint,
+         pro: ProTheme? = nil) {
         self.scheme = scheme
         self.accent = accent
         self.intense = intense
+        self.pro = pro ?? ProTheme.ambient(scheme)
     }
 
-    /// La misma paleta con los colores del tema Pro, si lo hay.
+    /// La misma paleta con los colores del tema Pro, si lo hay. Sin tema en
+    /// el entorno se queda con el de la app (`nil` no lo apaga).
     func themed(_ pro: ProTheme?) -> Palette {
+        guard let pro else { return self }
         var copy = self
         copy.pro = pro
+        return copy
+    }
+
+    /// La paleta del tema básico, sin el Pro: para mostrar cómo se ve un
+    /// tema básico mientras hay uno Pro puesto (la galería de Apariencia).
+    func withoutPro() -> Palette {
+        var copy = self
+        copy.pro = nil
         return copy
     }
 
@@ -67,7 +80,8 @@ struct Palette {
 
     /// Superficie elevada (sheets, menús).
     var surfaceElevated: Color {
-        dark ? Color(red: 0.118, green: 0.133, blue: 0.176)   // #1E222D
+        if let pro { return pro.elevated }
+        return dark ? Color(red: 0.118, green: 0.133, blue: 0.176)   // #1E222D
              : Color.white
     }
 
@@ -92,7 +106,8 @@ struct Palette {
 
     /// Separador interno de listas.
     var separator: Color {
-        dark ? Color.white.opacity(0.06) : Color.black.opacity(0.10)
+        if let pro { return pro.hairline.opacity(0.7) }
+        return dark ? Color.white.opacity(0.06) : Color.black.opacity(0.10)
     }
 
     var label: Color {
@@ -125,7 +140,8 @@ struct Palette {
 
     /// Barras del periodo anterior en los gráficos comparativos.
     var comparison: Color {
-        dark ? Color(red: 0.227, green: 0.263, blue: 0.337)   // #3A4356
+        if let pro { return pro.secondaryLabel.opacity(0.35) }
+        return dark ? Color(red: 0.227, green: 0.263, blue: 0.337)   // #3A4356
              : Color(red: 0.788, green: 0.804, blue: 0.839)
     }
 
@@ -248,7 +264,10 @@ extension AppThemeColor {
     /// Color para **texto e iconos sobre fondo claro**. `systemPurple` sobre
     /// blanco da 3.4:1 y no cumple AA para texto; esta variante sí.
     func onSurface(_ scheme: ColorScheme) -> Color {
-        guard scheme == .light else { return tintOnDark }
+        guard scheme == .light else {
+            if let pro = Self.activeProTheme, pro.companionAccent == self { return pro.accentText }
+            return tintOnDark
+        }
         switch self {
         case .purple: return Color(red: 0.478, green: 0.235, blue: 0.600)   // #7A3C99
         case .blue:   return Color(red: 0.000, green: 0.349, blue: 0.698)   // #0059B2
@@ -376,11 +395,12 @@ struct SurfaceCard: ViewModifier {
     /// Sólo para redibujar la tarjeta al cambiar de tema: `Palette` lo lee.
     @AppStorage(AppThemeColor.storageKey) private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
+    @Environment(\.proTheme) private var proTheme
     var radius: CGFloat = 18
     var padding: CGFloat = 16
 
     func body(content: Content) -> some View {
-        let palette = Palette(scheme)
+        let palette = Palette(scheme).themed(proTheme)
         return content
             .padding(padding)
             .background(palette.surface)

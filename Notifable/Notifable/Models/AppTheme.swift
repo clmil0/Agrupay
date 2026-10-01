@@ -46,7 +46,24 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
         }
     }
 
+    /// El color del tema. Con un tema Pro puesto, su tema básico compañero
+    /// toma el acento del Pro (el violeta de Nebulosa y no el morado del
+    /// sistema): botones, interruptores y chips combinan con el cielo.
     var color: Color {
+        if let pro = Self.activeProTheme, pro.companionAccent == self { return pro.accent }
+        return baseColor
+    }
+
+    /// El tema Pro en uso (con Pro activo), leído de la misma caché.
+    static var activeProTheme: ProTheme? {
+        ThemeDefaults.values.pro
+    }
+
+    /// Los ajustes de los temas Pro, leídos de la misma caché.
+    static func proHueShift(_ theme: ProTheme) -> Double { ThemeDefaults.values.proHues[theme] ?? 0 }
+    static var proSkyIntensity: Double { ThemeDefaults.values.skyIntensity }
+
+    private var baseColor: Color {
         switch self {
         case .purple: return .purple
         // El azul de marca del ícono (#2E5BFF) — no el azul de sistema — para
@@ -194,6 +211,10 @@ private enum ThemeDefaults {
         let theme: AppThemeColor
         let intenseTint: Bool
         let themedCategoryColors: Bool
+        let pro: ProTheme?
+        /// Grados de la variante elegida de cada tema Pro.
+        let proHues: [ProTheme: Double]
+        let skyIntensity: Double
     }
 
     private static let lock = NSLock()
@@ -212,7 +233,14 @@ private enum ThemeDefaults {
             let values = Values(
                 theme: AppThemeColor(rawValue: defaults.string(forKey: AppThemeColor.storageKey) ?? "") ?? .blue,
                 intenseTint: defaults.bool(forKey: AppThemeColor.intenseTintKey),
-                themedCategoryColors: defaults.bool(forKey: AppThemeColor.themedCategoryColorsKey))
+                themedCategoryColors: defaults.bool(forKey: AppThemeColor.themedCategoryColorsKey),
+                pro: defaults.bool(forKey: ProStore.enabledKey)
+                    ? ProTheme(rawValue: defaults.string(forKey: ProTheme.storageKey) ?? "") : nil,
+                proHues: Dictionary(uniqueKeysWithValues: ProTheme.allCases.map {
+                    ($0, $0.tone(named: defaults.string(forKey: $0.toneKey)).degrees)
+                }),
+                skyIntensity: (defaults.object(forKey: ProTheme.skyIntensityKey) as? Double)
+                    .map { min(max($0, ProTheme.skyIntensityRange.lowerBound), 1) } ?? 1)
             cached = values
             return values
         }

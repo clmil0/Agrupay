@@ -15,6 +15,7 @@ struct DrillScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.proTheme) private var proTheme
 
     @State private var section: AppSection
     @State private var progress = ScrollProgress()
@@ -45,7 +46,15 @@ struct DrillScreen: View {
                 }
             }
         }
-        .background(palette.background.ignoresSafeArea())
+        .background {
+            // Con tema Pro, el cielo del Resumen atenuado: se nota el tema
+            // y el texto sigue leyéndose sobre liso.
+            if let proTheme {
+                ProThemeBackdrop(theme: proTheme, calm: true)
+            } else {
+                palette.background.ignoresSafeArea()
+            }
+        }
         .background(SwipeBackEnabler().frame(width: 0, height: 0))
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: section) { _, _ in progress.reset() }

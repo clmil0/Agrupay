@@ -17,6 +17,7 @@ struct SettingsPage<Content: View>: View {
     /// Sólo para redibujar al cambiar de tema: `Palette` tiñe el fondo.
     @AppStorage(AppThemeColor.storageKey) private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
+    @Environment(\.proTheme) private var proTheme
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
@@ -27,7 +28,13 @@ struct SettingsPage<Content: View>: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
-        .background(palette.background)
+        .background {
+            if let proTheme {
+                ProThemeBackdrop(theme: proTheme, calm: true)
+            } else {
+                palette.background
+            }
+        }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.large)
     }
