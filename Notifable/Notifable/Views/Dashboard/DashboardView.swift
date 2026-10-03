@@ -209,6 +209,7 @@ struct DashboardView: View {
 
                     statsBlock(totals: totals, expenses: expenses, incomes: snapshots.incomes)
 
+                    ShellSectionHeader(title: "Atajos")
                     grid(totals: totals, expenses: expenses, incomes: incomes)
                         .padding(.bottom, 28)
 
@@ -417,6 +418,19 @@ struct DashboardView: View {
     }
 
     // MARK: - Titular
+
+    /// «sept», «ago 2025»: el título del gráfico comparte la fila con
+    /// «Semana · Mes», y con el mes entero pasaba a dos líneas.
+    private var shortMonthName: String {
+        let name = month.reference
+            .formatted(.dateTime.month(.abbreviated).locale(Locale(identifier: "es_ES")))
+            .replacingOccurrences(of: ".", with: "")
+            .lowercased()
+        let calendar = Period.calendar
+        guard calendar.component(.year, from: month.reference) != calendar.component(.year, from: Date())
+        else { return name }
+        return name + " " + String(calendar.component(.year, from: month.reference))
+    }
 
     private var monthName: String {
         let name = Period.spanishMonthName(for: month.reference)
@@ -687,7 +701,7 @@ struct DashboardView: View {
             }
             let count = totals.expenseCount
             return ChartData(columns: columns,
-                             title: isCurrentMonth ? "Últimos 7 días" : "Últimos 7 días de " + monthName.lowercased(),
+                             title: isCurrentMonth ? "Últimos 7 días" : "Últimos 7 días de " + shortMonthName,
                              subtitle: Money.formatCompact(totals.spent) + " · "
                                 + (count == 1 ? "1 movimiento" : "\(count) movimientos"),
                              defaultSelection: Self.defaultSelection(columns))
@@ -711,7 +725,7 @@ struct DashboardView: View {
                     total: totals.spent)
             }
             return ChartData(columns: columns,
-                             title: isCurrentMonth ? "Este mes" : "Semanas de " + monthName.lowercased(),
+                             title: isCurrentMonth ? "Este mes" : "Semanas de " + shortMonthName,
                              subtitle: Money.formatCompact(spent) + " · "
                                 + (count == 1 ? "1 movimiento" : "\(count) movimientos"),
                              defaultSelection: Self.defaultSelection(columns))
@@ -764,6 +778,8 @@ struct DashboardView: View {
                     Text(chart.title)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(palette.label)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     Text(chart.subtitle.masked(hidesAmounts))
                         .amountVeil()
                         .font(.system(size: 12.5))
@@ -801,7 +817,7 @@ struct DashboardView: View {
             switch stats.count {
             case 1:
                 StatExpandedCard(stat: stats[0]) { openStat = stats[0] }
-                    .padding(.bottom, 30)
+                    .padding(.bottom, 20)
 
             case 2:
                 HStack(spacing: Self.gridSpacing) {
@@ -810,7 +826,7 @@ struct DashboardView: View {
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 30)
+                .padding(.bottom, 20)
 
             default:
                 // Tres tiras del mismo ancho que llenan la fila, alineadas con
@@ -830,7 +846,7 @@ struct DashboardView: View {
                 .scrollTargetBehavior(.viewAligned)
                 .scrollDisabled(stats.count <= 3)
                 .padding(.horizontal, -ShellMetrics.sideInset)
-                .padding(.bottom, 30)
+                .padding(.bottom, 20)
             }
         }
     }

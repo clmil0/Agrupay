@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// El gráfico del dashboard (`2d` de «Resumen Gráficas»): una barra por
-/// periodo en degradado del color del gasto, con una línea clara en la
-/// superficie. Al entrar cada barra se llena con un rebote corto. Las
-/// burbujas de la barra elegida se quitaron: eran lo que trababa el scroll.
+/// periodo, lisa. Sólo la elegida lleva color; las demás van en el gris del
+/// carril, para que el ojo vaya directo a la que tiene el monto encima. Al
+/// entrar cada barra se llena con un rebote corto. Las burbujas de la barra
+/// elegida se quitaron: eran lo que trababa el scroll.
 ///
 /// «Semana» son los últimos siete días, uno por barra, terminando hoy. «Mes»
 /// son las últimas seis semanas contando la actual, una por barra: treinta
@@ -43,9 +44,13 @@ struct SpendBarChart: View {
     /// cambian los periodos (Semana ↔ Mes, otro mes).
     @State private var filled = false
 
-    private static let barArea: CGFloat = 112
+    private static let barArea: CGFloat = 100
     private static let labelRoom: CGFloat = 22
+    /// Aire entre el monto de la barra más alta y el título del gráfico: sin
+    /// él, con la barra a la izquierda, el monto quedaba pegado al subtítulo.
+    private static let topRoom: CGFloat = 30
     private static let stagger: TimeInterval = 0.07
+    private static let sideInset: CGFloat = 14
 
     private var maximum: Double { columns.map(\.total).max() ?? 0 }
 
@@ -59,7 +64,9 @@ struct SpendBarChart: View {
                 columnView(column)
             }
         }
-        .frame(height: Self.barArea + Self.labelRoom + 18, alignment: .bottom)
+        // Un poco más angosto que la tarjeta: las barras no llegan a los bordes.
+        .padding(.horizontal, Self.sideInset)
+        .frame(height: Self.barArea + Self.labelRoom + Self.topRoom, alignment: .bottom)
         .task(id: periodsKey) {
             guard isReady else { filled = false; return }
             guard !reduceMotion else { filled = true; return }
@@ -96,7 +103,7 @@ struct SpendBarChart: View {
                 if isSelected {
                     Text(Money.formatCompact(column.total).masked(hidesAmounts))
                         .amountVeil()
-                        .font(.system(size: 14, weight: .bold, design: proTheme?.numberDesign ?? .default))
+                        .font(.system(size: 13, weight: .semibold, design: proTheme?.numberDesign ?? .default))
                         .monospacedDigit()
                         .foregroundStyle(palette.duoText ?? (proTheme == nil ? palette.expense : palette.expenseText))
                         .fixedSize()
@@ -122,63 +129,29 @@ struct SpendBarChart: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Degradado del gasto (más claro arriba) con la línea de la superficie;
-    /// las no elegidas al 55 %.
-    @ViewBuilder
+    /// Color liso sólo en la elegida; las demás, el gris del carril. Sin
+    /// degradado, sin línea clara ni halo. Obsidiana conserva sus cápsulas.
     private func bar(hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
-        if let proTheme {
-            proBar(proTheme, hasSpend: hasSpend, isSelected: isSelected, height: height)
-        } else {
-            plainBar(hasSpend: hasSpend, isSelected: isSelected, height: height)
-        }
-    }
-
-    /// Temas Pro (`3b`–`3e`): el degradado del tema, con brillo en la
-    /// elegida. Obsidiana usa cápsulas; los demás, la barra de siempre.
-    private func proBar(_ theme: ProTheme, hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: theme == .obsidian ? 40 : 6, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: proTheme == .obsidian ? 40 : 5, style: .continuous)
         return shape
-            .fill(hasSpend
-                  ? AnyShapeStyle(LinearGradient(colors: theme.barGradient, startPoint: .bottom, endPoint: .top))
-                  : AnyShapeStyle(palette.track))
-            .overlay(alignment: .top) {
-                if hasSpend && theme != .obsidian {
-                    Rectangle().fill(.white.opacity(isSelected ? 0.7 : 0.25)).frame(height: 1.5)
-                }
-            }
-            .clipShape(shape)
-            .frame(width: theme == .obsidian ? 22 : nil, height: height)
+            .fill(isSelected && hasSpend ? selectedColor.opacity(0.9) : palette.track)
+            .frame(width: barWidth, height: height)
             .frame(maxWidth: .infinity)
-            .opacity(!hasSpend || isSelected ? 1 : 0.5)
-            .shadow(color: theme.accent.opacity(isSelected && hasSpend ? 0.65 : 0), radius: 11)
     }
 
-    private func plainBar(hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        // Pro en el tema básico: del acento a su vecino en la rueda, y un
-        // halo suave en la elegida. Sin Pro, el acento aclarado con blanco.
-        let pro = ProTouches.isActive(isPro: isPro, theme: proTheme)
-        let colors = pro ? ProTouches.accentGradient(.current, scheme)
-                         : [palette.expense, palette.expense.mixed(with: .white, amount: 0.28, scheme: scheme)]
+    /// Fino y fijo, no lo que sobre de la columna: con siete días la barra
+    /// ocupaba casi todo su hueco y se veía como un bloque. Con menos
+    /// columnas (las semanas del mes) hay aire para una algo más ancha.
+    private var barWidth: CGFloat {
+        columns.count > 6 ? 29 : 36
+    }
 
-        return shape
-            .fill(hasSpend
-                  ? AnyShapeStyle(LinearGradient(colors: colors, startPoint: .bottom, endPoint: .top))
-                  : AnyShapeStyle(palette.track))
-            .overlay(alignment: .top) {
-                if hasSpend {
-                    Rectangle().fill(.white.opacity(0.6)).frame(height: 1.5)
-                }
-            }
-            .clipShape(shape)
-            .frame(height: height)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(palette.expense.opacity(isSelected && hasSpend ? 0.35 : 0), lineWidth: 2)
-                    .padding(-2)
-            )
-            .opacity(!hasSpend || isSelected ? 1 : 0.55)
-            .shadow(color: colors[0].opacity(pro && isSelected && hasSpend ? 0.45 : 0), radius: 8, y: 2)
+    /// El color de la elegida: el del gasto, el acento del tema Pro, o con Pro
+    /// en un tema básico, el acento de la app.
+    private var selectedColor: Color {
+        if let proTheme { return proTheme.accent }
+        if ProTouches.isActive(isPro: isPro, theme: proTheme) { return AppThemeColor.current.color }
+        return palette.expense
     }
 
     /// Nunca cero del todo: un periodo sin gasto se ve como una raya, no como
