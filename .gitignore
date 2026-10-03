@@ -26,6 +26,9 @@ Packages/
 
 # Carpeta local de Wrangler al publicar web/
 web/.wrangler/
+web
+output
+Tarjetas_referencia
 
 # Credenciales. Las funciones de Supabase leen todo de variables de entorno
 # (ver supabase/functions), y la clave de APNs no debe salir de tu máquina.
@@ -33,3 +36,6 @@ web/.wrangler/
 .env
 .env.*
 !.env.example
+
+# Estado local de la CLI de Supabase
+supabase/.temp/

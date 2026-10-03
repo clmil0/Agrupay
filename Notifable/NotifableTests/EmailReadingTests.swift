@@ -96,4 +96,45 @@ struct EmailReadingTests {
         #expect(parts.year == 2026 && parts.month == 9 && parts.day == 29)
         #expect(parts.hour == 1 && parts.minute == 34)
     }
+
+    // MARK: - Consumo con tarjeta de crédito en dólares
+
+    @Test func consumoEnDolaresConTarjetaDeCredito() throws {
+        // Lo que queda del HTML del correo de BCP sin etiquetas.
+        let text = "Hola   Alejandro Gabriel,   Realizaste un consumo de   $ 8.03   con tu   Tarjeta de Crédito BCP   en   STEAMGAMES.COM   4259522985.   "
+            + "Por tu seguridad, te enviamos los datos de tu operación.   Monto   Total del consumo   $ 8.03   "
+            + "Datos de la operación   Operación realizada   Consumo Tarjeta de Crédito   Fecha y hora   01 de octubre de 2026 - 08:14 PM   "
+            + "Número de Tarjeta de Crédito   ************3753   Empresa   STEAMGAMES.COM   4259522985   Número de operación   0000577330"
+        let expense = try #require(BCPParser().parse(cleanText: text))
+        #expect(expense.amount == 8.03)
+        #expect(expense.currency == "USD")
+        #expect(expense.merchant == "STEAMGAMES.COM 4259522985")
+        #expect(expense.cardLastDigits == "3753")
+    }
+
+    @Test func consumoEnDolaresEnTextoPlano() throws {
+        // La parte text/plain trae cada valor entre asteriscos.
+        let text = "Realizaste un consumo de *$ 23.60* con tu *Tarjeta de Crédito BCP* en *ANTHROPIC* CLAUDE SUB.* "
+            + "Por tu seguridad, te enviamos los *datos de tu operación.* *Monto* Total del consumo *$ 23.60* "
+            + "Operación realizada *Consumo Tarjeta de Crédito* Fecha y hora *01 de octubre de 2026 - 06:50 PM* "
+            + "Número de Tarjeta de Crédito *************3753* Empresa *ANTHROPIC* CLAUDE SUB* Número de operación *0000079120*"
+        let expense = try #require(BCPParser().parse(cleanText: text))
+        #expect(expense.amount == 23.60)
+        #expect(expense.currency == "USD")
+        #expect(expense.merchant == "ANTHROPIC* CLAUDE SUB")
+        #expect(expense.cardLastDigits == "3753")
+
+        var lima = Calendar(identifier: .gregorian)
+        lima.timeZone = TimeZone(identifier: "America/Lima")!
+        let parts = lima.dateComponents([.day, .hour, .minute], from: expense.date)
+        #expect(parts.day == 1 && parts.hour == 18 && parts.minute == 50)
+    }
+
+    @Test func consumoEnSolesSigueEnSoles() throws {
+        let text = "Realizaste un consumo de S/ 42.00 con tu Tarjeta de Débito BCP Total del consumo S/ 42.00 "
+            + "Empresa PLAZA VEA Número de operación 123"
+        let expense = try #require(BCPParser().parse(cleanText: text))
+        #expect(expense.amount == 42)
+        #expect(expense.currency == "PEN")
+    }
 }

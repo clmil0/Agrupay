@@ -9,9 +9,11 @@ import SwiftData
 /// el espacio animado. Dentro de cada pantalla, lo que pide Pro aparece como
 /// una opción más con su «PRO».
 ///
-/// Presupuesto y Categorías son ahora una sola fila, y «Leer un rango pasado»
-/// vive dentro de Gmail y bancos; Estadísticas, dentro de Apariencia y
-/// resumen; Diagnóstico, dentro de Datos y respaldo.
+/// Presupuesto y Categorías son una sola fila, y «Leer un rango pasado» vive
+/// dentro de Correo y bancos. Correo y Gmail y bancos son ahora una sola
+/// pantalla (repetían la lectura); Apariencia y Resumen se separan (cómo se
+/// ve la app no es qué cifras enseña); Diagnóstico va a Ayuda y Borrar datos
+/// tiene fila propia.
 struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
@@ -27,6 +29,7 @@ struct SettingsView: View {
     @Query private var quickExpenses: [QuickExpense]
 
     @StateObject private var gmailAuth = GmailAuthService.shared
+    @StateObject private var outlookAuth = OutlookAuthService.shared
 
     /// Ver el `onReceive` del final del cuerpo.
     @AppStorage(GmailAuthService.pendingLinkFlowKey) private var pendingLinkFlow = false
@@ -72,18 +75,19 @@ struct SettingsView: View {
                     if query.isEmpty {
                         profileCard
 
-                        // Conectado, la tarjeta sobra: la fila de Correo ya
-                        // dice la cuenta. Sin conectar, es la única forma
+                        // Conectado, la tarjeta sobra: la fila de Correo y
+                        // bancos ya dice la cuenta. Sin conectar, es la única forma
                         // visible de empezar, y se queda arriba.
                         if !gmailAuth.isAuthenticated {
                             statusCard
                         }
 
                         accountSection
+                        mailSection
                         moneySection
-                        captureSection
                         personalSection
                         privacySection
+                        helpSection
                         versionFooter
                     } else {
                         searchResults
@@ -91,6 +95,7 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 16)
             }
+            .settingsScrollActivity()
             .background {
                 if let proTheme {
                     ProThemeBackdrop(theme: proTheme, calm: true)
@@ -234,11 +239,6 @@ struct SettingsView: View {
 
     private var accountSection: some View {
         SettingsSection(title: "Cuenta") {
-            SettingsRow(title: "Correo", icon: "envelope.fill",
-                        tint: Color(hex: 0xEA4335), value: emailValue) {
-                EmailSettingsView()
-            }
-            SettingsSeparator()
             SettingsRow(title: "Celular", icon: "phone.fill",
                         tint: Color(hex: 0x30D158), value: phone.formattedPhone ?? "Sin verificar",
                         valueSeal: phone.formattedPhone != nil) {
@@ -266,10 +266,11 @@ struct SettingsView: View {
         }
     }
 
-    private var captureSection: some View {
-        SettingsSection(title: "Captura automática") {
-            SettingsRow(title: "Gmail y bancos", icon: "building.columns.fill",
-                        tint: Color(hex: 0x40C8E0), subtitle: gmailSubtitle) {
+    /// La cuenta, la lectura, cuánto atrás y los bancos: una sola fila.
+    private var mailSection: some View {
+        SettingsSection(title: "Lectura automática") {
+            SettingsRow(title: "Correo y bancos", icon: "envelope.fill",
+                        tint: Color(hex: 0xEA4335), subtitle: gmailSubtitle) {
                 GmailBanksView()
             }
         }
@@ -277,9 +278,14 @@ struct SettingsView: View {
 
     private var personalSection: some View {
         SettingsSection(title: "Personalización") {
-            SettingsRow(title: "Apariencia y resumen", icon: "paintbrush.fill",
+            SettingsRow(title: "Apariencia", icon: "paintbrush.fill",
                         tint: Color(hex: 0xBF5AF2), subtitle: appearanceSubtitle) {
                 AppearanceSettingsView()
+            }
+            SettingsSeparator()
+            SettingsRow(title: "Resumen", icon: "chart.xyaxis.line",
+                        tint: Color(hex: 0x5E5CE6), subtitle: statsSubtitle) {
+                StatsSettingsView()
             }
             SettingsSeparator()
             SettingsRow(title: "Asistente", icon: "sparkles",
@@ -301,9 +307,14 @@ struct SettingsView: View {
                 AppLockSettingsView()
             }
             SettingsSeparator()
-            SettingsRow(title: "Datos y respaldo", icon: "externaldrive.fill",
+            SettingsRow(title: "Respaldo y exportación", icon: "externaldrive.fill",
                         tint: Color(white: 0.35), subtitle: dataSubtitle) {
                 DataBackupView()
+            }
+            SettingsSeparator()
+            SettingsRow(title: "Borrar datos", icon: "trash.fill",
+                        tint: Color(hex: 0xFF453A), subtitle: "Por grupos o por fechas") {
+                DeleteDataView()
             }
             // Sólo para probar mientras no hay StoreKit (ver `ProStore.showsTestSwitch`).
             if ProStore.showsTestSwitch {
@@ -316,15 +327,18 @@ struct SettingsView: View {
         }
     }
 
+    private var helpSection: some View {
+        SettingsSection(title: "Ayuda") {
+            SettingsRow(title: "Diagnóstico", icon: "stethoscope",
+                        tint: Color(white: 0.35), subtitle: "Para enviar un informe si algo falla") {
+                DiagnosticsView()
+            }
+        }
+    }
+
     // MARK: - Valores de cada fila
     //
     // Ninguno queda vacío: "Sin definir" y "Ninguna" también son información.
-
-    private var emailValue: String {
-        guard gmailAuth.isAuthenticated else { return gmailAuth.accessRevoked ? "Se desconectó" : "Sin conectar" }
-        if gmailAuth.missingGmailScope { return "Falta permiso" }
-        return gmailAuth.accountEmail ?? "Conectado"
-    }
 
     /// «S/ 2,500 · 11 categorías · 9 reglas».
     private var budgetSubtitle: String {
@@ -346,24 +360,34 @@ struct SettingsView: View {
         return parts.isEmpty ? "Ninguno" : parts.joined(separator: " · ")
     }
 
-    /// «5 bancos · leer rangos pasados».
+    /// «tu@gmail.com · 5 bancos»: la cuenta que se lee y cuántos bancos.
     private var gmailSubtitle: String {
-        guard gmailAuth.isAuthenticated else { return gmailAuth.accessRevoked ? "Se desconectó" : "Sin conectar" }
-        if gmailAuth.missingGmailScope { return "Falta el permiso de Gmail" }
+        let outlook = outlookAuth.isAuthenticated ? (outlookAuth.accountEmail ?? "Outlook") : nil
+        guard gmailAuth.isAuthenticated || outlook != nil else {
+            return gmailAuth.accessRevoked || outlookAuth.accessRevoked ? "Se desconectó" : "Sin conectar"
+        }
+        if gmailAuth.isAuthenticated, gmailAuth.missingGmailScope { return "Falta el permiso de Gmail" }
         let active = BankSource.activeCount
         let banks = active == 0 ? "Ningún banco" : active == 1 ? "1 banco" : "\(active) bancos"
-        return banks + " · leer rangos pasados"
+        // Con dos cuentas, «2 correos»: las dos direcciones no caben.
+        let account = gmailAuth.isAuthenticated && outlook != nil ? "2 correos"
+            : gmailAuth.isAuthenticated ? (gmailAuth.accountEmail ?? "Conectado") : outlook ?? "Conectado"
+        return [account, banks].joined(separator: " · ")
     }
 
-    /// «Azul · Oscuro · 5 de 7 estadísticas».
+    /// «Azul · Oscuro».
     private var appearanceSubtitle: String {
-        let count = DashboardStatsSettings.decode(statsRaw).count
-        let stats = count == 0 ? "sin estadísticas" : "\(count) de \(DashboardStat.allCases.count) estadísticas"
         // Con tema Pro, su nombre; y va siempre en oscuro.
         if isPro, let pro = ProTheme(rawValue: proThemeRaw) {
-            return [pro.rawValue, AppAppearance.dark.rawValue, stats].joined(separator: " · ")
+            return [pro.rawValue, AppAppearance.dark.rawValue].joined(separator: " · ")
         }
-        return [accent.rawValue, appearance.rawValue, stats].joined(separator: " · ")
+        return [accent.rawValue, appearance.rawValue].joined(separator: " · ")
+    }
+
+    /// «5 de 7 estadísticas».
+    private var statsSubtitle: String {
+        let count = DashboardStatsSettings.decode(statsRaw).count
+        return count == 0 ? "Sin estadísticas" : "\(count) de \(DashboardStat.allCases.count) estadísticas"
     }
 
     private var lockValue: String {
@@ -382,7 +406,7 @@ struct SettingsView: View {
 
     /// «En la nube · hoy 9:12» con Pro y la nube encendida.
     private var dataSubtitle: String {
-        guard backup.isEnabled else { return "Respaldo, exportar y diagnóstico" }
+        guard backup.isEnabled else { return "Archivo, nube y CSV" }
         guard isPro else { return "Nube en pausa · respaldo y exportar" }
         guard let last = backup.lastSyncedAt else { return "En la nube" }
         let f = DateFormatter()
@@ -449,7 +473,7 @@ struct SettingsView: View {
     private func destination(for id: String) -> some View {
         switch id {
         case "profile":       ProfileSettingsView()
-        case "email":         EmailSettingsView()
+        case "email":         GmailBanksView()
         case "phone":         PhoneSettingsView()
         case "devices":       DevicesSettingsView()
         case "budget":        BudgetCategoriesView()
@@ -463,6 +487,7 @@ struct SettingsView: View {
         case "notifications": NotificationSettingsView()
         case "lock":          AppLockSettingsView()
         case "diagnostics":   DiagnosticsView()
+        case "delete":        DeleteDataView()
         #if DEBUG
         case "financekit":    FinanceKitPOCView()
         #endif
@@ -499,6 +524,9 @@ struct SettingsProHero: View {
     static let gold = Color(hex: 0xF6C64B)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Tapada por otra pantalla de Configuración: las estrellas no tienen
+    /// por qué seguir titilando.
+    @State private var isOnScreen = true
 
     /// Posiciones fijas (en fracciones de la tarjeta): el cielo no cambia de
     /// una apertura a otra.
@@ -556,6 +584,8 @@ struct SettingsProHero: View {
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.12), lineWidth: 0.5))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
     }
 
     private var space: some View {
@@ -567,7 +597,8 @@ struct SettingsProHero: View {
                 RadialGradient(colors: [Color(hex: 0x6D28D9).opacity(0.45), .clear],
                                center: UnitPoint(x: 0.35, y: 0.2), startRadius: 0, endRadius: size.width * 0.5)
 
-                TimelineView(.animation(minimumInterval: 1 / 20, paused: reduceMotion)) { context in
+                TimelineView(.animation(minimumInterval: 1 / 20,
+                                        paused: reduceMotion || !isOnScreen || DecorationPause.shared.isScrolling)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
                     ForEach(Array(Self.stars.enumerated()), id: \.offset) { index, star in
                         let period = 2.2 + Double(index % 4) * 0.7

@@ -26,6 +26,7 @@ struct LockScreenView: View {
 
     @ObservedObject var lock: AppLock
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
 
@@ -87,8 +88,16 @@ struct LockScreenView: View {
             }
         }
         // Se pide la cara sola al aparecer: obligar a tocar un botón para que
-        // salga el diálogo del sistema es un paso que no aporta nada.
-        .task { await attempt() }
+        // salga el diálogo del sistema es un paso que no aporta nada. Pero
+        // sólo con la app al frente: la pantalla se monta al pasar a segundo
+        // plano, y ahí pedirla sería para una app que no se ve. Al volver se
+        // pide; tras un fallo o una cancelación del usuario, no se insiste
+        // sola (el propio diálogo de Face ID hace pasar la app por
+        // `.inactive` → `.active`).
+        .task(id: scenePhase) {
+            guard scenePhase == .active, lock.lastFailure == nil else { return }
+            await attempt()
+        }
         .onDisappear { scanTimer?.cancel() }
         .animation(.snappy, value: lock.lastFailure)
         .animation(.snappy, value: isScanning)

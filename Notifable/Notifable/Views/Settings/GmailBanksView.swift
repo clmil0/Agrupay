@@ -1,12 +1,13 @@
 import SwiftUI
 import SwiftData
 
-/// Gmail y bancos (`4g`): la lectura, cuánto atrás y los bancos, en una sola
-/// pantalla. Antes eran dos filas en la raíz —esta y «Leer un rango
-/// pasado»— y el periodo se elegía con cinco chips que nadie entendía.
+/// Correo y bancos: todo lo del correo en una sola pantalla — la cuenta
+/// conectada, la lectura, cuánto atrás, los bancos y el acceso.
 ///
-/// La cuenta en sí (cuál está conectada, permisos, desvincular) vive ahora en
-/// Configuración › Correo.
+/// Antes eran dos filas en la raíz, «Correo» (en Cuenta) y «Gmail y bancos»
+/// (en Captura automática), y las dos repetían «Última lectura» y «Leer
+/// ahora»: no se sabía a cuál entrar. Outlook (y Hotmail) va debajo de
+/// Gmail; la lectura, el alcance y los bancos son los mismos para los dos.
 struct GmailBanksView: View {
 
     @Environment(\.modelContext) private var modelContext
@@ -18,8 +19,13 @@ struct GmailBanksView: View {
 
     @StateObject private var gmailAuth = GmailAuthService.shared
     @StateObject private var gmailSync = GmailSyncService.shared
+    @StateObject private var outlookAuth = OutlookAuthService.shared
 
     @State private var showRecoveryAlert = false
+    @State private var showUnlinkDialog = false
+    @State private var showSwitchDialog = false
+    @State private var showUnlinkOutlook = false
+    @State private var isLinkingOutlook = false
     @State private var paywall: ProStore.Feature?
     /// Se guarda aquí para que los `Toggle` redibujen: `BankSource.isEnabled`
     /// escribe en `UserDefaults` y no publica cambios por sí solo.
@@ -29,16 +35,47 @@ struct GmailBanksView: View {
     private var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .purple }
     private var palette: Palette { Palette(scheme) }
     private var readsAll: Bool { isPro && wantsAllHistory }
+    private var connected: Bool { gmailAuth.isAuthenticated && !gmailAuth.missingGmailScope }
 
     var body: some View {
-        SettingsPage(title: "Gmail y bancos") {
-            if gmailAuth.isAuthenticated && !gmailAuth.missingGmailScope {
-                readingSection
+        SettingsPage(title: "Correo y bancos") {
+            if connected {
+                accountCard(email: gmailAuth.accountEmail ?? "Gmail vinculado")
             } else {
                 GmailConnectCard()
             }
+            if OutlookAuthService.isConfigured { outlookSection }
+            if connected || outlookAuth.isAuthenticated { readingSection }
             lookbackSection
             banksSection
+            if connected {
+                accessSection
+                SettingsGroup(footer: "Tus movimientos se quedan en el teléfono. Sólo se detiene la lectura automática.") {
+                    SettingsAction(title: "Desvincular Gmail", destructive: true) { showUnlinkDialog = true }
+                }
+            }
+        }
+        .confirmationDialog("¿Desvincular Gmail?", isPresented: $showUnlinkDialog, titleVisibility: .visible) {
+            Button("Desvincular", role: .destructive) { gmailAuth.signOut() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Los gastos ya registrados se conservan. Dejarán de entrar nuevos.")
+        }
+        .confirmationDialog("¿Desvincular Outlook?", isPresented: $showUnlinkOutlook, titleVisibility: .visible) {
+            Button("Desvincular", role: .destructive) { outlookAuth.signOut() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Los gastos ya registrados se conservan. Dejarán de entrar nuevos desde Outlook.")
+        }
+        .onReceive(outlookAuth.$isAuthenticated) { if $0 { isLinkingOutlook = false } }
+        .confirmationDialog("¿Cambiar de cuenta?", isPresented: $showSwitchDialog, titleVisibility: .visible) {
+            Button("Elegir otra cuenta") {
+                gmailAuth.signOut()
+                gmailAuth.signIn()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se desvincula esta cuenta y Google te pide la nueva. Lo ya registrado se conserva.")
         }
         .onAppear {
             loadBankStates()
@@ -51,6 +88,84 @@ struct GmailBanksView: View {
         }
         .gmailRecoveryAlert(isPresented: $showRecoveryAlert) { startSync() }
         .proPaywall($paywall)
+    }
+
+    // MARK: - Cuenta
+
+    private func accountCard(email: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "envelope.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(palette.positive)
+                .frame(width: 40, height: 40)
+                .background(palette.positive.opacity(0.16), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                // La cuenta concreta: quien tiene varias quiere saber cuál
+                // está leyendo la app.
+                Text(email)
+                    .font(.headline)
+                    .foregroundStyle(palette.label)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .minimumScaleFactor(0.8)
+                Text("Sólo lectura del correo · conectado")
+                    .font(.caption)
+                    .foregroundStyle(palette.secondaryLabel)
+            }
+            Spacer(minLength: 8)
+            Circle().fill(palette.positive).frame(width: 8, height: 8)
+        }
+        .padding(14)
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(palette.hairline, lineWidth: 0.5))
+        .padding(.horizontal, 16)
+    }
+
+    private var accessSection: some View {
+        SettingsGroup(title: "Acceso") {
+            SettingsButton(title: "Permisos de Google", value: "Gmail · lectura") {
+                if let url = URL(string: "https://myaccount.google.com/permissions") {
+                    UIApplication.shared.open(url)
+                }
+            }
+            SettingsDivider(inset: 14)
+            SettingsButton(title: "Cambiar de cuenta") { showSwitchDialog = true }
+        }
+    }
+
+    // MARK: - Outlook
+
+    /// Outlook, Hotmail y Live usan la misma cuenta de Microsoft.
+    @ViewBuilder
+    private var outlookSection: some View {
+        if outlookAuth.isAuthenticated {
+            accountCard(email: outlookAuth.accountEmail ?? "Outlook vinculado")
+            SettingsGroup(title: "Outlook") {
+                SettingsButton(title: "Permisos de Microsoft", value: "Correo · lectura") {
+                    if let url = URL(string: "https://account.live.com/consent/Manage") {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                SettingsDivider(inset: 14)
+                SettingsAction(title: "Desvincular Outlook", destructive: true) { showUnlinkOutlook = true }
+            }
+        } else {
+            SettingsGroup(title: "Outlook",
+                          footer: outlookAuth.accessRevoked
+                              ? "Microsoft cortó el acceso. Vuelve a vincular para seguir leyendo tus avisos."
+                              : "Para correos de Outlook, Hotmail o Live. Se lee igual que Gmail: sólo los avisos de tus bancos.") {
+                SettingsButton(icon: "envelope.fill", tint: Color(hex: 0x0078D4),
+                               title: isLinkingOutlook ? "Conectando…" : "Vincular Outlook o Hotmail") {
+                    isLinkingOutlook = true
+                    outlookAuth.signIn()
+                    // Cancelar en la ventana de Microsoft no avisa de nada.
+                    Task {
+                        try? await Task.sleep(for: .seconds(20))
+                        isLinkingOutlook = false
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Lectura
@@ -91,6 +206,7 @@ struct GmailBanksView: View {
     private var readingFooter: String? {
         if let error = gmailSync.lastSyncError { return error }
         return gmailSync.lastRunSummary
+            ?? "AgruPay lee sólo los correos de tus bancos. Nunca envía ni borra nada."
     }
 
     private func readNow() {
@@ -245,7 +361,7 @@ enum GmailLookback {
     }
 }
 
-// MARK: - Piezas compartidas con Correo
+// MARK: - Piezas compartidas
 
 /// Sin cuenta, o sin el permiso de Gmail: la única acción es conectar.
 struct GmailConnectCard: View {

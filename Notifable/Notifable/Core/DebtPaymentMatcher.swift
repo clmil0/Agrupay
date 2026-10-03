@@ -15,6 +15,10 @@ struct OwedShare: Identifiable, Equatable {
     var isPaid: Bool
     let createdAt: Date
     var paidAt: Date?
+    /// Quien cobra la perdonó (`close_debt_share`, v14). Cuenta como cerrada:
+    /// `isPaid` también va en `true`, así que nada intenta pagarla.
+    var isForgiven: Bool = false
+    var closedAt: Date? = nil
 
     var remaining: Double { Money.clampedToZero(Money.subtract(amount, paidAmount)) }
     var isOpen: Bool { !isPaid && Money.cents(remaining) > 0 }

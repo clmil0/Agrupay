@@ -82,6 +82,8 @@ enum QAMode {
             row("qa-diego", 2340.10, [("Comida", 640), ("Servicios", 188)]),
         ]
 
+        seedReceivables()
+
         let arguments = ProcessInfo.processInfo.arguments
         guard let flag = arguments.firstIndex(of: "-qaCobro"),
               arguments.indices.contains(flag + 1),
@@ -90,6 +92,30 @@ enum QAMode {
             PaymentReminder(id: "qa-cobro-vale", fromUser: "qa-vale", merchant: "Pizzería Mamma Mia",
                             occurredOn: daysAgo(6), amount: 42.50, currency: "PEN",
                             message: "Lo de la pizza del viernes", createdAt: Date(), intensity: intensity)
+        ])
+    }
+
+    /// «Te deben» de Social › Cobros, como en el diseño: Vale con dos deudas
+    /// (una con abono), Alejo cobrado hoy, Diego sin cobrar y tres cerradas.
+    @MainActor
+    private static func seedReceivables() {
+        func share(_ id: String, _ debtor: String, _ merchant: String, _ day: Int, _ amount: Double,
+                   paid: Double = 0, reminders: [Int] = [], status: ReceivableShare.Status = .open,
+                   closed: Int? = nil, via: String? = nil) -> ReceivableShare {
+            ReceivableShare(id: "qa-cobro-" + id, debtor: debtor, debtKey: "qa-cobro-" + id, merchant: merchant,
+                            occurredOn: daysAgo(day), amount: amount, currency: "PEN", paidAmount: paid,
+                            status: status, createdAt: daysAgo(day), closedOn: closed.map { daysAgo($0) },
+                            via: via, reminders: reminders.map { daysAgo($0, hour: 0) })
+        }
+        FriendReceivables.shared.seedForQA([
+            share("pizza", "qa-vale", "Pizza Hut", 32, 50, reminders: [15, 8, 1]),
+            share("cine", "qa-vale", "Cineplanet", 18, 18, paid: 8, reminders: [10]),
+            share("pardos", "qa-alejo", "Pardos Chicken", 6, 72, reminders: [0]),
+            share("uber", "qa-diego", "Uber", 2, 15),
+            share("karaoke", "qa-vale", "Karaoke", 46, 40, paid: 40, reminders: [41, 34],
+                  status: .paid, closed: 28, via: "Yape"),
+            share("taxi", "qa-alejo", "Taxi", 19, 12, paid: 12, reminders: [16], status: .paid, closed: 12, via: "Plin"),
+            share("regalo", "qa-diego", "Regalo de Ana", 36, 30, reminders: [27, 22], status: .forgiven, closed: 20),
         ])
     }
 

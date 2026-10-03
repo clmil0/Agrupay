@@ -26,7 +26,6 @@ struct AppearanceSettingsView: View {
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
     @AppStorage(AppThemeColor.themedCategoryColorsKey) private var themedCategoryColors = false
     @AppStorage(DictationStyle.storageKey) private var dictationStyle = DictationStyle.bars.rawValue
-    @AppStorage(DashboardStatsSettings.key) private var statsRaw = DashboardStatsSettings.defaultValue
     @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
     @AppStorage(ProStore.enabledKey) private var isPro = false
 
@@ -43,7 +42,7 @@ struct AppearanceSettingsView: View {
     private var activeProTheme: ProTheme? { isPro ? ProTheme(rawValue: proThemeRaw) : nil }
 
     var body: some View {
-        SettingsPage(title: "Apariencia y resumen") {
+        SettingsPage(title: "Apariencia") {
             AppearancePreview(palette: palette.themed(activeProTheme), flash: flash, dictationStyle: dictationStyle,
                               amountScale: textSize.amountScale)
                 .padding(.horizontal, 16)
@@ -58,12 +57,6 @@ struct AppearanceSettingsView: View {
             colorSection
             voiceSection
 
-            SettingsGroup(title: "Resumen") {
-                SettingsLink(icon: "chart.xyaxis.line", tint: Color(hex: 0x5E5CE6),
-                             title: "Estadísticas", value: statsValue) {
-                    StatsSettingsView()
-                }
-            }
         }
         .animation(.easeInOut(duration: 0.3), value: appAccentColor)
         .animation(.easeInOut(duration: 0.3), value: intenseThemeTint)
@@ -102,11 +95,6 @@ struct AppearanceSettingsView: View {
     private func pick(_ theme: AppThemeColor) {
         proThemeRaw = ""
         appAccentColor = theme.rawValue
-    }
-
-    private var statsValue: String {
-        let count = DashboardStatsSettings.decode(statsRaw).count
-        return count == 0 ? "Ninguna" : "\(count) de \(DashboardStat.allCases.count)"
     }
 
     // MARK: - Temas

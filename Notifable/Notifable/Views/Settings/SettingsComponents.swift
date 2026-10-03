@@ -283,7 +283,7 @@ struct SettingsStatusCard: View {
             return "Google no dio permiso para leer el correo. Toca, vuelve a conectar y marca la casilla de Gmail."
         }
         if status.activeBankCount == 0 {
-            return "Ningún banco activo: no entrará ningún gasto. Actívalos en Gmail y bancos."
+            return "Ningún banco activo: no entrará ningún gasto. Actívalos en Correo y bancos."
         }
         return "La última lectura fue hace más de dos días. Toca para leer ahora."
     }

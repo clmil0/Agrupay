@@ -20,15 +20,14 @@ struct BCPParser: BankEmailParser {
         }
         
         // Extraer Monto
-        // Buscar: "Total del consumo S/ 42.00" o similar
-        let amountPattern = "Total del consumo\\s*S/\\s*([0-9.,]+)"
-        guard let amountRegex = try? NSRegularExpression(pattern: amountPattern, options: [.dotMatchesLineSeparators]),
-              let amountMatch = amountRegex.firstMatch(in: cleanText, options: [], range: NSRange(location: 0, length: cleanText.utf16.count)),
-              let amountRange = Range(amountMatch.range(at: 1), in: cleanText) else {
+        // Buscar: "Total del consumo S/ 42.00" o "$ 8.03" (consumo en dólares
+        // con la tarjeta de crédito). En texto plano el valor viene entre
+        // asteriscos: "Total del consumo *$ 8.03*".
+        guard let money = Self.capture2("Total del consumo[\\s*]*(S/\\.?|US\\$|\\$)\\s*([0-9][0-9.,]*)", in: cleanText) else {
             return nil
         }
-        let amountStr = String(cleanText[amountRange]).replacingOccurrences(of: ",", with: "")
-        let amount = Double(amountStr) ?? 0
+        let amount = Double(money.1.replacingOccurrences(of: ",", with: "")) ?? 0
+        let currency = money.0.contains("$") ? "USD" : "PEN"
         
         // Extraer Empresa
         // Buscar: "Empresa PLIN-DANIELA ADRIANA DO Número de operación"
@@ -37,7 +36,11 @@ struct BCPParser: BankEmailParser {
         if let merchantRegex = try? NSRegularExpression(pattern: merchantPattern, options: [.dotMatchesLineSeparators]),
            let merchantMatch = merchantRegex.firstMatch(in: cleanText, options: [], range: NSRange(location: 0, length: cleanText.utf16.count)),
            let merchantRange = Range(merchantMatch.range(at: 1), in: cleanText) {
-            merchant = String(cleanText[merchantRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            // Texto plano: "*STEAMGAMES.COM <http://STEAMGAMES.COM> 4259522985*".
+            merchant = String(cleanText[merchantRange])
+                .replacingOccurrences(of: "<[^>]*>", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*")))
         } else {
             // Patrón alternativo de empresa ("... con tu Tarjeta de Débito BCP en [EMPRESA]. Por tu...")
             let altMerchantPattern = "en\\s+([^.]+)\\.\\s*Por tu seguridad"
@@ -85,6 +88,9 @@ struct BCPParser: BankEmailParser {
             if let parsed = formatter.date(from: dStr) {
                 expenseDate = parsed
             }
+        } else if let parsed = Self.operationDate(in: cleanText) {
+            // "Fecha y hora *01 de octubre de 2026 - 08:14 PM*" (texto plano).
+            expenseDate = parsed
         }
         
         // Si es un PLIN, rechazamos el parseo aquí para que YapeParser lo capture y lo cuente como Yape.
@@ -93,7 +99,7 @@ struct BCPParser: BankEmailParser {
             return nil
         }
         
-        return Expense(amount: amount, merchant: merchant, date: expenseDate, category: "Sin Clasificar", currency: "PEN", cardLastDigits: cardLastDigits)
+        return Expense(amount: amount, merchant: merchant, date: expenseDate, category: "Sin Clasificar", currency: currency, cardLastDigits: cardLastDigits)
     }
 
     /// "Constancia de recepción de Yapeo a celular BCP": dinero que **entra**,

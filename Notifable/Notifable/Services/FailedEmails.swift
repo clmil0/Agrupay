@@ -23,6 +23,15 @@ enum FailedEmails {
         defaults.removeObject(forKey: key)
     }
 
+    /// Quita los que cumplan la condición (los de un correo que se
+    /// desvinculó) y devuelve cuántos quedan.
+    @discardableResult
+    static func remove(_ defaults: UserDefaults = .standard, where shouldRemove: (String) -> Bool) -> Int {
+        let pending = load(defaults).filter { !shouldRemove($0.key) }
+        if pending.isEmpty { defaults.removeObject(forKey: key) } else { defaults.set(pending, forKey: key) }
+        return pending.count
+    }
+
     /// Apunta el resultado de una lectura y devuelve cuántos quedan.
     ///
     /// - Parameters:

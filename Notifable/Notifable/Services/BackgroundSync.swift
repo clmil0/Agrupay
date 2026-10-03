@@ -40,7 +40,7 @@ enum BackgroundSync {
     /// Se pide al pasar a segundo plano y después de cada vuelta: una tarea
     /// pendiente a la vez, y sin nada pendiente el sistema no vuelve nunca.
     static func schedule() {
-        guard GmailAuthService.hasStoredSession else { return }
+        guard MailProviders.anyStoredSession else { return }
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: minimumInterval)
         do {
@@ -73,8 +73,8 @@ enum BackgroundSync {
     /// —los gastos nuevos avisan desde `GmailSyncService`—.
     @MainActor
     static func run() async {
-        guard GmailAuthService.shared.isAuthenticated else {
-            Diagnostics.shared.log("Lectura en segundo plano: sin Gmail vinculado")
+        guard MailProviders.anyConnected else {
+            Diagnostics.shared.log("Lectura en segundo plano: sin correo vinculado")
             return
         }
         Diagnostics.shared.log("Lectura en segundo plano: inicio")

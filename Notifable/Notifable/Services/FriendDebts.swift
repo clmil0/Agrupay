@@ -333,7 +333,33 @@ final class FriendDebts {
         _ = await rpc("ack_debt_payments", body: ["p_ids": payments.map(\.id)])
     }
 
-    private func record(_ payment: IncomingPayment, debt: Expense?, in context: ModelContext) {
+    /// «Registrar pago» desde Cobros (lado de quien cobra): lo que te pagaron
+    /// por fuera —efectivo, un Yape cuyo correo no llegó— entra igual que un
+    /// pago que declaró el amigo: ingreso abonado a la deuda, y la deuda
+    /// saldada si ya no queda nada por cobrar.
+    func recordCreditorPayment(debtor: String, debtKey: String, merchant: String,
+                               amount: Double, currency: String, allPaid: Bool) {
+        guard let context = container?.mainContext else { return }
+        let payment = IncomingPayment(id: "creditor:" + UUID().uuidString, debtor: debtor, debtKey: debtKey,
+                                      merchant: merchant, amount: amount, currency: currency,
+                                      paidAt: Date(), via: "manual", allPaid: allPaid)
+        let expenses = (try? context.fetch(FetchDescriptor<Expense>())) ?? []
+        record(payment, debt: TransactionKey.expensesByLookupKey(expenses)[debtKey], in: context,
+               notifies: false, note: "Su parte de " + merchant + " · registrado a mano")
+        try? context.save()
+    }
+
+    /// Perdonaste la última parte abierta de un gasto: lo que queda es tuyo.
+    func settleLocalDebt(debtKey: String) {
+        guard let context = container?.mainContext else { return }
+        let expenses = (try? context.fetch(FetchDescriptor<Expense>())) ?? []
+        guard let debt = TransactionKey.expensesByLookupKey(expenses)[debtKey], debt.isDebt else { return }
+        debt.settleDebt(in: context)
+        try? context.save()
+    }
+
+    private func record(_ payment: IncomingPayment, debt: Expense?, in context: ModelContext,
+                        notifies: Bool = true, note: String? = nil) {
         let name = FriendsManager.shared.friend(with: payment.debtor).name
         let source = ["Yape", "Plin"].contains(payment.via) ? payment.via : "Transferencia"
 
@@ -342,9 +368,9 @@ final class FriendDebts {
             // plata que te llegó.
             let income = Income(amount: payment.amount, currency: payment.currency, source: source,
                                 title: name, date: payment.paidAt,
-                                notes: "Su parte de " + payment.merchant)
+                                notes: note ?? "Su parte de " + payment.merchant)
             context.insert(income)
-            notifyReceived(payment, from: name)
+            if notifies { notifyReceived(payment, from: name) }
             return
         }
 
@@ -359,7 +385,7 @@ final class FriendDebts {
                 ?? {
                     let created = Income(amount: amount, currency: payment.currency, source: source,
                                          title: name, date: payment.paidAt,
-                                         notes: "Su parte de " + payment.merchant + " · lo detectó su teléfono")
+                                         notes: note ?? "Su parte de " + payment.merchant + " · lo detectó su teléfono")
                     context.insert(created)
                     return created
                 }()
@@ -376,7 +402,7 @@ final class FriendDebts {
         if payment.allPaid, debt.isDebt {
             debt.settleDebt(in: context)
         }
-        notifyReceived(payment, from: name)
+        if notifies { notifyReceived(payment, from: name) }
     }
 
     /// Un ingreso del correo, todavía suelto, del mismo monto, ±2 días y de
@@ -507,9 +533,11 @@ final class FriendDebts {
                          amount: amount,
                          currency: row["currency"] as? String ?? "PEN",
                          paidAmount: number(row["paid_amount"]) ?? 0,
-                         isPaid: row["status"] as? String == "paid",
+                         isPaid: ["paid", "forgiven"].contains(row["status"] as? String ?? ""),
                          createdAt: timestamp(row["created_at"]) ?? Date(),
-                         paidAt: timestamp(row["paid_at"]))
+                         paidAt: timestamp(row["paid_at"]),
+                         isForgiven: row["status"] as? String == "forgiven",
+                         closedAt: timestamp(row["closed_at"]))
     }
 
     private static func incoming(from row: [String: Any]) -> IncomingPayment? {

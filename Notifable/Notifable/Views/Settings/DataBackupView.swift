@@ -2,8 +2,9 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-/// Datos y respaldo (`4l`): lo que hay en el teléfono, el respaldo en archivo
-/// (gratis), la nube (Pro), el diagnóstico y borrar.
+/// Respaldo y exportación (`4l`): lo que hay en el teléfono, el respaldo en
+/// archivo (gratis), la nube (Pro) y el CSV. Diagnóstico y Borrar datos tienen
+/// ahora su propia fila en la raíz (Ayuda y Privacidad y datos).
 ///
 /// El respaldo en archivo y la nube guardan lo mismo: ajustes, categorías,
 /// reglas, atajos, recurrentes y lo anotado a mano. Los gastos del correo no
@@ -27,7 +28,7 @@ struct DataBackupView: View {
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
-        SettingsPage(title: "Datos y respaldo") {
+        SettingsPage(title: "Respaldo y exportación") {
             inventory
 
             SettingsGroup(title: "Respaldo", footer: outcome) {
@@ -66,28 +67,6 @@ struct DataBackupView: View {
                                     : "Preferencias, categorías y reglas, cada día",
                                    pro: true) { paywall = .cloud }
                 }
-            }
-
-            SettingsGroup(title: "Ayuda") {
-                SettingsLink(icon: "stethoscope", tint: Color(white: 0.4), title: "Diagnóstico",
-                             subtitle: "Para enviar un informe si algo falla") {
-                    DiagnosticsView()
-                }
-            }
-
-            SettingsGroup(footer: "Elige qué borrar por grupos o por fechas.", destructive: true) {
-                NavigationLink {
-                    DeleteDataView()
-                } label: {
-                    HStack {
-                        Text("Borrar datos").foregroundStyle(palette.negative)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 52)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
 
             debugSection

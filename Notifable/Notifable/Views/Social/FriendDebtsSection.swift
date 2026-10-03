@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Lo que le debes a tus amigos y los envíos que podrían ser su pago
-/// (`FriendDebts`). Vive en Amigos, bajo los cobros que te recuerdan.
+/// (`FriendDebts`). Vive en Cobros, bajo «Te deben».
 ///
 /// Tres piezas, en orden de urgencia:
 /// 1. El aviso del pago que se marcó solo, con «Deshacer».
@@ -20,7 +20,9 @@ struct FriendDebtsSection: View {
 
     private var open: [OwedShare] { debts.owed.filter(\.isOpen) }
     private var recentlyPaid: [OwedShare] {
-        debts.owed.filter { !$0.isOpen && ($0.paidAt ?? .distantPast) > Date().addingTimeInterval(-7 * 86_400) }
+        debts.owed.filter {
+            !$0.isOpen && ($0.paidAt ?? $0.closedAt ?? .distantPast) > Date().addingTimeInterval(-7 * 86_400)
+        }
     }
 
     var body: some View {
@@ -131,7 +133,8 @@ struct FriendDebtsSection: View {
         return HStack(spacing: 12) {
             FriendAvatar(friend: friend, size: 38)
             VStack(alignment: .leading, spacing: 2) {
-                Text(share.isOpen ? "Le debes a " + friend.name : "Le pagaste a " + friend.name)
+                Text(share.isOpen ? "Le debes a " + friend.name
+                     : share.isForgiven ? friend.name + " te la perdonó" : "Le pagaste a " + friend.name)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(palette.label)
                     .lineLimit(1)
@@ -151,6 +154,10 @@ struct FriendDebtsSection: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(accent.onSurface(scheme))
                         .buttonStyle(.plain)
+                } else if share.isForgiven {
+                    Label("Perdonada", systemImage: "heart")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(palette.secondaryLabel)
                 } else {
                     Label("Pagada", systemImage: "checkmark")
                         .font(.system(size: 11.5, weight: .semibold))

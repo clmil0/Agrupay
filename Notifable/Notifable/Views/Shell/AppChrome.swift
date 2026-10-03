@@ -10,12 +10,13 @@ enum ShellMetrics {
     /// primera fila no nazca tapada.
     static let contentTopInset: CGFloat = 58
     /// Espacio al pie de las pantallas a las que se entra desde el dashboard.
-    /// Ya no hay barra de pestañas encima: basta con que la última fila no
+    /// En las pestañas la barra del sistema ya corre el área segura; en las
+    /// pantallas apiladas no hay barra, y basta con que la última fila no
     /// quede pegada al indicador de inicio (y a la barra de «Asignar» de
     /// Pendientes, que se apoya en este mismo margen).
     static let contentBottomInset: CGFloat = 56
 
-    /// Margen lateral de todas las pantallas: contenido, header y FAB.
+    /// Margen lateral de todas las pantallas: contenido, header y barra de abajo.
     static let sideInset: CGFloat = 22
 
     static let circleButton: CGFloat = 38
@@ -158,7 +159,8 @@ struct ShellHeaderBackground: View {
 /// derecha (`1b` › Movimientos, Categorías).
 struct DrillHeader<Trailing: View>: View {
     let progress: ScrollProgress
-    let onBack: () -> Void
+    /// `nil` en la raíz de una pestaña: sin botón de volver.
+    let onBack: (() -> Void)?
     @ViewBuilder var trailing: Trailing
 
     @Environment(\.colorScheme) private var scheme
@@ -167,81 +169,15 @@ struct DrillHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ShellCircleButton(icon: "chevron.left", label: "Volver", tint: palette.label, action: onBack)
+            if let onBack {
+                ShellCircleButton(icon: "chevron.left", label: "Volver", tint: palette.label, action: onBack)
+            }
             Spacer(minLength: 8)
             trailing
         }
         .padding(.horizontal, ShellMetrics.sideInset)
         .frame(height: ShellMetrics.headerHeight)
         .background(ShellHeaderBackground(progress: progress))
-    }
-}
-
-// MARK: - Acciones flotantes del dashboard
-
-/// El «+» naranja de abajo a la derecha. Abre el formulario en Ingreso, como
-/// el «+» de antes: a gasto se cambia dentro, en la cápsula del medio.
-struct ShellFAB: View {
-    let action: () -> Void
-
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.proTheme) private var proTheme
-    private var palette: Palette { Palette(scheme).themed(proTheme) }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "plus")
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Color.white)
-                .frame(width: 62, height: 62)
-                .background(fabFill, in: Circle())
-                // Un halo pintado, no `.shadow`: la sombra se recalcula en cada
-                // fotograma mientras el contenido se desliza por debajo.
-                .background(
-                    RadialGradient(colors: [palette.expense.opacity(0.38), palette.expense.opacity(0)],
-                                   center: .center, startRadius: 24, endRadius: 52)
-                        .frame(width: 110, height: 110)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Registrar movimiento")
-    }
-
-    /// Con tema Pro, el + lleva el degradado del tema.
-    private var fabFill: AnyShapeStyle {
-        guard let proTheme else { return AnyShapeStyle(palette.expense) }
-        return AnyShapeStyle(LinearGradient(colors: proTheme.fabGradient,
-                                            startPoint: .topLeading, endPoint: .bottomTrailing))
-    }
-}
-
-/// «Dictar», la píldora de abajo a la izquierda.
-struct ShellDictateButton: View {
-    var isDictating: Bool = false
-    let action: () -> Void
-
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.proTheme) private var proTheme
-    private var palette: Palette { Palette(scheme).themed(proTheme) }
-    private var accent: AppThemeColor { .current }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: isDictating ? "mic.fill" : "mic")
-                    .font(.system(size: 17, weight: .medium))
-                Text("Dictar")
-                    .font(.system(size: 13.5, weight: .semibold))
-            }
-            .foregroundStyle(isDictating ? palette.expenseText : palette.secondaryLabel)
-            .padding(.leading, 12)
-            .padding(.trailing, 16)
-            .frame(height: 46)
-            .background(palette.surface, in: Capsule())
-            .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Dictar un gasto")
     }
 }
 

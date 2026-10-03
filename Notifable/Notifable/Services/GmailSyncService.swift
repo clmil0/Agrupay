@@ -1,6 +1,34 @@
 import Foundation
 import SwiftData
 
+/// De qué correos se lee. Una lectura puede limitarse a uno: al vincular
+/// Outlook se lee su pasado sin volver a bajar el de Gmail.
+struct MailProviders: OptionSet {
+    let rawValue: Int
+    static let gmail = MailProviders(rawValue: 1 << 0)
+    static let outlook = MailProviders(rawValue: 1 << 1)
+    static let all: MailProviders = [.gmail, .outlook]
+
+    /// A quién pertenece un ID de correo: los de Outlook llevan `ms:`.
+    static func of(_ emailID: String) -> MailProviders {
+        OutlookMail.isOutlookID(emailID) ? .outlook : .gmail
+    }
+
+    /// ¿Hay algún correo vinculado? Lo miran la lectura periódica, el
+    /// arranque y la de segundo plano.
+    static var anyConnected: Bool {
+        GmailAuthService.shared.isAuthenticated || OutlookAuthService.shared.isAuthenticated
+    }
+
+    /// Lo mismo sin tocar la red ni crear los servicios.
+    static var anyStoredSession: Bool {
+        GmailAuthService.hasStoredSession || OutlookAuthService.hasStoredSession
+    }
+}
+
+/// La lectura del correo de los bancos: Gmail y Outlook. Conserva el nombre
+/// de cuando sólo había Gmail; lo propio de cada proveedor está en
+/// `fetchMessageList` (Gmail) y `OutlookMail`.
 class GmailSyncService: ObservableObject {
     
     static let shared = GmailSyncService()
@@ -71,7 +99,7 @@ class GmailSyncService: ObservableObject {
     func startForegroundPolling() {
         stopForegroundPolling()
         let timer = Timer(timeInterval: Self.foregroundPollInterval, repeats: true) { [weak self] _ in
-            guard let self, GmailAuthService.shared.isAuthenticated, !self.isSyncing else { return }
+            guard let self, MailProviders.anyConnected, !self.isSyncing else { return }
             self.syncEmails(quiet: true)
         }
         timer.tolerance = 5
@@ -101,7 +129,7 @@ class GmailSyncService: ObservableObject {
     /// no puede darse por terminada antes de tiempo.
     private var runCompletions: [() -> Void] = []
     /// Rango pedido mientras otra lectura corría: se lanza al terminar ésa.
-    private var queuedRange: (start: Date?, end: Date?)?
+    private var queuedRange: (start: Date?, end: Date?, providers: MailProviders)?
 
     /// Cierra la lectura en curso y, si alguien pidió un rango mientras
     /// tanto, lo lanza ahora.
@@ -128,17 +156,17 @@ class GmailSyncService: ObservableObject {
             for completion in waiting { completion() }
             if let queued = self.queuedRange {
                 self.queuedRange = nil
-                self.syncEmails(force: true, startDate: queued.start, endDate: queued.end)
+                self.syncEmails(force: true, startDate: queued.start, endDate: queued.end, providers: queued.providers)
             }
         }
     }
 
     func syncEmails(force: Bool = false, quiet: Bool = false, startDate: Date? = nil, endDate: Date? = nil,
-                    completion: (() -> Void)? = nil) {
+                    providers: MailProviders = .all, completion: (() -> Void)? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async {
                 self.syncEmails(force: force, quiet: quiet, startDate: startDate, endDate: endDate,
-                                completion: completion)
+                                providers: providers, completion: completion)
             }
             return
         }
@@ -177,7 +205,7 @@ class GmailSyncService: ObservableObject {
             isSyncing = false
         }
         if isRunning {
-            if startDate != nil || endDate != nil { queuedRange = (startDate, endDate) }
+            if startDate != nil || endDate != nil { queuedRange = (startDate, endDate, providers) }
             Diagnostics.shared.log("Sync Gmail: ya hay una lectura en curso, \(queuedRange != nil ? "se encola el rango" : "se omite")")
             if let completion { runCompletions.append(completion) }
             return
@@ -198,14 +226,73 @@ class GmailSyncService: ObservableObject {
             }
         }
         
-        guard let token = Self.qaToken ?? GmailAuthService.shared.getAccessToken() else {
-            Diagnostics.shared.log("Sync Gmail: ✗ no hay token de acceso guardado (refresh token: \(GmailAuthService.shared.hasRefreshToken ? "sí" : "no"))")
+        let gmailOn = providers.contains(.gmail) && (Self.qaToken != nil || GmailAuthService.shared.isAuthenticated)
+        let outlookOn = providers.contains(.outlook) && Self.qaToken == nil && OutlookAuthService.shared.isAuthenticated
+        guard gmailOn || outlookOn else {
+            Diagnostics.shared.log("Sync Gmail: ✗ ningún correo vinculado (pedido: \(providers.rawValue))")
             DispatchQueue.main.async {
                 self.isSyncing = false
-                self.lastSyncError = "No hay permiso de Gmail guardado. Desvincula y vuelve a conectar la cuenta."
+                self.lastSyncError = "No hay ningún correo conectado. Vincula Gmail u Outlook."
             }
             finishRun()
             return
+        }
+
+        // Los dos a la vez; se procesan juntos. Si uno falla, lo del otro se
+        // lee igual y el error se enseña al final.
+        let isRange = startDate != nil || endDate != nil
+        let listings = DispatchGroup()
+        var gmail = Listing()
+        var outlook = Listing()
+        if gmailOn {
+            listings.enter()
+            listGmail(startDate: startDate, endDate: endDate) { gmail = $0; listings.leave() }
+        }
+        if outlookOn {
+            listings.enter()
+            listOutlook(startDate: startDate, endDate: endDate) { outlook = $0; listings.leave() }
+        }
+        listings.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            var reachable: MailProviders = []
+            if gmailOn, gmail.error == nil { reachable.insert(.gmail) }
+            if outlookOn, outlook.error == nil { reachable.insert(.outlook) }
+            let errors = [gmail.error, outlook.error].compactMap { $0 }
+            guard !reachable.isEmpty else {
+                self.isSyncing = false
+                self.lastSyncError = errors.joined(separator: " ")
+                self.finishRun()
+                return
+            }
+            // `lastSyncDate` es una sola para los dos correos: no avanza si
+            // uno falló por algo pasajero (sus correos de este rato se
+            // perderían) ni en una lectura de un solo proveedor, salvo que
+            // nunca se hubiera leído nada.
+            let transientFailure = gmail.transient || outlook.transient
+            let advancesClock = !transientFailure && (providers == .all || self.lastSyncDate == nil)
+            self.processMessages(gmail.messages + outlook.messages, token: gmail.token ?? "",
+                                 isRangeSync: isRange,
+                                 coversNow: Self.reachesNow(endDate) && advancesClock,
+                                 quiet: quiet,
+                                 reachable: reachable,
+                                 partialError: errors.first)
+        }
+    }
+
+    /// Lo que devolvió la búsqueda de un proveedor.
+    private struct Listing {
+        var messages: [[String: Any]] = []
+        var token: String?
+        var error: String?
+        /// Falló por algo que se arregla solo (red, un 5xx): no se puede dar
+        /// el rato por leído.
+        var transient = false
+    }
+
+    private func listGmail(startDate: Date?, endDate: Date?, completion: @escaping (Listing) -> Void) {
+        guard let token = Self.qaToken ?? GmailAuthService.shared.getAccessToken() else {
+            Diagnostics.shared.log("Sync Gmail: ✗ no hay token de acceso guardado (refresh token: \(GmailAuthService.shared.hasRefreshToken ? "sí" : "no"))")
+            return completion(Listing(error: "No hay permiso de Gmail guardado. Desvincula y vuelve a conectar la cuenta."))
         }
 
         // Sin `gmail.readonly` cada lectura es un 403 seguro, y renovar no lo
@@ -213,66 +300,96 @@ class GmailSyncService: ObservableObject {
         // cada apertura y cada cuarto de hora en segundo plano.
         if Self.qaToken == nil, GmailAuthService.lacksGmailScope {
             Diagnostics.shared.log("Sync Gmail: omitida, Google no dio permiso para leer el correo (hay que volver a vincular)")
-            DispatchQueue.main.async {
-                self.isSyncing = false
-                self.lastSyncError = GmailAuthService.missingScopeMessage
-            }
-            finishRun()
-            return
+            return completion(Listing(error: GmailAuthService.missingScopeMessage))
         }
-        
+
         fetchMessageList(token: token, startDate: startDate, endDate: endDate) { [weak self] result in
             switch result {
             case .success(let messages):
-                self?.processMessages(messages, token: token,
-                                      isRangeSync: startDate != nil || endDate != nil,
-                                      coversNow: Self.reachesNow(endDate),
-                                      quiet: quiet)
+                completion(Listing(messages: messages, token: token))
             case .failure(let error) where Self.isMissingScope(error):
                 Diagnostics.shared.log("Sync Gmail: ✗ Google no dio permiso para leer el correo; no se reintenta, hay que volver a vincular")
                 GmailAuthService.shared.markMissingGmailScope()
-                DispatchQueue.main.async {
-                    self?.isSyncing = false
-                    self?.lastSyncError = error.localizedDescription
-                }
-                self?.finishRun()
+                completion(Listing(error: error.localizedDescription))
             case .failure(let error):
                 // Token might be expired, try to refresh
-                print("Failed to fetch messages: \(error). Trying to refresh token...")
                 Diagnostics.shared.log("Sync Gmail: la lista falló (\(Self.describe(error))); se renueva el token y se reintenta")
                 GmailAuthService.shared.refreshAccessToken { newToken in
-                    if let newToken = newToken {
-                        self?.fetchMessageList(token: newToken, startDate: startDate, endDate: endDate) { result in
-                            switch result {
-                            case .success(let msgs):
-                                self?.processMessages(msgs, token: newToken,
-                                                      isRangeSync: startDate != nil || endDate != nil,
-                                                      coversNow: Self.reachesNow(endDate),
-                                                      quiet: quiet)
-                            case .failure(let err):
-                                Diagnostics.shared.log("Sync Gmail: ✗ la lista volvió a fallar tras renovar el token (\(Self.describe(err)))")
-                                DispatchQueue.main.async {
-                                    self?.isSyncing = false
-                                    self?.lastSyncError = err.localizedDescription
-                                }
-                                self?.finishRun()
-                            }
-                        }
-                    } else {
+                    guard let self, let newToken else {
                         Diagnostics.shared.log("Sync Gmail: ✗ no se pudo renovar el token; la lectura se corta")
-                        DispatchQueue.main.async {
-                            self?.isSyncing = false
-                            self?.lastSyncError = GmailAuthService.shared.accessRevoked
-                                ? "Google retiró el permiso. Vuelve a conectar Gmail."
-                                : "No se pudo renovar el permiso de Gmail. Revisa la conexión e inténtalo de nuevo."
+                        // `markAccessRevoked` lo escribe al instante en
+                        // `UserDefaults`; la propiedad publicada llega después.
+                        let revoked = UserDefaults.standard.bool(forKey: GmailAuthService.Keys.accessRevoked)
+                        return completion(Listing(error: revoked
+                            ? "Google retiró el permiso. Vuelve a conectar Gmail."
+                            : "No se pudo renovar el permiso de Gmail. Revisa la conexión e inténtalo de nuevo.",
+                            transient: !revoked))
+                    }
+                    self.fetchMessageList(token: newToken, startDate: startDate, endDate: endDate) { result in
+                        switch result {
+                        case .success(let msgs):
+                            completion(Listing(messages: msgs, token: newToken))
+                        case .failure(let err):
+                            Diagnostics.shared.log("Sync Gmail: ✗ la lista volvió a fallar tras renovar el token (\(Self.describe(err)))")
+                            completion(Listing(error: err.localizedDescription, transient: true))
                         }
-                        self?.finishRun()
                     }
                 }
             }
         }
     }
-    
+
+    /// La misma ventana que Gmail: el rango pedido o, si no, desde la última
+    /// lectura menos una hora.
+    private func listOutlook(startDate: Date?, endDate: Date?, completion: @escaping (Listing) -> Void) {
+        let after: Date
+        if let startDate {
+            after = startDate
+        } else if let lastSyncDate {
+            after = lastSyncDate.addingTimeInterval(-3600)
+        } else {
+            return completion(Listing())
+        }
+        let before = endDate.map { Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: $0) ?? $0 }
+        let senders = parsers.flatMap(\.senderEmails)
+        let auth = OutlookAuthService.shared
+
+        func failed(_ error: Error) -> Listing {
+            Listing(error: "No se pudo leer Outlook (\(Self.describe(error))).", transient: true)
+        }
+        func noToken() -> Listing {
+            let revoked = UserDefaults.standard.bool(forKey: OutlookAuthService.Keys.accessRevoked)
+            Diagnostics.shared.log("Sync Outlook: ✗ sin token válido (revocado: \(revoked ? "sí" : "no"))")
+            return Listing(error: revoked
+                ? "Microsoft retiró el permiso. Vuelve a conectar Outlook."
+                : "No se pudo renovar el permiso de Outlook. Revisa la conexión e inténtalo de nuevo.",
+                transient: !revoked)
+        }
+
+        auth.validAccessToken { token in
+            guard let token else { return completion(noToken()) }
+            OutlookMail.list(senders: senders, after: after, before: before, token: token) { result in
+                switch result {
+                case .success(let messages):
+                    completion(Listing(messages: messages, token: token))
+                case .failure(OutlookMail.Failure.http(401, _)):
+                    // Vigente según su fecha pero rechazado: se renueva una vez.
+                    auth.refresh { newToken in
+                        guard let newToken else { return completion(noToken()) }
+                        OutlookMail.list(senders: senders, after: after, before: before, token: newToken) { retry in
+                            switch retry {
+                            case .success(let messages): completion(Listing(messages: messages, token: newToken))
+                            case .failure(let error): completion(failed(error))
+                            }
+                        }
+                    }
+                case .failure(let error):
+                    completion(failed(error))
+                }
+            }
+        }
+    }
+
     private func fetchMessageList(token: String, startDate: Date? = nil, endDate: Date? = nil, completion: @escaping (Result<[[String: Any]], Error>) -> Void) {
         #if DEBUG
         if QAMode.isOn {
@@ -522,11 +639,17 @@ class GmailSyncService: ObservableObject {
         return DispatchQueue.main.sync { self.existingEmailIDs() }
     }
 
+    /// - Parameters:
+    ///   - reachable: los proveedores cuya búsqueda respondió; sólo de ésos
+    ///     se reintentan los correos que fallaron antes.
+    ///   - partialError: el otro proveedor falló; se enseña al terminar.
     private func processMessages(_ listed: [[String: Any]],
                                  token: String,
                                  isRangeSync: Bool = false,
                                  coversNow: Bool = true,
-                                 quiet: Bool = false) {
+                                 quiet: Bool = false,
+                                 reachable: MailProviders = .all,
+                                 partialError: String? = nil) {
         // Lista en el orden de llegada (para podar lo más viejo) y conjunto
         // para preguntar: con años de uso, `contains` sobre el array costaba
         // una vuelta entera por cada correo.
@@ -540,7 +663,9 @@ class GmailSyncService: ObservableObject {
         // normal mira sólo la última hora, así que ya no los trae: se piden
         // por su ID. Antes un corte de red los perdía para siempre.
         let listedIDs = Set(listed.compactMap { $0["id"] as? String })
-        let retries = FailedEmails.load().keys.filter { !listedIDs.contains($0) && !deletedIDs.contains($0) }
+        let retries = FailedEmails.load().keys.filter {
+            !listedIDs.contains($0) && !deletedIDs.contains($0) && reachable.contains(MailProviders.of($0))
+        }
         let messages = listed + retries.sorted().map { ["id": $0] as [String: Any] }
         if !retries.isEmpty {
             Diagnostics.shared.log("Sync Gmail: se reintentan \(retries.count) correos que fallaron antes")
@@ -575,11 +700,11 @@ class GmailSyncService: ObservableObject {
         let skippedDeleted = messages.filter { ($0["id"] as? String).map(deletedIDs.contains) ?? false }.count
         Diagnostics.shared.log("Sync Gmail: \(newMessages.count) correos por procesar de \(messages.count) (rango: \(isRangeSync), ya procesados antes: \(processedIDs.count), borrados a propósito omitidos: \(skippedDeleted))")
         if !quiet, listed.isEmpty, retries.isEmpty {
-            let summary = "Gmail no devolvió ningún correo de los bancos compatibles en ese periodo."
+            let summary = "No llegó ningún correo de los bancos compatibles en ese periodo."
             DispatchQueue.main.async { self.lastRunSummary = summary }
         }
         // La lista respondió: un error de una comprobación anterior ya no vale.
-        if quiet, lastSyncError != nil { DispatchQueue.main.async { self.lastSyncError = nil } }
+        if quiet, lastSyncError != nil, partialError == nil { DispatchQueue.main.async { self.lastSyncError = nil } }
         let runStart = Date()
         var unrecognized = 0
         var failedFetches = 0
@@ -727,6 +852,7 @@ class GmailSyncService: ObservableObject {
                     if skippedDeleted > 0 { parts.append(count(skippedDeleted, "borrado por ti", "borrados por ti")) }
                     self?.lastRunSummary = parts.joined(separator: " · ")
                 }
+                if let partialError { self?.lastSyncError = partialError }
                 self?.finishRun()
             }
         }
@@ -756,7 +882,9 @@ class GmailSyncService: ObservableObject {
     }
 
     func recoverExpenses(ids: [String]) {
-        guard let token = Self.qaToken ?? GmailAuthService.shared.getAccessToken() else { return }
+        // Sólo Outlook: sus correos no usan el token de Gmail.
+        guard let token = Self.qaToken ?? GmailAuthService.shared.getAccessToken()
+                ?? (OutlookAuthService.shared.isAuthenticated ? "" : nil) else { return }
         
         DispatchQueue.main.async {
             self.isSyncing = true
@@ -851,10 +979,16 @@ class GmailSyncService: ObservableObject {
         syncEmails(force: true)
     }
 
-    /// Al desvincular: los IDs pendientes son de esa cuenta.
+    /// Al restablecer la lectura: todos los pendientes.
     func clearFailedEmails() {
         FailedEmails.clear()
         DispatchQueue.main.async { self.failedEmailCount = 0 }
+    }
+
+    /// Al desvincular un correo: sólo sus pendientes; los del otro siguen.
+    func clearFailedEmails(provider: MailProviders) {
+        let left = FailedEmails.remove { provider.contains(MailProviders.of($0)) }
+        DispatchQueue.main.async { self.failedEmailCount = left }
     }
 
     /// Cuántos IDs procesados se guardan como mucho.
@@ -1051,6 +1185,16 @@ class GmailSyncService: ObservableObject {
             return
         }
         #endif
+        if OutlookMail.isOutlookID(id) {
+            OutlookAuthService.shared.validAccessToken { token in
+                guard let token else { return completion(nil, nil) }
+                OutlookMail.fetch(id: id, token: token) { body, receivedAt, gone in
+                    if gone { self.markGone(id) }
+                    completion(body, receivedAt)
+                }
+            }
+            return
+        }
         guard let url = URL(string: "\(baseURL)/messages/\(id)?format=full") else {
             completion(nil, nil)
             return

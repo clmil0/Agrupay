@@ -65,12 +65,55 @@ struct TrackableScrollView<Content: View>: View {
 }
 
 /// Lo que una lista le dijo a `ScrollActivity`. Clase simple, sin observar.
-private final class ScrollReport {
+final class ScrollReport {
     private var isScrolling = false
 
     func update(isScrolling scrolling: Bool) {
         guard scrolling != isScrolling else { return }
         isScrolling = scrolling
         if scrolling { ScrollActivity.began() } else { ScrollActivity.ended() }
+    }
+}
+
+/// Las animaciones de adorno —el cielo de los temas Pro y las estrellas de
+/// la tarjeta Pro— se detienen mientras se desliza Configuración.
+///
+/// Corrían a 20–30 fotogramas por segundo detrás y encima de las filas
+/// mientras el dedo movía la lista: cada fotograma de desplazamiento tenía que
+/// volver a componer también el cielo (con su `hueRotation` a pantalla
+/// completa). Quieto, el cielo no se nota; con tirones, sí. Sólo lo cambian
+/// las listas de Configuración: el Resumen ya iba fluido y su cielo sigue vivo.
+@Observable
+final class DecorationPause {
+    static let shared = DecorationPause()
+    private(set) var isScrolling = false
+
+    func setScrolling(_ scrolling: Bool) {
+        if scrolling != isScrolling { isScrolling = scrolling }
+    }
+}
+
+extension View {
+    /// Para los `ScrollView` de Configuración, que no son `TrackableScrollView`:
+    /// avisan a `ScrollActivity` (lo diferido espera a que se suelte el dedo,
+    /// igual que en el Resumen) y detienen los adornos animados.
+    func settingsScrollActivity() -> some View {
+        modifier(SettingsScrollActivity())
+    }
+}
+
+private struct SettingsScrollActivity: ViewModifier {
+    @State private var report = ScrollReport()
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollPhaseChange { _, phase in
+                report.update(isScrolling: phase.isScrolling)
+                DecorationPause.shared.setScrolling(phase.isScrolling)
+            }
+            .onDisappear {
+                report.update(isScrolling: false)
+                DecorationPause.shared.setScrolling(false)
+            }
     }
 }

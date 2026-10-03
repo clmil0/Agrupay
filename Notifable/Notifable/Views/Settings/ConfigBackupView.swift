@@ -270,7 +270,7 @@ struct ConfigBackupView: View {
                     Image(systemName: "envelope")
                         .font(.caption)
                         .foregroundStyle(palette.secondaryLabel)
-                    Text("Para usar tu cuenta, primero conecta tu correo en Configuración → Gmail y bancos. Si ya lo conectaste antes de esta versión, vuelve a conectarlo una vez.")
+                    Text("Para usar tu cuenta, primero conecta tu correo en Configuración → Correo y bancos. Si ya lo conectaste antes de esta versión, vuelve a conectarlo una vez.")
                         .font(.caption)
                         .foregroundStyle(palette.secondaryLabel)
                 }

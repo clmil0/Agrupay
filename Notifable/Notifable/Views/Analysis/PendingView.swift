@@ -36,9 +36,9 @@ struct PendingView: View {
     @State private var showsBulk = false
     @State private var confirmingDelete = false
     @State private var showsTagPicker = false
-    /// Cómo se agrupa la lista. Se recuerda: quien clasifica por día suele
-    /// volver a hacerlo así.
-    @AppStorage("pendingLayout") private var layout: Layout = .merchant
+    /// Cómo se agrupa la lista. Por día de entrada, igual que Movimientos; se
+    /// recuerda si alguien prefiere agrupar por comercio.
+    @AppStorage("pendingLayout") private var layout: Layout = .day
 
     enum Scope: Hashable { case month, all }
 
@@ -374,8 +374,8 @@ struct PendingView: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(palette.secondaryLabel)
             Spacer()
-            layoutChip("Por comercio", icon: "storefront", value: .merchant)
             layoutChip("Por día", icon: "calendar", value: .day)
+            layoutChip("Por comercio", icon: "storefront", value: .merchant)
         }
         .padding(.horizontal, 6)
     }

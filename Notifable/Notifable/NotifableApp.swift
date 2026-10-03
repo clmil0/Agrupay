@@ -142,15 +142,14 @@ struct NotifableApp: App {
         .modelContainer(sharedModelContainer) // Inyecta la BD a todas las vistas
         .onChange(of: scenePhase) { oldPhase, newPhase in
             Diagnostics.shared.log("Fase: \(oldPhase) → \(newPhase)")
-            // El bloqueo se arma al **salir**, no al volver: `.inactive` es la
-            // pantalla que iOS fotografía para el conmutador de apps, así que
-            // esperar al regreso dejaría el saldo a la vista en la vista de
-            // tarjetas. `AppLock` ignora el paso a `.inactive` que provoca el
-            // propio diálogo de Face ID.
+            // `.inactive` sólo tapa la app con la imagen (lo hace `AppLock` al
+            // recibir el aviso de la escena, antes que esto); el bloqueo con
+            // Face ID se arma al pasar a `.background`. Así, bajar el Centro
+            // de Notificaciones o bloquear el teléfono no pide la cara.
             if newPhase == .active {
                 AppLock.shared.sceneDidBecomeActive()
             } else {
-                AppLock.shared.sceneWillResignActive()
+                if newPhase == .background { AppLock.shared.sceneDidEnterBackground() }
                 GmailSyncService.shared.stopForegroundPolling()
                 // Con la app cerrada el correo lo mira el sistema cuando
                 // puede; ver `BackgroundSync`.
@@ -158,7 +157,7 @@ struct NotifableApp: App {
             }
 
             if newPhase == .active, GmailSyncService.qaToken == nil {
-                if GmailAuthService.shared.isAuthenticated {
+                if MailProviders.anyConnected {
                     GmailSyncService.shared.modelContext = sharedModelContainer.mainContext
                     GmailSyncService.shared.syncEmails()
                 }

@@ -107,7 +107,7 @@ final class SupabaseAuthManager {
         // Esperar al login de Google antes de caer en la anónima: hoy la
         // sesión anónima se creaba en paralelo y dejaba un perfil vacío.
         if !account.isSignedIn, account.canSignInSilently {
-            _ = await account.signInWithGoogle()
+            _ = await account.signInWithMailAccount()
         }
         guard account.isSignedIn, let googleID = account.userID,
               await account.validAccessToken() != nil else { return false }

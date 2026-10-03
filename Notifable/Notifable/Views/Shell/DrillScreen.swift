@@ -1,15 +1,12 @@
 import SwiftUI
 
-/// Una pantalla a la que se entra desde el dashboard (`1b`): Movimientos,
-/// Análisis, Categorías, Etiquetas, Pendientes, Social o Perfil.
+/// Una pantalla que se apila sobre el Resumen: Categorías, Etiquetas o
+/// Pendientes. Movimientos y Amigos tienen pestaña propia (`RootTab`).
 ///
 /// Las hermanas comparten pantalla y se alternan con la píldora del header,
-/// **sin** apilar otra pantalla encima: de Movimientos a Análisis y de vuelta
-/// se vuelve al dashboard con un solo «atrás», que es lo que se espera de dos
+/// **sin** apilar otra pantalla encima: de Categorías a Etiquetas y de vuelta
+/// se vuelve al Resumen con un solo «atrás», que es lo que se espera de dos
 /// vistas del mismo dato.
-///
-/// Social y Perfil conservan su diseño de siempre: sólo cambia cómo se llega a
-/// ellas.
 struct DrillScreen: View {
     let entry: AppSection
 
@@ -18,46 +15,72 @@ struct DrillScreen: View {
     @Environment(\.proTheme) private var proTheme
 
     @State private var section: AppSection
-    @State private var progress = ScrollProgress()
-    @State private var scrollToTopTrigger = false
 
     init(entry: AppSection) {
         self.entry = entry
         self._section = State(initialValue: entry)
     }
 
-    private var palette: Palette { Palette(scheme) }
+    var body: some View {
+        SectionScreen(section: $section, siblings: entry.siblings, onBack: { dismiss() })
+            .background {
+                // Con tema Pro, el cielo del Resumen atenuado: se nota el tema
+                // y el texto sigue leyéndose sobre liso.
+                if let proTheme {
+                    ProThemeBackdrop(theme: proTheme, calm: true)
+                } else {
+                    Palette(scheme).background.ignoresSafeArea()
+                }
+            }
+            .background(SwipeBackEnabler().frame(width: 0, height: 0))
+            .toolbar(.hidden, for: .navigationBar)
+            // Tiene su propio «volver» y, algunas, su barra de acciones abajo.
+            .toolbar(.hidden, for: .tabBar)
+    }
+}
+
+/// El contenido de una sección con su header: lo comparten las pantallas de
+/// drill-down y la raíz de las pestañas Movimientos y Amigos. Sin fondo: lo
+/// pone quien la muestra.
+struct SectionScreen: View {
+    @Binding var section: AppSection
+    let siblings: [AppSection]
+    /// `nil` en la raíz de una pestaña: no hay a dónde volver.
+    var onBack: (() -> Void)?
+    /// Cambia al tocar la pestaña que ya está abierta: vuelve arriba.
+    var scrollToTopRequest = 0
+
+    @State private var progress = ScrollProgress()
+    @State private var scrollToTopTrigger = false
 
     var body: some View {
         ZStack(alignment: .top) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            DrillHeader(progress: progress, onBack: { dismiss() }) {
-                if entry.siblings.count > 1 {
-                    SubtabPill(tabs: entry.siblings, selection: $section) { tab in
+            DrillHeader(progress: progress, onBack: onBack) {
+                if siblings.count > 1 {
+                    SubtabPill(tabs: siblings, selection: $section) { tab in
+                        switch tab {
                         // Solicitudes de amistad y cobros que te recuerdan: los
-                        // dos se atienden en la misma pantalla fusionada.
-                        guard tab == .social else { return nil }
-                        let pending = FriendsManager.shared.incomingRequests.count
-                            + PaymentReminders.shared.inbox.count
-                        return pending > 0 ? pending : nil
+                        // dos se atienden en Amigos.
+                        case .social:
+                            let pending = FriendsManager.shared.incomingRequests.count
+                                + PaymentReminders.shared.inbox.count
+                            return pending > 0 ? pending : nil
+                        // «¿Esto fue un pago?»: se contesta en Cobros.
+                        case .receivables:
+                            let questions = FriendDebts.shared.suggestions.count
+                            return questions > 0 ? questions : nil
+                        default:
+                            return nil
+                        }
                     }
                 }
             }
         }
-        .background {
-            // Con tema Pro, el cielo del Resumen atenuado: se nota el tema
-            // y el texto sigue leyéndose sobre liso.
-            if let proTheme {
-                ProThemeBackdrop(theme: proTheme, calm: true)
-            } else {
-                palette.background.ignoresSafeArea()
-            }
-        }
-        .background(SwipeBackEnabler().frame(width: 0, height: 0))
-        .toolbar(.hidden, for: .navigationBar)
         .onChange(of: section) { _, _ in progress.reset() }
+        .onChange(of: scrollToTopRequest) { _, _ in scrollToTopTrigger.toggle() }
     }
 
     @ViewBuilder
@@ -77,6 +100,8 @@ struct DrillScreen: View {
             SocialHubView(scrollToTopTrigger: $scrollToTopTrigger, progress: progress)
         case .profile:
             ProfileView(scrollToTopTrigger: $scrollToTopTrigger, progress: progress)
+        case .receivables:
+            ReceivablesView(scrollToTopTrigger: $scrollToTopTrigger, progress: progress)
         }
     }
 }

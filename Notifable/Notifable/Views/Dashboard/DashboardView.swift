@@ -218,7 +218,7 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal, ShellMetrics.sideInset)
                 .padding(.top, ShellMetrics.contentTopInset)
-                .padding(.bottom, 140)
+                .padding(.bottom, ShellMetrics.contentBottomInset)
             }
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top

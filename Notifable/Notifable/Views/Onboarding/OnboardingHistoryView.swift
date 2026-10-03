@@ -97,7 +97,7 @@ struct OnboardingHistoryView: View {
             Button("No leer", role: .destructive) { onDone(nil) }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("AgruPay entrará vacío y tendrás que anotar tus gastos a mano. Puedes leerlos después en Ajustes → Gmail y bancos.")
+            Text("AgruPay entrará vacío y tendrás que anotar tus gastos a mano. Puedes leerlos después en Ajustes → Correo y bancos.")
         }
     }
 
@@ -192,7 +192,7 @@ struct OnboardingHistoryView: View {
                 Image(systemName: "clock")
                     .font(.system(size: 10))
                     .foregroundStyle(palette.tertiaryLabel)
-                Text("Tarda unos segundos. Puedes ampliarlo después en Ajustes → Gmail y bancos.")
+                Text("Tarda unos segundos. Puedes ampliarlo después en Ajustes → Correo y bancos.")
                     .font(.caption2)
                     .foregroundStyle(palette.tertiaryLabel)
             }

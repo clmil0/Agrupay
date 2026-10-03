@@ -10,6 +10,7 @@ import SwiftUI
 struct FailedEmailsBanner: View {
     @ObservedObject private var gmailSync = GmailSyncService.shared
     @ObservedObject private var gmailAuth = GmailAuthService.shared
+    @ObservedObject private var outlookAuth = OutlookAuthService.shared
     @Environment(\.colorScheme) private var scheme
     @Environment(\.proTheme) private var proTheme
     @Environment(\.modelContext) private var modelContext
@@ -22,7 +23,7 @@ struct FailedEmailsBanner: View {
     private var count: Int { gmailSync.failedEmailCount }
 
     var body: some View {
-        if gmailAuth.isAuthenticated && count > 0 {
+        if (gmailAuth.isAuthenticated || outlookAuth.isAuthenticated) && count > 0 {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
                     .font(.system(size: 17, weight: .semibold))

@@ -108,6 +108,10 @@ struct SettingsTests {
         #expect(SettingsEntry.matching("suscripcion").contains { $0.id == "recurring" })
         #expect(SettingsEntry.matching("BBVA").contains { $0.id == "gmail" })
         #expect(SettingsEntry.matching("CSV").contains { $0.id == "data" })
+        // Correo y Gmail y bancos son una sola pantalla: la cuenta se busca ahí.
+        #expect(SettingsEntry.matching("desvincular").contains { $0.id == "gmail" })
+        #expect(SettingsEntry.matching("borrar").contains { $0.id == "delete" })
+        #expect(SettingsEntry.matching("estadisticas").contains { $0.id == "stats" })
         #expect(SettingsEntry.matching("").isEmpty)
         #expect(SettingsEntry.matching("xyz").isEmpty)
     }
@@ -116,7 +120,7 @@ struct SettingsTests {
     func destinosValidos() {
         let known: Set<String> = ["profile", "email", "phone", "devices", "budget", "recurring", "rules",
                                   "gmail", "range", "appearance", "stats", "assistant", "notifications",
-                                  "lock", "data", "diagnostics"]
+                                  "lock", "data", "delete", "diagnostics"]
         for entry in SettingsEntry.all {
             #expect(known.contains(entry.destination), "destino desconocido: \(entry.destination)")
             #expect(!entry.title.isEmpty)

@@ -28,6 +28,7 @@ struct SettingsPage<Content: View>: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
+        .settingsScrollActivity()
         .background {
             if let proTheme {
                 ProThemeBackdrop(theme: proTheme, calm: true)

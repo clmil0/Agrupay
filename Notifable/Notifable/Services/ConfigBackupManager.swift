@@ -155,7 +155,7 @@ final class ConfigBackupManager {
         guard !isEnabled, !isPausedAfterWipe else { return }
         guard !UserDefaults.standard.bool(forKey: Keys.offerDismissed) else { return }
         guard BackupAccount.shared.canSignInSilently || BackupAccount.shared.isSignedIn else { return }
-        if !BackupAccount.shared.isSignedIn, await BackupAccount.shared.signInWithGoogle() != nil { return }
+        if !BackupAccount.shared.isSignedIn, await BackupAccount.shared.signInWithMailAccount() != nil { return }
 
         let header = await peek(code: nil)
         // "Esta cuenta todavía no tiene respaldo" es la respuesta normal de un
@@ -387,7 +387,7 @@ final class ConfigBackupManager {
         // no sirve pasaría ese filtro y la llamada saldría como anónima, que en
         // PostgREST se ve como un 404 desconcertante. Se exige un token vivo.
         if await BackupAccount.shared.validAccessToken() == nil {
-            if let error = await BackupAccount.shared.signInWithGoogle() {
+            if let error = await BackupAccount.shared.signInWithMailAccount() {
                 lastErrorMessage = error
                 return error
             }
@@ -567,7 +567,7 @@ final class ConfigBackupManager {
         if let code, !code.isEmpty {
             body["p_code"] = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         } else if await BackupAccount.shared.validAccessToken() == nil {
-            if let error = await BackupAccount.shared.signInWithGoogle() {
+            if let error = await BackupAccount.shared.signInWithMailAccount() {
                 lastErrorMessage = error
                 return error
             }

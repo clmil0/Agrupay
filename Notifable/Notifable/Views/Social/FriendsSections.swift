@@ -9,7 +9,8 @@ import SwiftData
 /// propias hojas, así que el orden se decide en `SocialView` y aquí no hay que
 /// tocar nada.
 
-/// Invitar y cobrar, los cobros que te recuerdan y las solicitudes.
+/// Invitar y cobrar, los cobros que te recuerdan y las solicitudes. «Te
+/// deben» y «Lo que debes» viven en la pestaña Cobros (`ReceivablesView`).
 struct FriendsActionsSection: View {
 
     @Environment(\.colorScheme) private var scheme
@@ -41,7 +42,6 @@ struct FriendsActionsSection: View {
             } else {
                 actions
                 remindersSection
-                FriendDebtsSection()
                 requestsSection
             }
         }
@@ -51,7 +51,12 @@ struct FriendsActionsSection: View {
         }
         .onChange(of: inviteRouter.pendingCode) { _, _ in presentPendingInvite() }
         .task { await reminders.refresh() }
-        .sheet(isPresented: $showsComposer) { ReminderComposerSheet() }
+        .sheet(isPresented: $showsComposer) {
+            // Lo enviado aparece en Cobros al cambiar de pestaña.
+            ReminderComposerSheet(request: ReminderComposerRequest()) { _ in
+                Task { await FriendReceivables.shared.refresh() }
+            }
+        }
         .sheet(isPresented: $showInviteSheet, onDismiss: { invitedCode = nil }) {
             AddFriendSheet(invitedCode: invitedCode, startsOnRedeem: invitedCode != nil)
         }
@@ -76,7 +81,8 @@ struct FriendsActionsSection: View {
             // «Usar una invitación» ya no compite aquí: vive al pie de la
             // hoja de invitar, plegada, que es donde se busca cuando alguien
             // te pasó un código.
-            // Cobrar desde aquí: la deuda se elige dentro.
+            // Cobrar desde aquí: la deuda se elige dentro. También está en
+            // Cobros, junto a lo que te deben.
             Button {
                 showsComposer = true
             } label: {
@@ -139,7 +145,7 @@ struct FriendsActionsSection: View {
             .buttonStyle(.plain)
             .padding(.top, 22)
 
-            Button("Ver Ajustes → Gmail y bancos") { showGmailSettings = true }
+            Button("Ver Ajustes → Correo y bancos") { showGmailSettings = true }
                 .font(.system(size: 13.5, weight: .semibold))
                 .foregroundStyle(palette.secondaryLabel)
                 .padding(.vertical, 14)

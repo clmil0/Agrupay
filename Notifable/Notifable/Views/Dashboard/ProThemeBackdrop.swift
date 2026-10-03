@@ -14,6 +14,9 @@ import SwiftUI
 struct ProThemeBackdrop: View {
     let theme: ProTheme
     var calm = false
+    /// Tapado por completo (el Resumen debajo de Configuración): no hace
+    /// falta seguir animando lo que no se ve.
+    var paused = false
 
     /// La variante y la intensidad del cielo elegidas en Apariencia; también
     /// para redibujar al moverlas con «Reducir movimiento» (sin animación).
@@ -25,11 +28,20 @@ struct ProThemeBackdrop: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    /// Debajo de otra pantalla de la pila: lo mismo.
+    @State private var isOnScreen = true
+
+    /// Los cielos tenues acompañan a Configuración: se detienen mientras se
+    /// desliza (ver `DecorationPause`).
+    private var isPaused: Bool {
+        reduceMotion || scenePhase != .active || paused || !isOnScreen
+            || (calm && DecorationPause.shared.isScrolling)
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || scenePhase != .active)) { context in
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: isPaused)) { context in
                 let t = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
                 ZStack(alignment: .top) {
                     theme.base
@@ -59,6 +71,8 @@ struct ProThemeBackdrop: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
     }
 
     private var toneName: String {

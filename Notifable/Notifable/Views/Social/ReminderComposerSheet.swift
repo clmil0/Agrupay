@@ -11,6 +11,23 @@ struct ReminderComposerSheet: View {
 
     /// La deuda desde la que se abrió, si vino de su ficha.
     var initialDebt: Expense?
+    /// Desde Cobros: el amigo ya elegido y, si se puede repartir sin pisar lo
+    /// que ya abonó, su monto.
+    var initialFriendID: String?
+    var initialAmount: Double?
+    /// Se mandó al menos uno: los nombres de a quién.
+    var onSent: (([String]) -> Void)?
+
+    init(initialDebt: Expense? = nil) {
+        self.initialDebt = initialDebt
+    }
+
+    init(request: ReminderComposerRequest, onSent: (([String]) -> Void)? = nil) {
+        self.initialDebt = request.debt
+        self.initialFriendID = request.friendID
+        self.initialAmount = request.amount
+        self.onSent = onSent
+    }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
@@ -125,6 +142,14 @@ struct ReminderComposerSheet: View {
         .presentationBackground(palette.background)
         .task {
             debt = initialDebt ?? debts.first
+            if let id = initialFriendID, friends.contains(where: { $0.id == id }) {
+                selected = [id]
+                if let amount = initialAmount, Money.cents(amount) > 0,
+                   Money.cents(amount) <= Money.cents(total) {
+                    splitEnabled = true
+                    amounts[id] = Money.decimalText(amount)
+                }
+            }
             await loadSentStatus()
         }
         .onChange(of: debt?.id) { _, _ in
@@ -607,6 +632,10 @@ struct ReminderComposerSheet: View {
         await loadSentStatus()
 
         if result.delivered > 0 {
+            let names = result.byFriend
+                .filter { $0.value == .sent || $0.value == .renewed }
+                .map { friendsManager.friend(with: $0.key).name }
+            onSent?(names)
             dismiss()
         } else {
             outcome = "Ya se lo recordaste hoy. Mañana puedes volver a hacerlo."

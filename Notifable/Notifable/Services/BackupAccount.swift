@@ -44,8 +44,22 @@ final class BackupAccount {
     var isSignedIn: Bool { userID != nil && refreshToken != nil }
 
     /// `true` si el usuario podría entrar sin ver ninguna pantalla nueva:
-    /// Gmail ya está conectado y su login trae `id_token`.
-    var canSignInSilently: Bool { GmailAuthService.shared.hasIdentityToken }
+    /// Gmail u Outlook ya están conectados y su login trae `id_token`.
+    var canSignInSilently: Bool {
+        GmailAuthService.shared.hasIdentityToken || OutlookAuthService.shared.hasIdentityToken
+    }
+
+    /// Con qué cuenta se entra. Google manda si están las dos: es con la que
+    /// ya entraba todo el que tenía respaldo antes de Outlook, y cambiar de
+    /// proveedor sería otra cuenta de Supabase (otro respaldo).
+    private enum Provider: String {
+        case google, azure
+        var label: String { self == .google ? "Google" : "Microsoft (Azure)" }
+    }
+
+    private var provider: Provider {
+        GmailAuthService.shared.hasIdentityToken || !OutlookAuthService.shared.hasIdentityToken ? .google : .azure
+    }
 
     private init() {
         CredentialMigration.runIfNeeded()
@@ -70,12 +84,17 @@ final class BackupAccount {
         }
     }
 
-    /// Canjea el `id_token` de Google por una sesión de Supabase. Devuelve el
-    /// motivo del fallo, o `nil` si salió bien.
+    /// Canjea el `id_token` de Google —o, si sólo hay Outlook, el de
+    /// Microsoft— por una sesión de Supabase. Devuelve el motivo del fallo, o
+    /// `nil` si salió bien.
     @discardableResult
-    func signInWithGoogle() async -> String? {
-        guard let idToken = await GmailAuthService.shared.freshIdentityToken() else {
-            return "Conecta tu correo de Google para usar tu cuenta (Ajustes → Correo)."
+    func signInWithMailAccount() async -> String? {
+        let provider = provider
+        let token = provider == .google
+            ? await GmailAuthService.shared.freshIdentityToken()
+            : await OutlookAuthService.shared.freshIdentityToken()
+        guard let idToken = token else {
+            return "Conecta tu correo de Gmail u Outlook para usar tu cuenta (Ajustes → Correo y bancos)."
         }
         guard let url = URL(string: "\(projectURL)/auth/v1/token?grant_type=id_token") else {
             return "URL inválida."
@@ -86,7 +105,7 @@ final class BackupAccount {
         request.addValue(apiKey, forHTTPHeaderField: "apikey")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "provider": "google",
+            "provider": provider.rawValue,
             "id_token": idToken
         ])
 
@@ -94,7 +113,7 @@ final class BackupAccount {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200...299).contains(status) else {
-                return Self.explain(status: status, body: data, idToken: idToken)
+                return Self.explain(status: status, body: data, idToken: idToken, provider: provider)
             }
             let session = try JSONDecoder().decode(SessionResponse.self, from: data)
             store(session)
@@ -111,29 +130,29 @@ final class BackupAccount {
     /// lo compara contra su lista de "Client IDs". Si ahí sólo está el cliente
     /// web, responde "Unacceptable audience" — un mensaje que no dice dónde se
     /// arregla ni qué valor falta. Aquí se dice, con el ID listo para copiar.
-    private static func explain(status: Int, body: Data, idToken: String) -> String {
+    private static func explain(status: Int, body: Data, idToken: String, provider: Provider) -> String {
         let text = String(data: body, encoding: .utf8) ?? ""
 
         if text.localizedCaseInsensitiveContains("audience") {
             let audience = claim("aud", of: idToken) as? String ?? "el client ID de iOS"
             return """
-            Supabase no reconoce este client ID. Añádelo en Authentication →             Providers → Google, campo «Client IDs» (van separados por coma,             junto al que ya tienes):
+            Supabase no reconoce este client ID. Añádelo en Authentication →             Providers → \(provider.label), campo «Client IDs» (van separados por coma,             junto al que ya tienes):
 
             \(audience)
             """
         }
 
         if text.localizedCaseInsensitiveContains("nonce") {
-            return "Supabase esperaba un «nonce» que este login no envía. Activa «Skip nonce checks» en Authentication → Providers → Google."
+            return "Supabase esperaba un «nonce» que este login no envía. Activa «Skip nonce checks» en Authentication → Providers → \(provider.label)."
         }
 
         if text.localizedCaseInsensitiveContains("provider is not enabled")
             || text.localizedCaseInsensitiveContains("unsupported provider") {
-            return "El proveedor Google está apagado en Supabase. Actívalo en Authentication → Providers → Google."
+            return "El proveedor \(provider.label) está apagado en Supabase. Actívalo en Authentication → Providers → \(provider.label)."
         }
 
         if status == 401 || status == 403 {
-            return "Supabase rechazó la sesión (HTTP \(status)). Revisa que el proveedor Google esté activado. \(text.prefix(140))"
+            return "Supabase rechazó la sesión (HTTP \(status)). Revisa que el proveedor \(provider.label) esté activado. \(text.prefix(140))"
         }
 
         return "No se pudo iniciar sesión (HTTP \(status)). \(text.prefix(180))"
@@ -155,7 +174,7 @@ final class BackupAccount {
 
     private func store(_ session: SessionResponse) {
         userID = session.user.id
-        email = session.user.email ?? GmailAuthService.shared.accountEmail
+        email = session.user.email ?? GmailAuthService.shared.accountEmail ?? OutlookAuthService.shared.accountEmail
         accessToken = session.access_token
         refreshToken = session.refresh_token
         expiresAt = Date().addingTimeInterval(TimeInterval(session.expires_in ?? 3600))
@@ -189,7 +208,7 @@ final class BackupAccount {
             return accessToken
         }
         if await refreshSession() { return accessToken }
-        if canSignInSilently, await signInWithGoogle() == nil { return accessToken }
+        if canSignInSilently, await signInWithMailAccount() == nil { return accessToken }
         return nil
     }
 

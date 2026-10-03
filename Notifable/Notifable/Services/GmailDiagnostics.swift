@@ -145,7 +145,7 @@ enum GmailDiagnosticReport {
         line("Último error: \(sync.lastSyncError ?? "ninguno")")
         line("Último resumen: \(sync.lastRunSummary ?? "ninguno")")
         line("Correos ya procesados: \(processed.count) · borrados a propósito (no se releen): \(recovery.count)")
-        line("Periodo elegido en Gmail y bancos: \(defaults.integer(forKey: "readPeriodMonths")) meses · onboarding visto: \(defaults.bool(forKey: "hasSeenOnboarding"))")
+        line("Periodo elegido en Correo y bancos: \(defaults.integer(forKey: "readPeriodMonths")) meses · onboarding visto: \(defaults.bool(forKey: "hasSeenOnboarding"))")
         line("Bancos marcados: " + BankSource.all.map { "\($0.name) \($0.isEnabled ? "✓" : "✗")" }.joined(separator: ", "))
         line("Lectores: " + sync.parsers.map { "\($0.bankName) (\($0.senderEmails.joined(separator: ", ")))" }.joined(separator: " · "))
 
@@ -220,7 +220,7 @@ enum GmailDiagnosticReport {
                 line("Búsqueda de la lectura automática (desde la última lectura − 1 h): HTTP \(auto.status) · \(auto.ids.count) correos · \(auto.ids.filter { !processed.contains($0) }.count) sin procesar")
             } else {
                 line()
-                line("⚠️ Nunca se eligió desde cuándo leer: la lectura automática no hace nada hasta leer un periodo en Gmail y bancos.")
+                line("⚠️ Nunca se eligió desde cuándo leer: la lectura automática no hace nada hasta leer un periodo en Correo y bancos.")
             }
 
             // 5. Cómo lee la app los últimos correos

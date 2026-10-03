@@ -6,9 +6,17 @@ struct ContentView: View {
     @Query private var recurringRules: [RecurringExpense]
     @AppStorage("remindRecurring") private var remindRecurring = true
     @State private var didResolveRecurring = false
-    /// Lo que se apiló sobre el dashboard. Casi siempre una sola pantalla: las
-    /// hermanas (Movimientos ↔ Análisis) se alternan dentro de ella.
+    /// Lo que se apiló sobre el Resumen. Casi siempre una sola pantalla: las
+    /// hermanas (Categorías ↔ Etiquetas) se alternan dentro de ella.
     @State private var path: [AppSection] = []
+
+    @State private var tab: RootTab = .summary
+    /// La hermana visible en cada pestaña con píldora.
+    @State private var movementsSection: AppSection = .movements
+    @State private var friendsSection: AppSection = .social
+    /// Dónde está el «+» de la barra mientras se mantiene presionado: ahí
+    /// encima sale el micrófono. `nil`: no se muestra.
+    @State private var micAnchor: CGRect?
 
     /// El desplazamiento del dashboard, en una clase observable para no
     /// invalidar este cuerpo en cada fotograma (ver `ScrollProgress`).
@@ -119,6 +127,7 @@ struct ContentView: View {
         case .summary:
             selectedTransactionType = nil
             path = []
+            select(.summary)
         case .categories:
             open(.categories)
         case .pending:
@@ -161,10 +170,54 @@ struct ContentView: View {
         }
     }
 
-    /// Deja una sola pantalla sobre el dashboard: la pedida.
+    /// Lleva a una sección desde un enlace: a su pestaña si tiene, o como una
+    /// sola pantalla sobre el Resumen.
     private func open(_ section: AppSection) {
         selectedTransactionType = nil
-        path = [section]
+        path = []
+        show(section)
+    }
+
+    /// Lo que piden las tarjetas del Resumen: Movimientos y Amigos cambian
+    /// de pestaña; lo demás se apila encima.
+    private func show(_ section: AppSection) {
+        switch RootTab(hosting: section) {
+        case .movements:
+            movementsSection = section
+            select(.movements)
+        case .friends:
+            friendsSection = section
+            select(.friends)
+        default:
+            select(.summary)
+            path.append(section)
+        }
+    }
+
+    private func select(_ newTab: RootTab) {
+        tab = newTab
+    }
+
+    /// El «+» es una pestaña más para el sistema (la de búsqueda, que en iOS
+    /// 26 se dibuja como círculo aparte), pero no se elige: abre el
+    /// formulario y la pestaña de antes sigue abierta.
+    private var tabSelection: Binding<RootTab> {
+        Binding(get: { tab }, set: { newTab in
+            micAnchor = nil
+            if newTab == .add {
+                presentAdd(.ingreso, source: nil, quickID: nil)
+            } else {
+                tab = newTab
+            }
+        })
+    }
+
+    /// Solicitudes, cobros que te recuerdan y «¿esto fue un pago?»: lo mismo
+    /// que suman los globos de la píldora de Amigos.
+    private var friendsBadge: Int {
+        FriendsManager.shared.incomingRequests.count
+            + PaymentReminders.shared.inbox.count
+            + FriendDebts.shared.suggestions.count
     }
 
     /// Si ya había un formulario abierto se cierra primero: cambiar el
@@ -185,52 +238,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            NavigationStack(path: $path) {
-                ZStack(alignment: .bottom) {
-                    DashboardScreen(progress: scrollProgress,
-                                    onOpen: { path.append($0) },
-                                    onSettings: { showSettings = true })
-
-                    // Degradado al pie: sin él las tarjetas se leen a través
-                    // del FAB y de «Dictar». Llega hasta el borde físico de la
-                    // pantalla —la franja del indicador de inicio incluida—:
-                    // si se quedaba en el área segura, las tarjetas volvían a
-                    // verse nítidas debajo y se notaba el corte.
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        LinearGradient(stops: [.init(color: dashboardBase.opacity(0), location: 0),
-                                               .init(color: dashboardBase.opacity(0.85), location: 0.45),
-                                               .init(color: dashboardBase, location: 0.75)],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: 170)
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                    .allowsHitTesting(false)
-
-                    HStack(alignment: .bottom) {
-                        ShellDictateButton(isDictating: showsDictation) { showsDictation = true }
-                            .padding(.bottom, 4)
-                        Spacer()
-                        ShellFAB { presentAdd(.ingreso, source: nil, quickID: nil) }
-                    }
-                    .padding(.horizontal, ShellMetrics.sideInset)
-                    .padding(.bottom, 4)
-                }
-                // Con tema Pro, el Resumen se dibuja con sus colores sobre su
-                // cielo animado; las pantallas que se apilan encima no.
-                .environment(\.proTheme, proTheme)
-                .background {
-                    if let proTheme {
-                        ProThemeBackdrop(theme: proTheme)
-                    } else {
-                        Palette(systemScheme).background.ignoresSafeArea()
-                    }
-                }
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: AppSection.self) { section in
-                    DrillScreen(entry: section)
-                }
-            }
+            tabs
             // Las variantes de los temas Pro no pasan por el entorno: al volver
             // de Configuración con otra variante, el Resumen se vuelve a armar.
             .id(paletteRevision)
@@ -250,7 +258,7 @@ struct ContentView: View {
             }
             .gmailLinkFlow(isEnabled: !showSettings)
             // Las solicitudes de amistad pintan un número en la pestaña
-            // Social: se piden al abrir, sin esperar a que se visite.
+            // Amigos: se piden al abrir, sin esperar a que se visite.
             .task {
                 await startFriendsSession()
                 if SupabaseAuthManager.shared.isReady { await FriendsManager.shared.refresh() }
@@ -366,19 +374,92 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - Pestañas
+
+    /// La barra es la del sistema: en iOS 26, Liquid Glass con la gota que se
+    /// arrastra entre pestañas; en iOS 18, la barra clásica. El ícono elegido
+    /// toma el color del tema por el `tint` de la app.
+    private var tabs: some View {
+        TabView(selection: tabSelection) {
+            Tab(RootTab.summary.title, systemImage: RootTab.summary.icon, value: .summary) {
+                summaryStack
+                    .background { tabBackground(calm: false, paused: !path.isEmpty) }
+            }
+            Tab(RootTab.movements.title, systemImage: RootTab.movements.icon, value: .movements) {
+                SectionScreen(section: $movementsSection, siblings: AppSection.movements.siblings)
+                    .background { tabBackground() }
+            }
+            Tab(RootTab.goals.title, systemImage: RootTab.goals.icon, value: .goals) {
+                GoalsPlaceholderView()
+                    .background { tabBackground() }
+            }
+            Tab(RootTab.friends.title, systemImage: RootTab.friends.icon, value: .friends) {
+                SectionScreen(section: $friendsSection, siblings: AppSection.social.siblings)
+                    .background { tabBackground() }
+            }
+            .badge(friendsBadge)
+            Tab(RootTab.add.title, systemImage: RootTab.add.icon, value: .add, role: .search) {
+                Color.clear
+            }
+        }
+        // Mantener presionado el «+» saca el micrófono: la barra del sistema
+        // no tiene ese gesto, se le cuelga uno (`TabBarLongPress`).
+        .background(TabBarLongPress { frame in
+            withAnimation(.bouncy(duration: 0.4)) { micAnchor = frame }
+        })
+        .overlay {
+            if let micAnchor {
+                DictationBubble(anchor: micAnchor, isDictating: showsDictation,
+                                onDictate: {
+                                    self.micAnchor = nil
+                                    showsDictation = true
+                                },
+                                onDismiss: {
+                                    withAnimation(.bouncy(duration: 0.3)) { self.micAnchor = nil }
+                                })
+            }
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: micAnchor != nil) { _, shown in shown }
+        // El tema Pro va en todas las pestañas y en lo que se apila encima.
+        .environment(\.proTheme, proTheme)
+    }
+
+    /// El fondo de cada pestaña. Va dentro de cada una y no detrás del
+    /// `TabView`: el sistema pinta un fondo opaco por pestaña que lo taparía.
+    /// Con tema Pro, el cielo en todas; fuera del Resumen atenuado, para que
+    /// las listas se lean sobre liso. Se pausa con Configuración encima o con
+    /// una pantalla apilada, que trae su propio cielo; el de las pestañas que
+    /// no se ven se pausa solo (`ProThemeBackdrop` mira si está en pantalla).
+    @ViewBuilder
+    private func tabBackground(calm: Bool = true, paused: Bool = false) -> some View {
+        if let proTheme {
+            ProThemeBackdrop(theme: proTheme, calm: calm, paused: showSettings || paused)
+        } else {
+            Palette(systemScheme).background.ignoresSafeArea()
+        }
+    }
+
+    private var summaryStack: some View {
+        NavigationStack(path: $path) {
+            DashboardScreen(progress: scrollProgress,
+                            onOpen: { show($0) },
+                            onSettings: { showSettings = true })
+                // Transparente: el fondo es el cielo compartido de las
+                // pestañas. Si no, la pila pinta el negro del sistema encima.
+                .containerBackground(.clear, for: .navigation)
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: AppSection.self) { section in
+                    DrillScreen(entry: section)
+                }
+        }
+    }
+
     // MARK: - Blindaje de privacidad
 
-    /// Fondo + ícono, nada interactivo. A propósito no es `LockScreenView`:
-    /// esa arranca Face ID en `.task` al aparecer, y esta vista está montada
-    /// todo el tiempo — dispararía el diálogo del sistema con la app en
-    /// segundo plano. Sólo tapa hasta que la pantalla de verdad llega.
+    /// Ver `PrivacyShieldView`: sólo tapa hasta que la pantalla de bloqueo
+    /// de verdad llega.
     private var privacyShield: some View {
-        ZStack {
-            // Oscuro como el bloqueo que tapa: si no, el paso de uno a otro
-            // destellaba en claro.
-            Palette(.dark).background.ignoresSafeArea()
-            AppIconTile(size: 64, accent: themeColor, coinFace: .white, detail: false)
-        }
+        PrivacyShieldView()
     }
 
     // MARK: - Ir a un movimiento

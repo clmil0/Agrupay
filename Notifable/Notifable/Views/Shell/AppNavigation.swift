@@ -6,7 +6,8 @@ import SwiftUI
 /// píldora arriba. Ahora todo parte del dashboard y se **entra** a cada cosa
 /// desde su tarjeta: Historial, Categorías, Pendientes, Amigos. Lo que antes
 /// eran hermanas en la píldora siguen siéndolo dentro de la pantalla a la que
-/// se entra: Movimientos ↔ Análisis, Categorías ↔ Etiquetas, Social ↔ Perfil.
+/// se entra: Movimientos ↔ Análisis, Categorías ↔ Etiquetas, y en Social
+/// Amigos · Cobros · Perfil.
 enum AppSection: Int, AppSubtab {
     case movements
     case analysis
@@ -15,6 +16,9 @@ enum AppSection: Int, AppSubtab {
     case pending
     case social
     case profile
+    /// Cobros de Social: «Te deben» y «Lo que debes». Al final para no mover
+    /// el `rawValue` de las demás (el asistente lo guarda).
+    case receivables
 
     var id: Int { rawValue }
 
@@ -27,6 +31,7 @@ enum AppSection: Int, AppSubtab {
         case .pending:    return "tray.full.fill"
         case .social:     return "person.2.fill"
         case .profile:    return "person.crop.circle"
+        case .receivables: return "banknote.fill"
         }
     }
 
@@ -37,8 +42,9 @@ enum AppSection: Int, AppSubtab {
         case .categories: return "Categorías"
         case .tags:       return "Etiquetas"
         case .pending:    return "Pendientes"
-        case .social:     return "Social"
+        case .social:     return "Amigos"
         case .profile:    return "Mi perfil"
+        case .receivables: return "Cobros"
         }
     }
 
@@ -49,7 +55,7 @@ enum AppSection: Int, AppSubtab {
         case .movements, .analysis:  return [.movements, .analysis]
         case .categories, .tags:     return [.categories, .tags]
         case .pending:               return [.pending]
-        case .social, .profile:      return [.social, .profile]
+        case .social, .receivables, .profile: return [.social, .receivables, .profile]
         }
     }
 }

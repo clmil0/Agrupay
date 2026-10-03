@@ -14,6 +14,8 @@ struct SecureStore {
     /// bloqueado después del primer desbloqueo, para la lectura en segundo plano.
     static let gmail = SecureStore(service: "clmilo.Notifable.gmail",
                                    accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    static let outlook = SecureStore(service: "clmilo.Notifable.outlook",
+                                     accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
     static let backup = SecureStore(service: "clmilo.Notifable.backup",
                                     accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
     /// El código de respaldo (`ConfigBackupManager`). Sin `ThisDeviceOnly`:
