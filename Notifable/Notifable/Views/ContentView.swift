@@ -4,6 +4,8 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var recurringRules: [RecurringExpense]
+    /// La bandeja de Pendientes: el globo de Movimientos y su «visto».
+    @Query private var unclassified: [Expense]
     @AppStorage("remindRecurring") private var remindRecurring = true
     @State private var didResolveRecurring = false
     /// Lo que se apiló sobre el Resumen. Casi siempre una sola pantalla: las
@@ -54,6 +56,14 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var reminders = PaymentReminders.shared
     @State private var auth = SupabaseAuthManager.shared
+
+    init() {
+        // Lo mismo que cuenta Pendientes (`countsAsSpending`).
+        let unclassified = Accounting.unclassified
+        _unclassified = Query(filter: #Predicate<Expense> {
+            $0.category == unclassified && !$0.isTransfer && !$0.isVoided && !$0.isReversal && !$0.isSplit
+        })
+    }
 
     /// El fondo liso del Resumen: el del tema Pro o el de siempre.
     private var dashboardBase: Color { proTheme?.base ?? Palette(systemScheme).background }
@@ -122,8 +132,7 @@ struct ContentView: View {
         case .quick(let id):
             presentAdd(.gasto, source: nil, quickID: id)
         // Los enlaces `agrupay://` de los widgets y de Siri siguen siendo los
-        // mismos; lo que cambia es dónde aterrizan: ya no hay pestañas, así
-        // que cada uno abre su pantalla sobre el dashboard.
+        // mismos: cada uno abre su pestaña, o su pantalla sobre el Resumen.
         case .summary:
             selectedTransactionType = nil
             path = []
@@ -205,10 +214,19 @@ struct ContentView: View {
         Binding(get: { tab }, set: { newTab in
             micAnchor = nil
             if newTab == .add {
-                presentAdd(.ingreso, source: nil, quickID: nil)
-            } else {
-                tab = newTab
+                presentAdd(.gasto, source: nil, quickID: nil)
+                return
             }
+            // Llegó algo sin clasificar que aún no se vio: Movimientos abre
+            // la bandeja esta vez; las siguientes, la lista.
+            if newTab == .movements, tab != .movements {
+                if PendingInbox.hasUnseen(pendingIDs) {
+                    movementsSection = .pending
+                } else if movementsSection == .pending {
+                    movementsSection = .movements
+                }
+            }
+            tab = newTab
         })
     }
 
@@ -218,6 +236,22 @@ struct ContentView: View {
         FriendsManager.shared.incomingRequests.count
             + PaymentReminders.shared.inbox.count
             + FriendDebts.shared.suggestions.count
+    }
+
+    /// Lo sin clasificar de este mes: lo mismo que el número grande de la
+    /// tarjeta Pendientes y el ícono de la app. Lo de meses anteriores sigue
+    /// en la bandeja, pero ni pinta globo ni lleva a ella.
+    private var monthPending: [Expense] {
+        let range = Period(granularity: .mes, reference: Date()).interval
+        return unclassified.filter { $0.date >= range.start && $0.date < range.end }
+    }
+
+    private var pendingIDs: [UUID] { monthPending.map(\.id) }
+
+    /// La bandeja en pantalla cuenta como vista.
+    private func markPendingSeenIfShown() {
+        guard tab == .movements, movementsSection == .pending else { return }
+        PendingInbox.markSeen(pendingIDs)
     }
 
     /// Si ya había un formulario abierto se cierra primero: cambiar el
@@ -245,6 +279,9 @@ struct ContentView: View {
             .background(Palette(systemScheme).background.ignoresSafeArea())
             .ignoresSafeArea(.keyboard)
             .onAppear(perform: resolveRecurring)
+            .onChange(of: tab) { _, _ in markPendingSeenIfShown() }
+            .onChange(of: movementsSection) { _, _ in markPendingSeenIfShown() }
+            .onChange(of: pendingIDs) { _, _ in markPendingSeenIfShown() }
             .onChange(of: appLock.isLocked) { _, locked in
                 // Ajustes y las hojas se presentan en la capa de modales de
                 // iOS, por encima de este `ZStack`: si quedaran abiertas, la
@@ -386,9 +423,11 @@ struct ContentView: View {
                     .background { tabBackground(calm: false, paused: !path.isEmpty) }
             }
             Tab(RootTab.movements.title, systemImage: RootTab.movements.icon, value: .movements) {
-                SectionScreen(section: $movementsSection, siblings: AppSection.movements.siblings)
+                SectionScreen(section: $movementsSection, siblings: AppSection.movements.siblings,
+                              pendingCount: pendingIDs.count)
                     .background { tabBackground() }
             }
+            .badge(pendingIDs.count)
             Tab(RootTab.goals.title, systemImage: RootTab.goals.icon, value: .goals) {
                 GoalsPlaceholderView()
                     .background { tabBackground() }

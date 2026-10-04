@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Una pantalla que se apila sobre el Resumen: Categorías, Etiquetas o
-/// Pendientes. Movimientos y Amigos tienen pestaña propia (`RootTab`).
+/// Una pantalla que se apila sobre el Resumen: Categorías o Etiquetas.
+/// Movimientos (con Pendientes) y Amigos tienen pestaña propia (`RootTab`).
 ///
 /// Las hermanas comparten pantalla y se alternan con la píldora del header,
 /// **sin** apilar otra pantalla encima: de Categorías a Etiquetas y de vuelta
@@ -49,6 +49,8 @@ struct SectionScreen: View {
     var onBack: (() -> Void)?
     /// Cambia al tocar la pestaña que ya está abierta: vuelve arriba.
     var scrollToTopRequest = 0
+    /// Lo que queda sin clasificar: el globo de Pendientes en la píldora.
+    var pendingCount = 0
 
     @State private var progress = ScrollProgress()
     @State private var scrollToTopTrigger = false
@@ -72,6 +74,8 @@ struct SectionScreen: View {
                         case .receivables:
                             let questions = FriendDebts.shared.suggestions.count
                             return questions > 0 ? questions : nil
+                        case .pending:
+                            return pendingCount > 0 ? pendingCount : nil
                         default:
                             return nil
                         }

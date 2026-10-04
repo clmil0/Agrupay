@@ -6,7 +6,7 @@ import SwiftUI
 /// píldora arriba. Ahora todo parte del dashboard y se **entra** a cada cosa
 /// desde su tarjeta: Historial, Categorías, Pendientes, Amigos. Lo que antes
 /// eran hermanas en la píldora siguen siéndolo dentro de la pantalla a la que
-/// se entra: Movimientos ↔ Análisis, Categorías ↔ Etiquetas, y en Social
+/// se entra: Movimientos ↔ Pendientes ↔ Análisis, Categorías ↔ Etiquetas, y en Social
 /// Amigos · Cobros · Perfil.
 enum AppSection: Int, AppSubtab {
     case movements
@@ -49,12 +49,11 @@ enum AppSection: Int, AppSubtab {
     }
 
     /// Las que comparten pantalla y se alternan con la píldora de la derecha.
-    /// Pendientes va sola: no tiene hermana.
+    /// Pendientes es la bandeja de Movimientos: va entre la lista y Análisis.
     var siblings: [AppSection] {
         switch self {
-        case .movements, .analysis:  return [.movements, .analysis]
+        case .movements, .pending, .analysis: return [.movements, .pending, .analysis]
         case .categories, .tags:     return [.categories, .tags]
-        case .pending:               return [.pending]
         case .social, .receivables, .profile: return [.social, .receivables, .profile]
         }
     }

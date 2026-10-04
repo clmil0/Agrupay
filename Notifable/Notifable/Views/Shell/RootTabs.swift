@@ -4,8 +4,9 @@ import UIKit
 /// Las pestañas de la barra de abajo, que es la del sistema (`TabView`).
 ///
 /// Vuelven las pestañas que `1b` había quitado, pero sólo para lo que se usa
-/// a diario: el Resumen, Movimientos y Amigos. Categorías, Etiquetas y
-/// Pendientes se siguen abriendo desde su tarjeta del Resumen.
+/// a diario: el Resumen, Movimientos y Amigos. Pendientes es la bandeja de
+/// Movimientos; Categorías y Etiquetas se siguen abriendo desde su tarjeta
+/// del Resumen.
 enum RootTab: Int, CaseIterable, Identifiable {
     case summary
     case movements
@@ -38,12 +39,12 @@ enum RootTab: Int, CaseIterable, Identifiable {
     }
 
     /// La pestaña en la que vive una sección. `nil`: no tiene pestaña propia
-    /// y se apila sobre el Resumen (Categorías, Etiquetas, Pendientes).
+    /// y se apila sobre el Resumen (Categorías, Etiquetas).
     init?(hosting section: AppSection) {
         switch section {
-        case .movements, .analysis:               self = .movements
+        case .movements, .pending, .analysis:     self = .movements
         case .social, .receivables, .profile:     self = .friends
-        case .categories, .tags, .pending:        return nil
+        case .categories, .tags:                  return nil
         }
     }
 }
