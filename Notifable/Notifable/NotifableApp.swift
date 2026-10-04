@@ -149,19 +149,20 @@ struct NotifableApp: App {
             if newPhase == .active {
                 AppLock.shared.sceneDidBecomeActive()
             } else {
-                if newPhase == .background { AppLock.shared.sceneDidEnterBackground() }
-                GmailSyncService.shared.stopForegroundPolling()
+                if newPhase == .background {
+                    AppLock.shared.sceneDidEnterBackground()
+                    GmailSyncService.shared.appDidEnterBackground()
+                } else {
+                    GmailSyncService.shared.stopForegroundPolling()
+                }
                 // Con la app cerrada el correo lo mira el sistema cuando
                 // puede; ver `BackgroundSync`.
                 BackgroundSync.schedule()
             }
 
             if newPhase == .active, GmailSyncService.qaToken == nil {
-                if MailProviders.anyConnected {
-                    GmailSyncService.shared.modelContext = sharedModelContainer.mainContext
-                    GmailSyncService.shared.syncEmails()
-                }
-                GmailSyncService.shared.startForegroundPolling()
+                GmailSyncService.shared.modelContext = sharedModelContainer.mainContext
+                GmailSyncService.shared.appDidBecomeActive()
                 Task { await ConfigBackupManager.shared.checkForExistingBackup() }
                 // Al volver a la app: si llegó un recordatorio con ella
                 // cerrada, aquí aparece aunque la notificación se perdiera.

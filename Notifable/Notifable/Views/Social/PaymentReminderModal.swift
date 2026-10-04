@@ -455,6 +455,11 @@ enum PaymentReminderModalPresenter {
                 .first(where: { $0.activationState == .foregroundActive })
         else { return }
 
+        // El teclado vive en una ventana del sistema por encima de `.alert`:
+        // con un formulario abierto (registrar un gasto) se dibujaba encima
+        // del modal. Se guarda antes de mostrarlo.
+        scene.windows.forEach { $0.endEditing(true) }
+
         let friend = FriendsManager.shared.friend(with: reminder.fromUser)
         let modal = PaymentReminderModal(reminder: reminder,
                                          name: friend.name,

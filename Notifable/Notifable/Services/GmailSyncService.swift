@@ -83,7 +83,36 @@ class GmailSyncService: ObservableObject {
     // MARK: - Comprobación con la app abierta
 
     /// Cada cuánto se mira el correo mientras la app está en primer plano.
-    static let foregroundPollInterval: TimeInterval = 60
+    /// Con 60 s un yapeo hecho con la app abierta podía tardar casi dos
+    /// minutos en aparecer (lo que tarda Gmail en indexarlo más la espera).
+    /// Sin correo nuevo cada vuelta es una sola `messages.list`: 10 s siguen
+    /// muy lejos de la cuota de Gmail por usuario.
+    static let foregroundPollInterval: TimeInterval = 10
+
+    /// La app viene de segundo plano (o de cerrada): la próxima vez que se
+    /// active hay que leer sí o sí. Empieza en `true` por el arranque en frío.
+    private var cameFromBackground = true
+
+    func appDidEnterBackground() {
+        cameFromBackground = true
+        stopForegroundPolling()
+    }
+
+    /// Al entrar a la app: leer ya, sin esperar al temporizador.
+    ///
+    /// Al volver de segundo plano la lectura salta el límite de frecuencia —si
+    /// no, entrar a los pocos segundos de la última no miraba nada y tocaba
+    /// esperar a la siguiente vuelta—. Es `quiet`: sin correos nuevos no se
+    /// nota; con correos nuevos enseña el progreso como siempre. Todo corre
+    /// fuera del hilo principal salvo el guardado de cada gasto, así que la
+    /// app se puede usar mientras tanto. Bajar el Centro de Notificaciones
+    /// (`.inactive` → `.active`) sólo hace una lectura normal, con su límite.
+    func appDidBecomeActive() {
+        let force = cameFromBackground
+        cameFromBackground = false
+        if MailProviders.anyConnected { syncEmails(force: force, quiet: true) }
+        startForegroundPolling()
+    }
 
     private var pollTimer: Timer?
 
@@ -172,7 +201,7 @@ class GmailSyncService: ObservableObject {
         }
         // Throttling: un poco menos del intervalo del temporizador, para que su
         // propio desfase no le haga saltarse una vuelta.
-        if !force, let lastSync = lastSyncDate, Date().timeIntervalSince(lastSync) < Self.foregroundPollInterval - 10 {
+        if !force, let lastSync = lastSyncDate, Date().timeIntervalSince(lastSync) < Self.foregroundPollInterval * 0.7 {
             print("Sync throttled. Last sync was \(Int(Date().timeIntervalSince(lastSync)/60)) minutes ago.")
             if !quiet { Diagnostics.shared.log("Sync Gmail: omitida, la última fue hace \(Int(Date().timeIntervalSince(lastSync))) s") }
             completion?()
@@ -623,20 +652,25 @@ class GmailSyncService: ObservableObject {
         return removed
     }
 
-    /// `existingEmailIDs()` en el hilo principal, se llame desde donde se llame.
+    /// Los `emailID` ya guardados, leídos en el hilo que llama.
     ///
-    /// **Corrección de un cuelgue permanente:** aquí había un
-    /// `DispatchQueue.main.sync` a secas. `processMessages` llega desde el
-    /// callback de `URLSession` (un hilo de fondo) y ahí funcionaba, pero
-    /// `recoverExpenses` se invoca desde el botón "Sí, recuperar" de la alerta
-    /// de Recuperación de Gastos —o sea, **ya en el hilo principal**—, y
-    /// `main.sync` desde el propio hilo principal es un interbloqueo inmediato
-    /// y definitivo: la app se quedaba congelada, sin crash y sin registro.
-    /// Estando ya en main no hace falta ningún salto; el `sync` se reserva para
-    /// cuando de verdad se viene de otro hilo.
-    private func knownEmailIDsFromMain() -> Set<String> {
+    /// Fuera del hilo principal usa un `ModelContext` propio sobre el mismo
+    /// contenedor: recorrer todo el historial en el principal —antes, con un
+    /// `main.sync`— congelaba la app justo al abrirla, que es cuando se lee el
+    /// correo. Lo insertado se guarda al momento (`handleExpenseInsertion`),
+    /// así que este contexto ve lo mismo que el principal.
+    ///
+    /// Ojo: nunca `DispatchQueue.main.sync` aquí. `recoverExpenses` llega
+    /// desde un botón, ya en el hilo principal, y eso era un interbloqueo.
+    private func knownEmailIDs() -> Set<String> {
         if Thread.isMainThread { return existingEmailIDs() }
-        return DispatchQueue.main.sync { self.existingEmailIDs() }
+        guard let container = modelContext?.container else { return [] }
+        let context = ModelContext(container)
+        let expenses = (try? context.fetch(FetchDescriptor<Expense>())) ?? []
+        let incomes = (try? context.fetch(FetchDescriptor<Income>())) ?? []
+        return Set(expenses.compactMap { $0.emailID })
+            .union(expenses.compactMap { $0.relatedEmailID })
+            .union(incomes.compactMap { $0.emailID })
     }
 
     /// - Parameters:
@@ -718,11 +752,11 @@ class GmailSyncService: ObservableObject {
         var newExpensesFound = 0
         let semaphore = DispatchSemaphore(value: 5) // Maximum 5 concurrent requests
 
-        // Se siembra con lo que ya está en la base y se va ampliando: dos
-        // correos de la misma tanda no pueden crear el mismo gasto dos veces.
-        var knownIDs: Set<String> = knownEmailIDsFromMain()
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Se siembra con lo que ya está en la base y se va ampliando: dos
+            // correos de la misma tanda no pueden crear el mismo gasto dos
+            // veces. Sin nada nuevo no hace falta mirar la base.
+            var knownIDs: Set<String> = newMessages.isEmpty ? [] : (self?.knownEmailIDs() ?? [])
             for message in newMessages {
                 guard let id = message["id"] as? String else { continue }
                 
@@ -900,10 +934,9 @@ class GmailSyncService: ObservableObject {
         let semaphore = DispatchSemaphore(value: 5)
         var newExpensesFound = 0
 
-        // Recuperar dos veces tampoco puede duplicar.
-        var knownIDs: Set<String> = knownEmailIDsFromMain()
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Recuperar dos veces tampoco puede duplicar.
+            var knownIDs: Set<String> = self?.knownEmailIDs() ?? []
             for id in ids {
                 semaphore.wait()
                 group.enter()
