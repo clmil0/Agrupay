@@ -204,9 +204,9 @@ struct AddFriendSheet: View {
                     Button { Task { await createInvite() } } label: {
                         Group {
                             if isCreatingInvite {
-                                ProgressView().tint(.white)
+                                ProgressView().tint(accent.buttonText)
                                     .frame(maxWidth: .infinity).frame(height: 50)
-                                    .background(accent.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             } else {
                                 bigLabel(icon: "person.badge.plus", title: "Crear invitación", filled: true)
                             }
@@ -296,15 +296,15 @@ struct AddFriendSheet: View {
             Button { submitRedeem(redeemInput) } label: {
                 Group {
                     if isRedeeming {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(accent.buttonText)
                     } else {
                         Text("Enviar")
                             .font(.system(size: 15.5, weight: .semibold))
                     }
                 }
-                .foregroundStyle(canSubmit ? Color.white : palette.tertiaryLabel)
+                .foregroundStyle(canSubmit ? accent.buttonText : palette.tertiaryLabel)
                 .frame(width: 92, height: 50)
-                .background(canSubmit ? accent.color : palette.track,
+                .background(canSubmit ? accent.buttonFill : palette.track,
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -374,16 +374,16 @@ struct AddFriendSheet: View {
             Button { submitRedeem(code) } label: {
                 Group {
                     if isRedeeming {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(accent.buttonText)
                     } else {
                         Text("Enviar solicitud")
                             .font(.system(size: 16, weight: .semibold))
                     }
                 }
-                .foregroundStyle(Color.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(accent.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(isRedeeming || outcome?.isSuccess == true)
@@ -485,10 +485,10 @@ struct AddFriendSheet: View {
                 .font(.system(size: 15.5, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(filled ? Color.white : accent.onSurface(scheme))
+        .foregroundStyle(filled ? accent.buttonText : accent.onSurface(scheme))
         .frame(maxWidth: .infinity)
         .frame(height: 50)
-        .background(filled ? AnyShapeStyle(accent.color) : AnyShapeStyle(palette.surface),
+        .background(filled ? AnyShapeStyle(accent.buttonFill) : AnyShapeStyle(palette.surface),
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
             .stroke(filled ? Color.clear : palette.hairline, lineWidth: 0.5))
@@ -628,11 +628,28 @@ struct MyProfileSheet: View {
     @State private var nameDraft = ""
     @State private var statusDraft = ""
     @State private var bannerDraft = 0
+    @State private var styleDraft = SocialStyle()
+    @State private var headerMode: HeaderMode = .normal
+    /// Cuándo arrancó la entrada de la vista previa; «Ver» la repite.
+    @State private var entranceStart: Date?
+    @State private var paywallFeature: ProStore.Feature?
+    @AppStorage(ProStore.enabledKey) private var isPro = false
     @State private var penguinDraft = PenguinLook()
     @State private var didLoad = false
     @FocusState private var focus: Field?
 
     private enum Field: Hashable { case name, status }
+
+    /// Cabecera › Normal (las ocho básicas) o Pro (cielos y adornos).
+    private enum HeaderMode { case normal, pro }
+
+    /// El borrador tal como lo verían tus amigos hoy.
+    private var previewStyle: SocialStyle {
+        var style = styleDraft.withDefaults(ProTheme.current)
+        style.banner = bannerDraft
+        style.pro = isPro
+        return style
+    }
 
     private var tabs: [Tab] {
         switch section {
@@ -653,7 +670,10 @@ struct MyProfileSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    headerPreview
+                    VStack(alignment: .leading, spacing: 8) {
+                        if tab == .header { previewLabel }
+                        headerPreview
+                    }
 
                     if tabs.count > 1 {
                         Picker("Sección", selection: $tab) {
@@ -694,6 +714,10 @@ struct MyProfileSheet: View {
                 }
             }
             .onAppear(perform: load)
+            .proPaywall($paywallFeature)
+            .onChange(of: tab) { _, tab in
+                if tab == .header { entranceStart = Date() }
+            }
             .task {
                 // El foco sólo prende una vez que la hoja terminó de subir;
                 // pedirlo antes no abre el teclado.
@@ -723,15 +747,38 @@ struct MyProfileSheet: View {
 
     // MARK: - Vista previa
 
+    /// «Así te ven al abrir tu perfil» y «Ver», que repite la entrada.
+    private var previewLabel: some View {
+        HStack(alignment: .firstTextBaseline) {
+            sectionLabel("Así te ven al abrir tu perfil")
+            Spacer()
+            if previewStyle.shown.entrance != .none {
+                Button {
+                    entranceStart = Date()
+                } label: {
+                    Label("Ver", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(themeColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var headerPreview: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SocialBannerView(index: bannerDraft)
+        let style = previewStyle
+
+        return VStack(alignment: .leading, spacing: 0) {
+            SocialHeaderView(style: style)
                 .frame(height: 104)
+                .animation(.easeInOut(duration: 0.2), value: style)
 
             HStack(alignment: .bottom, spacing: 12) {
-                PenguinAvatar(look: penguinDraft, size: 92, background: palette.surface)
-                    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-                    .animation(.spring(duration: 0.3), value: penguinDraft)
+                StyledAvatar(size: 92, style: style, gap: palette.surface, hopStart: entranceStart) { fill in
+                    PenguinAvatar(look: penguinDraft, size: 92, background: palette.surface, fill: fill)
+                }
+                .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+                .animation(.spring(duration: 0.3), value: penguinDraft)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(nameDraft.isEmpty ? "Tu nombre" : nameDraft)
@@ -751,11 +798,8 @@ struct MyProfileSheet: View {
             .padding(.bottom, -38 + 12)
         }
         .background(palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(palette.hairline, lineWidth: 0.5)
-        )
+        .overlay { SocialEntranceOverlay(style: style, start: entranceStart) }
+        .socialFrame(style, radius: 18, hairline: palette.hairline)
     }
 
     // MARK: - Personaje
@@ -997,33 +1041,321 @@ struct MyProfileSheet: View {
     // MARK: - Cabecera
 
     private var headerTab: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 18) {
+            headerModePicker
+
+            switch headerMode {
+            case .normal: basicHeaders
+            case .pro: proOptions
+            }
+        }
+    }
+
+    private var headerModePicker: some View {
+        HStack(spacing: 4) {
+            modeButton("Normal", mode: .normal)
+            modeButton("Pro", mode: .pro, icon: "sparkles")
+        }
+        .padding(4)
+        .background(palette.surface, in: Capsule())
+        .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
+    }
+
+    private func modeButton(_ title: String, mode: HeaderMode, icon: String? = nil) -> some View {
+        let on = headerMode == mode
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { headerMode = mode }
+        } label: {
+            HStack(spacing: 5) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xB38A1E))
+                }
+                Text(title)
+                    .font(.system(size: 13, weight: on ? .semibold : .regular))
+                    .foregroundStyle(on ? palette.label : palette.secondaryLabel)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(on ? palette.track : .clear, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private var basicHeaders: some View {
+        VStack(alignment: .leading, spacing: 10) {
             sectionLabel("Cabecera")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(SocialBanner.allCases, id: \.rawValue) { banner in
+                    let on = previewStyle.shown.skyHeader != true && bannerDraft == banner.rawValue
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { bannerDraft = banner.rawValue }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 5) {
-                            SocialBannerView(banner)
-                                .frame(height: 62)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(bannerDraft == banner.rawValue ? themeColor : palette.hairline,
-                                                lineWidth: bannerDraft == banner.rawValue ? 2.5 : 0.5)
-                                        .padding(bannerDraft == banner.rawValue ? -2.5 : 0)
-                                )
-                            Text(banner.name)
-                                .font(.caption)
-                                .foregroundStyle(palette.secondaryLabel)
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            bannerDraft = banner.rawValue
+                            styleDraft.skyHeader = false
                         }
+                    } label: {
+                        SocialBannerView(banner)
+                            .frame(height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(selectionRing(on, radius: 12))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityAddTraits(bannerDraft == banner.rawValue ? .isSelected : [])
+                    .accessibilityLabel(banner.name)
+                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
             }
             lockNote("La cabecera es lo primero que ven tus amigos en tu tarjeta. No muestra ningún monto.")
+        }
+    }
+
+    // MARK: - Cabecera › Pro
+
+    private var proOptions: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if !isPro { proUpsell }
+
+            VStack(alignment: .leading, spacing: 10) {
+                sectionLabel("Cabecera animada")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 10) {
+                    ForEach(ProTheme.night + ProTheme.day) { theme in
+                        skyTile(theme)
+                    }
+                }
+            }
+
+            optionGroup("Aura del avatar", columns: 4) {
+                ForEach(SocialStyle.Aura.allCases, id: \.self) { aura in
+                    option(Self.auraName(aura), selected: styleDraft.aura == aura) {
+                        var sample = previewSample
+                        sample.aura = aura
+                        sample.background = .plain
+                        return AnyView(miniAvatar(sample))
+                    } pick: { styleDraft.aura = aura }
+                }
+            }
+
+            optionGroup("Fondo del avatar", columns: 4) {
+                ForEach(SocialStyle.AvatarBackground.allCases, id: \.self) { background in
+                    option(Self.backgroundName(background), selected: styleDraft.background == background) {
+                        var sample = previewSample
+                        sample.aura = .none
+                        sample.background = background
+                        return AnyView(miniAvatar(sample))
+                    } pick: { styleDraft.background = background }
+                }
+            }
+
+            optionGroup("Marco de la tarjeta", columns: 4) {
+                ForEach(SocialStyle.Frame.allCases, id: \.self) { frame in
+                    option(Self.frameName(frame), selected: styleDraft.frame == frame) {
+                        AnyView(miniCard(frame))
+                    } pick: { styleDraft.frame = frame }
+                }
+            }
+
+            optionGroup("Al abrir tu perfil", columns: 4) {
+                ForEach(SocialStyle.Entrance.allCases, id: \.self) { entrance in
+                    option(Self.entranceName(entrance), selected: styleDraft.entrance == entrance) {
+                        AnyView(Image(systemName: Self.entranceIcon(entrance))
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(entrance == .none ? palette.tertiaryLabel : previewStyle.tintTheme.skyAccent))
+                    } pick: {
+                        styleDraft.entrance = entrance
+                        entranceStart = Date()
+                    }
+                }
+            }
+
+            lockNote("Tus amigos ven tu cielo, tu aura y tu marco en Social. Si dejas Pro, vuelven a ver tu cabecera normal; lo que elegiste aquí se queda guardado.")
+        }
+    }
+
+    /// Para las muestras: el borrador, como si ya fueras Pro.
+    private var previewSample: SocialStyle {
+        var style = previewStyle
+        style.pro = true
+        style.entrance = .none
+        return style
+    }
+
+    private var proUpsell: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tu perfil, a tu manera")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.label)
+                Text("Cielos animados, aura y marco que tus amigos ven en Social.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(palette.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button {
+                paywallFeature = .profile
+            } label: {
+                Text("Probar Pro")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(themeColor.readableText)
+                    .padding(.horizontal, 14)
+                    .frame(height: 34)
+                    .background(themeColor.readableFill, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .background(Color(hex: 0xF6C64B, opacity: 0.12), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(Color(hex: 0xF6C64B, opacity: 0.45), lineWidth: 0.5))
+    }
+
+    private func skyTile(_ theme: ProTheme) -> some View {
+        let on = isPro && previewStyle.skyHeader == true && previewStyle.tintTheme == theme
+        return Button {
+            guard isPro else { paywallFeature = .profile; return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                styleDraft.theme = theme.key
+                styleDraft.skyHeader = true
+            }
+        } label: {
+            VStack(spacing: 5) {
+                // Sólo la elegida se mueve: diez cielos a la vez cuestan.
+                ProSkyBanner(theme: theme, animated: on)
+                    .frame(height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(selectionRing(on, radius: 12))
+                    .overlay(alignment: .bottomTrailing) {
+                        if !isPro {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 18, height: 18)
+                                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                .padding(4)
+                        }
+                    }
+                Text(theme.rawValue)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(on ? themeColor : palette.secondaryLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Cabecera " + theme.rawValue)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func optionGroup<Content: View>(_ title: String, columns: Int,
+                                            @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel(title)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns), spacing: 8) {
+                content()
+            }
+        }
+    }
+
+    private func option(_ label: String, selected: Bool, art: () -> AnyView,
+                        pick: @escaping () -> Void) -> some View {
+        let on = isPro && selected
+        return Button {
+            guard isPro else { paywallFeature = .profile; return }
+            withAnimation(.easeInOut(duration: 0.2)) { pick() }
+        } label: {
+            VStack(spacing: 6) {
+                art()
+                    .frame(height: 48)
+                    .opacity(isPro ? 1 : 0.55)
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(on ? themeColor : palette.label)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .padding(.horizontal, 4)
+            .background(palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(selectionRing(on, radius: 16))
+            .overlay(alignment: .topTrailing) {
+                if !isPro {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(palette.tertiaryLabel)
+                        .padding(7)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func selectionRing(_ on: Bool, radius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .stroke(on ? themeColor : palette.hairline, lineWidth: on ? 2 : 0.5)
+    }
+
+    private func miniAvatar(_ style: SocialStyle) -> some View {
+        StyledAvatar(size: 36, style: style, gap: palette.surface) { fill in
+            PenguinAvatar(look: penguinDraft, size: 36, background: palette.background, fill: fill)
+        }
+    }
+
+    private func miniCard(_ frame: SocialStyle.Frame) -> some View {
+        var style = previewSample
+        style.frame = frame
+        return RoundedRectangle(cornerRadius: 7.5, style: .continuous)
+            .fill(palette.background)
+            .frame(width: frame == .none ? 50 : 46, height: frame == .none ? 36 : 32)
+            .socialFrame(style, radius: 7.5, hairline: palette.separator)
+    }
+
+    private static func auraName(_ aura: SocialStyle.Aura) -> String {
+        switch aura {
+        case .none: return "Ninguna"
+        case .theme: return "Del tema"
+        case .halo: return "Halo"
+        case .gold: return "Oro"
+        }
+    }
+
+    private static func backgroundName(_ background: SocialStyle.AvatarBackground) -> String {
+        switch background {
+        case .plain: return "Liso"
+        case .theme: return "Del tema"
+        case .sphere: return "Esfera"
+        case .gold: return "Oro"
+        }
+    }
+
+    private static func frameName(_ frame: SocialStyle.Frame) -> String {
+        switch frame {
+        case .none: return "Sin marco"
+        case .glow: return "Brillo"
+        case .gold: return "Oro"
+        }
+    }
+
+    private static func entranceName(_ entrance: SocialStyle.Entrance) -> String {
+        switch entrance {
+        case .none: return "Ninguna"
+        case .flash: return "Destello"
+        case .hop: return "Saltito"
+        case .stars: return "Estrellas"
+        }
+    }
+
+    private static func entranceIcon(_ entrance: SocialStyle.Entrance) -> String {
+        switch entrance {
+        case .none: return "nosign"
+        case .flash: return "wand.and.rays"
+        case .hop: return "figure.jumprope"
+        case .stars: return "sparkles"
         }
     }
 
@@ -1118,8 +1450,11 @@ struct MyProfileSheet: View {
         nameDraft = social.displayName
         statusDraft = social.status
         bannerDraft = social.bannerIndex ?? 0
+        styleDraft = social.style
+        headerMode = isPro && previewStyle.skyHeader == true ? .pro : .normal
         penguinDraft = social.penguin
         tab = tabs[0]
+        entranceStart = Date()
         // Quien llega sin nombre (primera vez en Amigos) empieza por ahí.
         if section == .all, social.displayName.isEmpty || social.displayName == "Amigo" { tab = .data }
     }
@@ -1128,6 +1463,7 @@ struct MyProfileSheet: View {
         let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let status = statusDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         social.bannerIndex = bannerDraft
+        social.style = styleDraft
         social.penguin = penguinDraft
         let emoji = social.avatarEmoji
         Task {
@@ -1396,14 +1732,13 @@ struct FriendEditSheet: View {
     }
 }
 
-/// 2f — Perfil del amigo: su cabecera, la historia de la amistad, lo que te
-/// comparte y lo que tú le compartes. De lectura — cambiar lo que le
-/// compartes vive en `AmigoDetailView`, detrás de "Cambiar".
-/// El detalle de un amigo (`5k`).
+/// La ficha de un amigo («Social Pro»): su cabecera con su avatar encima
+/// —el cielo, el aura y la entrada de su perfil Pro, si lo tiene—, lo que te
+/// comparte y lo que tú le compartes. De lectura: cambiar lo que le compartes
+/// vive en `AmigoDetailView`, detrás de «Editar».
 ///
-/// Dos bloques simétricos: lo que recibes arriba, lo que das abajo. La franja
-/// del final resume en una frase exactamente qué ve el otro — la pregunta que
-/// nadie quiere tener que deducir de dos interruptores y una lista.
+/// Sin barra de navegación: la cabecera llega hasta arriba. Cerrar va en la
+/// cruz, y el apodo, dejar de compartir y eliminar, en el menú «…».
 struct FriendProfileView: View {
     let friend: Friend
     let totals: PeriodTotals
@@ -1426,74 +1761,135 @@ struct FriendProfileView: View {
     @State private var showStopConfirm = false
     @State private var showDeleteConfirm = false
     @State private var errorMessage: String?
+    /// Cuándo se abrió: arranca su animación de entrada.
+    @State private var openedAt: Date?
 
     private var shownName: String { social.name(for: friend.id, realName: friend.displayName) }
     private var myShare: FriendShareRow? { friendsManager.myShare(toward: friend.id) }
+    private var style: SocialStyle { friend.style ?? SocialStyle() }
+    private var month: String { Period.spanishMonthName(for: Date()).lowercased() }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    header
+        // La cabecera va dentro del scroll: el avatar sobresale de ella, y
+        // fija dejaba pasar las filas por debajo del avatar.
+        ScrollView {
+            VStack(spacing: 0) {
+                header
 
-                    if let incoming { theyShareSection(incoming) }
+                VStack(spacing: 18) {
+                    identity
+
+                    theyShareSection
 
                     weShareSection
 
-                    destructiveActions
-                }
-                .padding(16)
-            }
-            .background(palette.background)
-            .navigationTitle(shownName)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cerrar") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Editar") { showEditSheet = true }
-                }
-            }
-            .sheet(isPresented: $showEditSheet) {
-                FriendEditSheet(friend: friend)
-            }
-            .sheet(isPresented: $showShareEditor) {
-                AmigoDetailView(friend: friend, totals: totals)
-            }
-            // `alert` y no `confirmationDialog`: la hoja de acciones se anclaba
-            // al borde superior de la pantalla —lejos del botón que se acababa
-            // de tocar, y con el texto medio tapado por la barra—. La alerta
-            // sale centrada siempre, y además le cabe el porqué, que a una
-            // acción destructiva no le puede faltar.
-            .alert("¿Dejar de compartir con " + shownName + "?",
-                   isPresented: $showStopConfirm) {
-                Button("Cancelar", role: .cancel) {}
-                Button("Dejar de compartir", role: .destructive) {
-                    Task {
-                        await friendsManager.stopSharing(viewerID: friend.id)
-                        dismiss()
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(palette.negative)
                     }
                 }
-            } message: {
-                Text("Dejará de ver tu gasto en cuanto abra la app. Seguirán siendo amigos, y puedes volver a compartirle cuando quieras.")
+                .padding(.horizontal, 22)
+                .padding(.top, 56)
+                .padding(.bottom, 40)
             }
-            .alert("¿Eliminar a " + shownName + "?",
-                   isPresented: $showDeleteConfirm) {
-                Button("Cancelar", role: .cancel) {}
-                Button("Eliminar amigo", role: .destructive) { deleteFriend() }
-            } message: {
-                Text("Dejarán de verse el gasto el uno al otro. Puedes volver a agregarlo con un código.")
+        }
+        .scrollIndicators(.hidden)
+        .background(palette.background)
+        .onAppear { if openedAt == nil { openedAt = Date() } }
+        .sheet(isPresented: $showEditSheet) {
+            FriendEditSheet(friend: friend)
+        }
+        .sheet(isPresented: $showShareEditor) {
+            AmigoDetailView(friend: friend, totals: totals)
+        }
+        // `alert` y no `confirmationDialog`: la hoja de acciones se anclaba
+        // al borde superior de la pantalla —lejos del botón que se acababa
+        // de tocar, y con el texto medio tapado por la barra—. La alerta
+        // sale centrada siempre, y además le cabe el porqué, que a una
+        // acción destructiva no le puede faltar.
+        .alert("¿Dejar de compartir con " + shownName + "?",
+               isPresented: $showStopConfirm) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Dejar de compartir", role: .destructive) {
+                Task {
+                    await friendsManager.stopSharing(viewerID: friend.id)
+                    dismiss()
+                }
             }
+        } message: {
+            Text("Dejará de ver tu gasto en cuanto abra la app. Seguirán siendo amigos, y puedes volver a compartirle cuando quieras.")
+        }
+        .alert("¿Eliminar a " + shownName + "?",
+               isPresented: $showDeleteConfirm) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Eliminar amigo", role: .destructive) { deleteFriend() }
+        } message: {
+            Text("Dejarán de verse el gasto el uno al otro. Puedes volver a agregarlo con un código.")
         }
     }
 
     // MARK: - Cabecera
 
     private var header: some View {
-        VStack(spacing: 8) {
-            FriendAvatar(friend: friend, size: 76)
+        SocialHeaderView(style: style)
+            .frame(height: 150)
+            .overlay { SocialEntranceOverlay(style: style, start: openedAt) }
+            .clipped()
+            .overlay(alignment: .topLeading) {
+                Menu {
+                    Button { showEditSheet = true } label: {
+                        Label("Apodo, color y emoji", systemImage: "pencil")
+                    }
+                    if myShare != nil {
+                        Button(role: .destructive) { showStopConfirm = true } label: {
+                            Label("Dejar de compartir", systemImage: "eye.slash")
+                        }
+                    }
+                    Button(role: .destructive) { showDeleteConfirm = true } label: {
+                        Label("Eliminar a " + shownName, systemImage: "person.badge.minus")
+                    }
+                } label: {
+                    headerButton("ellipsis")
+                }
+                .accessibilityLabel("Más opciones")
+                .padding(.leading, 16)
+                .padding(.top, 18)
+            }
+            .overlay(alignment: .topTrailing) {
+                Button { dismiss() } label: { headerButton("xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Cerrar")
+                    .padding(.trailing, 16)
+                    .padding(.top, 18)
+            }
+            .overlay(alignment: .bottom) {
+                StyledAvatar(size: 96, style: style, gap: palette.background, hopStart: openedAt) { fill in
+                    if !friend.usesEmoji, let penguin = friend.penguin {
+                        PenguinAvatar(look: penguin, size: 96, background: palette.neutralSurface, fill: fill)
+                    } else {
+                        FriendAvatar(friend: Friend(id: friend.id, displayName: friend.displayName,
+                                                    status: friend.status, penguin: friend.penguin),
+                                     size: 96)
+                    }
+                }
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                .offset(y: 50)
+            }
+            .zIndex(1)
+    }
 
+    private func headerButton(_ icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(.black.opacity(0.35), in: Circle())
+            .contentShape(Circle())
+    }
+
+    private var identity: some View {
+        VStack(spacing: 6) {
             Text(shownName)
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(palette.label)
@@ -1504,225 +1900,141 @@ struct FriendProfileView: View {
                     .foregroundStyle(palette.secondaryLabel)
             }
 
-            if !friend.status.isEmpty {
-                Text(friend.status)
-                    .font(.system(size: 13))
-                    .foregroundStyle(palette.label)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(friend.tint.opacity(colorScheme == .dark ? 0.22 : 0.12), in: Capsule())
+            Text(friend.status.isEmpty ? "Sin estado" : "«" + friend.status + "»")
+                .font(.system(size: 13.5))
+                .foregroundStyle(friend.status.isEmpty ? palette.tertiaryLabel : palette.secondaryLabel)
+                .multilineTextAlignment(.center)
+
+            if let theme = friend.proTheme {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Perfil Pro · " + theme.rawValue)
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .foregroundStyle(colorScheme == .dark ? theme.skyAccent : theme.skyInk)
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(theme.skyAccent.opacity(0.14), in: Capsule())
             }
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Lo que te comparte
+    // MARK: - Te comparte
 
-    private func theyShareSection(_ incoming: FriendShareRow) -> some View {
-        let maximum = incoming.categoryTotals.map(\.amount).max() ?? 0
+    private struct ShareLine: Identifiable {
+        let id: String
+        let icon: String
+        let label: String
+        let tint: Color?
+        let amount: String
+        var muted = false
+    }
 
-        return VStack(spacing: 8) {
-            ShellSectionHeader(title: "Lo que te comparte")
-
-            ShellCard(padding: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Total de " + Period.spanishMonthName(for: Date()).lowercased())
-                            .font(.system(size: 13))
-                            .foregroundStyle(palette.secondaryLabel)
-                        Spacer()
-                        Text("al " + updatedLabel(incoming))
-                            .font(.system(size: 12))
-                            .foregroundStyle(palette.tertiaryLabel)
-                    }
-
-                    if let total = incoming.totalAmount, incoming.shareTotal {
-                        Text(Money.format(total))
-                            .font(.system(size: 30, weight: .bold))
-                            .tracking(-0.8)
-                            .foregroundStyle(palette.label)
-                    }
-
-                    ForEach(incoming.categoryTotals, id: \.name) { entry in
-                        HStack(spacing: 10) {
-                            Text(entry.name)
-                                .font(.system(size: 13.5))
-                                .foregroundStyle(palette.label)
-                                .frame(width: 92, alignment: .leading)
-                                .lineLimit(1)
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(palette.track)
-                                    Capsule()
-                                        .fill(CategoryStyle.color(for: entry.name, accent: accent.color))
-                                        .frame(width: max(4, geo.size.width * (maximum > 0 ? entry.amount / maximum : 0)))
-                                }
-                            }
-                            .frame(height: 10)
-                            Text(Money.formatCompact(entry.amount))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(palette.label)
-                                .frame(width: 64, alignment: .trailing)
-                        }
-                    }
-
-                    if !incoming.categoryTotals.isEmpty {
-                        Text(incoming.categoryTotals.count == 1
-                             ? "Comparte 1 de sus categorías."
-                             : "Comparte \(incoming.categoryTotals.count) de sus categorías.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(palette.secondaryLabel)
-                    }
-                }
-            }
+    private var theyShareLines: [ShareLine] {
+        guard let incoming else {
+            let waiting = friendsManager.pendingIncoming.contains { $0.sharerID == friend.id }
+            return [ShareLine(id: "nada", icon: "eye.slash",
+                              label: waiting ? "Esperando que aceptes" : "No te comparte nada",
+                              tint: nil, amount: "—", muted: true)]
         }
+        var lines: [ShareLine] = []
+        if let total = incoming.totalAmount, incoming.shareTotal {
+            lines.append(ShareLine(id: "total", icon: "banknote", label: "Total del mes",
+                                   tint: nil, amount: Money.format(total)))
+        }
+        for entry in incoming.categoryTotals {
+            lines.append(ShareLine(id: entry.name, icon: CategoryStyle.icon(for: entry.name), label: entry.name,
+                                   tint: CategoryStyle.color(for: entry.name, accent: accent.color),
+                                   amount: Money.format(entry.amount)))
+        }
+        if lines.isEmpty {
+            lines.append(ShareLine(id: "nada", icon: "eye.slash", label: "No te comparte nada",
+                                   tint: nil, amount: "—", muted: true))
+        }
+        return lines
     }
 
-    private func updatedLabel(_ row: FriendShareRow) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = iso.date(from: row.updatedAt) ?? ISO8601DateFormatter().date(from: row.updatedAt) ?? Date()
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "es_ES")
-        f.dateFormat = "d MMM"
-        return f.string(from: date).replacingOccurrences(of: ".", with: "")
-    }
+    private var theyShareSection: some View {
+        let lines = theyShareLines
 
-    // MARK: - Lo que tú le compartes
-
-    /// El total se decide aquí mismo; las categorías, en su propia hoja. No
-    /// hay «Movimientos sueltos»: el servidor sólo guarda totales por
-    /// categoría, y ningún comercio ni fecha sale del teléfono.
-    private var weShareSection: some View {
-        VStack(spacing: 8) {
-            ShellSectionHeader(title: "Lo que tú le compartes")
+        return VStack(spacing: 0) {
+            ShellSectionHeader(title: "Te comparte")
 
             MovementCard {
-                Toggle(isOn: shareTotalBinding) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Total del mes").foregroundStyle(palette.label)
-                        Text("El monto de Resumen, sin desglose")
-                            .font(.caption).foregroundStyle(palette.secondaryLabel)
+                ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                    if index > 0 {
+                        Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 58)
                     }
-                }
-                .tint(palette.positive)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-
-                Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 14)
-
-                Button { showShareEditor = true } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Categorías elegidas").foregroundStyle(palette.label)
-                            if let names = myShare?.shareCategories, !names.isEmpty {
-                                Text(names.joined(separator: ", "))
-                                    .font(.caption).foregroundStyle(palette.secondaryLabel)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        Text("\(myShare?.shareCategories.count ?? 0) de \(totals.byCategory.count)")
-                            .foregroundStyle(palette.secondaryLabel)
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(palette.tertiaryLabel)
+                    HStack(spacing: 12) {
+                        Image(systemName: line.icon)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(line.tint ?? (line.muted ? palette.secondaryLabel : palette.label))
+                            .frame(width: 32, height: 32)
+                            .background(line.tint.map { $0.opacity(0.14) } ?? palette.track,
+                                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        Text(line.label)
+                            .font(.system(size: 15.5, weight: .semibold))
+                            .foregroundStyle(line.muted ? palette.secondaryLabel : palette.label)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(line.amount)
+                            .font(.system(size: 15.5, weight: .semibold))
+                            .foregroundStyle(line.muted ? palette.tertiaryLabel : palette.label)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
-
-            seesToday
         }
     }
 
-    private var shareTotalBinding: Binding<Bool> {
-        Binding(get: { myShare?.shareTotal ?? false }, set: { newValue in
-            let categories = myShare?.shareCategories ?? []
-            let amounts = totals.byCategory.map {
-                FriendShareRow.CategoryAmount(name: $0.category, amount: $0.total)
-            }
-            Task {
-                await friendsManager.setShare(viewerID: friend.id,
-                                              shareTotal: newValue,
-                                              categories: categories,
-                                              totalAmount: totals.spent,
-                                              categoryTotals: amounts)
-            }
-        })
-    }
+    // MARK: - Le compartes
 
-    /// «Mariana ve hoy: S/ 2,612 del mes, y Comida y Ocio con su monto.»
-    private var seesToday: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "eye")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(accent.onSurface(colorScheme))
-            Text(seesTodayText)
-                .font(.system(size: 12.5))
-                .foregroundStyle(palette.label)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(accent.color.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private var seesTodayText: String {
+    /// Lo que ve de ti, en pastillas. Cambiarlo, en «Editar»: el total y las
+    /// categorías se eligen en `AmigoDetailView`. No hay «Movimientos
+    /// sueltos»: el servidor sólo guarda totales por categoría, y ningún
+    /// comercio ni fecha sale del teléfono.
+    private var weShareSection: some View {
         let shareTotal = myShare?.shareTotal ?? false
         let categories = myShare?.shareCategories ?? []
-        let name = shownName
+        let sharesAnything = shareTotal || !categories.isEmpty
 
-        func list(_ items: [String]) -> String {
-            guard items.count > 1, let last = items.last else { return items.first ?? "" }
-            return items.dropLast().joined(separator: ", ") + " y " + last
-        }
+        return VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("LE COMPARTES")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(palette.secondaryLabel)
+                Spacer()
+                Button("Editar") { showShareEditor = true }
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(accent.onSurface(colorScheme))
+            }
+            .padding(.horizontal, 2)
+            .padding(.bottom, 8)
 
-        switch (shareTotal, categories.isEmpty) {
-        case (false, true):
-            return name + " no ve nada tuyo por ahora."
-        case (true, true):
-            return name + " ve hoy: " + Money.format(totals.spent) + " del mes, sin desglose."
-        case (false, false):
-            return name + " ve hoy: " + list(categories) + " con su monto, sin tu total."
-        case (true, false):
-            return name + " ve hoy: " + Money.format(totals.spent) + " del mes, y "
-                + list(categories) + " con su monto."
-        }
-    }
+            ShellCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    TagFlowLayout(spacing: 6, lineSpacing: 6) {
+                        if shareTotal { SocialShareChip.total() }
+                        ForEach(categories, id: \.self) { category in
+                            SocialShareChip.category(category,
+                                                     amount: totals.byCategory.first { $0.category == category }?.total,
+                                                     accent: accent.color)
+                        }
+                        if !sharesAnything {
+                            SocialShareChip(icon: "eye.slash", label: "Nada", tint: nil)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-    // MARK: - Acciones destructivas
-
-    @ViewBuilder
-    private var destructiveActions: some View {
-        VStack(spacing: 4) {
-            if myShare != nil {
-                Button(role: .destructive) { showStopConfirm = true } label: {
-                    Text("Dejar de compartir con " + shownName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(palette.negative)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                    Text(sharesAnything ? shownName + " ve esto de tu gasto de " + month + "."
+                                        : shownName + " no ve nada de tu gasto.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(palette.secondaryLabel)
                 }
-                .buttonStyle(.plain)
-            }
-
-            Button(role: .destructive) { showDeleteConfirm = true } label: {
-                Text("Eliminar a " + shownName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(palette.negative)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-            }
-            .buttonStyle(.plain)
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(palette.negative)
             }
         }
     }

@@ -181,15 +181,15 @@ private struct DictationFooter: View {
             } label: {
                 HStack(spacing: 8) {
                     if session.isThinking {
-                        ProgressView().tint(.white).controlSize(.small)
+                        ProgressView().tint(accent.buttonText).controlSize(.small)
                     }
                     Text(session.isThinking ? "Entendiendo…" : "Listo")
                         .font(.system(size: 15, weight: .bold))
                 }
-                .foregroundStyle(Color.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 46)
-                .background(accent.color.opacity(session.isThinking ? 0.6 : 1), in: Capsule())
+                .background(accent.buttonFill.opacity(session.isThinking ? 0.6 : 1), in: Capsule())
             }
             .buttonStyle(.plain)
             .disabled(session.isThinking)
@@ -397,10 +397,10 @@ private struct DictationCardView: View {
             } label: {
                 Text("Editar")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(accent.buttonText)
                     .padding(.horizontal, 14)
                     .frame(height: 32)
-                    .background(accent.color, in: Capsule())
+                    .background(accent.buttonFill, in: Capsule())
             }
             .buttonStyle(.plain)
         }
@@ -472,10 +472,10 @@ private struct DictationCardView: View {
                 } label: {
                     Text("Guardar")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(accent.buttonText)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
-                        .background(accent.color, in: Capsule())
+                        .background(accent.buttonFill, in: Capsule())
                         .opacity(Money.cents(Money.parse(amountText) ?? 0) > 0 ? 1 : 0.4)
                 }
                 .buttonStyle(.plain)

@@ -188,10 +188,10 @@ struct DeleteDataView: View {
         } label: {
             Text(intent.buttonLabel)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(tint.readableText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
-                .background(tint)
+                .background(tint.readableFill)
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
         .buttonStyle(.plain)

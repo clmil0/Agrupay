@@ -167,7 +167,7 @@ struct CategoryDetailView: View {
             } label: {
                 Label("Año", systemImage: "calendar")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(showsYear ? Color.white : palette.label)
+                    .foregroundStyle(showsYear ? palette.background : palette.label)
                     .padding(.horizontal, 12)
                     .frame(height: 32)
                     .background(showsYear ? AnyShapeStyle(palette.label) : AnyShapeStyle(palette.surface),

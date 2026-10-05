@@ -63,6 +63,9 @@ final class SocialProfileStore {
         static let bannerIndex = "socialBannerIndex"
         /// JSON `PenguinLook`: mi pingüino. Ausente = el clásico.
         static let penguin = "socialPenguin"
+        /// JSON `SocialStyle`: cielo, aura, fondo, marco y entrada del perfil
+        /// Pro. Ausente = sin adornos.
+        static let style = "socialStyle"
         /// JSON `[idDeAmigo: FriendPreferences]`.
         static let friendPreferences = "socialFriendPreferences"
     }
@@ -106,6 +109,35 @@ final class SocialProfileStore {
         }
     }
 
+    /// Mis elecciones del perfil Pro. Se guardan aunque deje de ser Pro: al
+    /// volver, todo está como lo dejé.
+    var style: SocialStyle = SocialStyle() {
+        didSet {
+            guard let data = try? JSONEncoder().encode(style),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            UserDefaults.standard.set(json, forKey: Keys.style)
+        }
+    }
+
+    /// Lo que se sube a `profiles.social_style` y lo que pinta mi tarjeta:
+    /// con la cabecera básica elegida, si hoy soy Pro y, en lo que no elegí,
+    /// mi fondo Pro de Apariencia.
+    var publishedStyle: SocialStyle { styled(style, banner: bannerIndex) }
+
+    /// `draft` tal como lo verían mis amigos con la cabecera `banner`.
+    func styled(_ draft: SocialStyle, banner: Int?) -> SocialStyle {
+        var value = draft.withDefaults(ProTheme.current)
+        value.banner = banner
+        value.pro = ProStore.isPro
+        return value
+    }
+
+    private static func storedStyle() -> SocialStyle? {
+        guard let raw = UserDefaults.standard.string(forKey: Keys.style),
+              let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(SocialStyle.self, from: data)
+    }
+
     private static func storedPenguin() -> PenguinLook? {
         guard let raw = UserDefaults.standard.string(forKey: Keys.penguin),
               let data = raw.data(using: .utf8) else { return nil }
@@ -121,6 +153,7 @@ final class SocialProfileStore {
         let banner = defaults.object(forKey: Keys.bannerIndex) as? Int ?? -1
         bannerIndex = banner < 0 ? nil : banner
         penguin = Self.storedPenguin() ?? PenguinLook()
+        style = Self.storedStyle() ?? SocialStyle()
         load()
     }
 
@@ -212,6 +245,7 @@ final class SocialProfileStore {
         let banner = defaults.object(forKey: Keys.bannerIndex) as? Int ?? -1
         bannerIndex = banner < 0 ? nil : banner
         penguin = Self.storedPenguin() ?? penguin
+        style = Self.storedStyle() ?? style
         preferences = [:]
         load()
     }

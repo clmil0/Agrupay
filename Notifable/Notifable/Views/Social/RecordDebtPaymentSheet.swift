@@ -86,14 +86,14 @@ struct RecordDebtPaymentSheet: View {
 
                 Button { Task { await save() } } label: {
                     HStack(spacing: 8) {
-                        if isSaving { ProgressView().tint(.white).controlSize(.small) }
+                        if isSaving { ProgressView().tint(accent.buttonText).controlSize(.small) }
                         Text("Registrar")
                             .font(.system(size: 15.5, weight: .semibold))
                     }
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(accent.color.opacity(canSave ? 1 : 0.4),
+                    .background(accent.buttonFill.opacity(canSave ? 1 : 0.4),
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)

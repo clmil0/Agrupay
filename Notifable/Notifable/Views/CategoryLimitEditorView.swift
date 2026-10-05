@@ -169,10 +169,10 @@ struct CategoryLimitEditorView: View {
             if let icon { Image(systemName: icon).font(.system(size: 11, weight: .semibold)) }
             Text(text).font(.system(size: 13.5, weight: .semibold))
         }
-        .foregroundStyle(selected ? Color.white : (icon == nil ? palette.label : accent.onSurface(scheme)))
+        .foregroundStyle(selected ? accent.buttonText : (icon == nil ? palette.label : accent.onSurface(scheme)))
         .padding(.horizontal, 12)
         .frame(height: 32)
-        .background(selected ? AnyShapeStyle(accent.color)
+        .background(selected ? AnyShapeStyle(accent.buttonFill)
                              : AnyShapeStyle(icon == nil ? palette.neutralSurface : accent.color.opacity(0.12)),
                     in: Capsule())
     }
@@ -268,10 +268,10 @@ struct CategoryLimitEditorView: View {
         Button(action: save) {
             Text(Money.cents(amount) > 0 ? "Guardar límite" : "Quitar límite")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(accent.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)

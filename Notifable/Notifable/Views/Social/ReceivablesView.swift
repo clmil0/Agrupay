@@ -256,11 +256,11 @@ struct ReceivablesView: View {
                             .font(.system(size: 11, weight: .medium))
                             .opacity(0.9)
                     }
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
-                    .background(accent.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -540,10 +540,10 @@ struct ReceivablesView: View {
                 Text("Cobrar a un amigo")
                     .font(.system(size: 13.5, weight: .semibold))
             }
-            .foregroundStyle(Color.white)
+            .foregroundStyle(accent.buttonText)
             .frame(maxWidth: .infinity)
             .frame(height: 44)
-            .background(accent.color, in: Capsule())
+            .background(accent.buttonFill, in: Capsule())
         }
         .buttonStyle(.plain)
     }

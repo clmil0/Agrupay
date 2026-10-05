@@ -359,9 +359,9 @@ struct ReminderComposerSheet: View {
                     if isOn {
                         Image(systemName: "checkmark")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Color.white)
+                            .foregroundStyle(accent.buttonText)
                             .frame(width: 18, height: 18)
-                            .background(accent.color, in: Circle())
+                            .background(accent.buttonFill, in: Circle())
                     }
                 }
 
@@ -567,14 +567,14 @@ struct ReminderComposerSheet: View {
                 Task { await send() }
             } label: {
                 HStack(spacing: 8) {
-                    if isSending { ProgressView().tint(.white).controlSize(.small) }
+                    if isSending { ProgressView().tint(accent.buttonText).controlSize(.small) }
                     Text(sendTitle)
                         .font(.system(size: 16, weight: .semibold))
                 }
-                .foregroundStyle(Color.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 50)
-                .background(accent.color.opacity(canSend ? 1 : 0.4),
+                .background(accent.buttonFill.opacity(canSend ? 1 : 0.4),
                             in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             }
             .buttonStyle(.plain)

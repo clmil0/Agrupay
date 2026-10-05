@@ -229,16 +229,16 @@ struct PhoneVerificationSheet: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if busy {
-                    ProgressView().tint(.white).controlSize(.small)
+                    ProgressView().tint(accent.buttonText).controlSize(.small)
                 } else {
                     Image(systemName: icon).font(.system(size: 15, weight: .semibold))
                 }
                 Text(title).font(.system(size: 16, weight: .semibold))
             }
-            .foregroundStyle(Color.white)
+            .foregroundStyle(accent.buttonText)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(accent.color, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(busy)

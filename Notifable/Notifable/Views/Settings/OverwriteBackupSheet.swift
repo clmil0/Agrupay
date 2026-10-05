@@ -103,10 +103,10 @@ struct OverwriteBackupSheet: View {
             Button(action: onRestore) {
                 Text("Traer la copia a este celular")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(accent.color)
+                    .background(accent.buttonFill)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)

@@ -76,6 +76,9 @@ struct PenguinAvatar: View {
     let look: PenguinLook
     let size: CGFloat
     var background: Color
+    /// Un fondo que no es un color liso (el degradado del perfil Pro). Manda
+    /// sobre `background`.
+    var fill: AnyShapeStyle? = nil
 
     /// Orejas de gato o un gorro de mago sobresalen de la cabeza: se aleja un
     /// poco el encuadre para que no los corte el círculo.
@@ -83,7 +86,7 @@ struct PenguinAvatar: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Circle().fill(background)
+            Circle().fill(fill ?? AnyShapeStyle(background))
             PenguinView(look: look)
                 .frame(width: size * (isTall ? 1.04 : 1.15), height: size * (isTall ? 1.02 : 1.13))
                 .offset(y: size * (isTall ? 0.1 : 0.02))

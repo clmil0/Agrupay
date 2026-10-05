@@ -159,7 +159,7 @@ struct ShellSegment<Item: Hashable>: View {
                         .frame(height: 32)
                         .background {
                             if selection == item {
-                                Capsule().fill(tint ?? palette.selectedFill)
+                                Capsule().fill(tint?.readableFill ?? palette.selectedFill)
                             }
                         }
                         .contentShape(Capsule())
@@ -172,16 +172,11 @@ struct ShellSegment<Item: Hashable>: View {
         .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
     }
 
-    /// Sobre el gris, el texto. Sobre un acento, oscuro si el acento es claro
-    /// (pasteles, naranja) y blanco si es oscuro (azul, carbón, morado). En
-    /// tema claro, blanco salvo en un acento casi blanco: ahí el negro sobre
-    /// naranja se leía como texto sin estilo.
+    /// Sobre el gris, el texto. Sobre un acento, blanco o tinta oscura según
+    /// el contraste WCAG (`Color.readableText`).
     private var selectedText: Color {
         guard let tint else { return palette.label }
-        let (r, g, b) = tint.rgb(scheme)
-        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        let threshold = scheme == .dark ? 0.55 : 0.8
-        return luminance > threshold ? Palette(.dark).background : .white
+        return tint.readableText
     }
 }
 

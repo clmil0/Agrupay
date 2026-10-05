@@ -18,11 +18,11 @@ struct DictationMicButton: View {
                         .frame(width: 52 + 28 * pulse, height: 52 + 28 * pulse)
                 }
                 Circle()
-                    .fill(accent.color)
+                    .fill(accent.buttonFill)
                     .frame(width: 52, height: 52)
                 Image(systemName: "mic.fill")
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(accent.buttonText)
             }
             .frame(width: 60, height: 60)
         }

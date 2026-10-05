@@ -292,10 +292,10 @@ struct SettingsStatusCard: View {
         Button(action: onConnect) {
             Text("Conectar Gmail")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(accent.readableText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
-                .background(accent)
+                .background(accent.readableFill)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)

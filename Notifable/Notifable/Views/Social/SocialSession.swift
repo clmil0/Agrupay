@@ -42,11 +42,27 @@ extension View {
 struct FriendAvatar: View {
     let friend: Friend
     var size: CGFloat = 44
+    /// El hueco entre su anillo Pro y el avatar: la superficie donde se apoya.
+    var gap: Color? = nil
 
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
+        // Un amigo Pro lleva el anillo quieto de su tema en listas y feed.
+        if let ring = SocialRing.friend(friend.style) {
+            ZStack {
+                SocialRingView(ring: ring, size: size, gap: gap ?? palette.surface)
+                face
+            }
+            .frame(width: size, height: size)
+        } else {
+            face
+        }
+    }
+
+    @ViewBuilder
+    private var face: some View {
         if !friend.usesEmoji, let penguin = friend.penguin {
             PenguinAvatar(look: penguin, size: size, background: palette.neutralSurface)
         } else {

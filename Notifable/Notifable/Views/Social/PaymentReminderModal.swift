@@ -104,10 +104,10 @@ struct PaymentReminderModal: View {
                 Button { finish(.paid) } label: {
                     Text("Ya le pagué")
                         .font(.system(size: 16.5, weight: .semibold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(accent.buttonText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(accent.color, in: Capsule())
+                        .background(accent.buttonFill, in: Capsule())
                 }
                 .buttonStyle(PressScaleStyle())
 

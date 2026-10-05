@@ -28,7 +28,7 @@ enum ProStore {
 
     /// Lo que gana quien pasa a Pro, en el orden del paywall.
     enum Feature: String, CaseIterable, Identifiable {
-        case history, ai, alerts, cloud, sync, themes
+        case history, ai, alerts, cloud, sync, themes, profile
         var id: String { rawValue }
 
         var icon: String {
@@ -39,6 +39,7 @@ enum ProStore {
             case .cloud:   return "icloud.and.arrow.up.fill"
             case .sync:    return "laptopcomputer.and.iphone"
             case .themes:  return "paintpalette.fill"
+            case .profile: return "person.crop.circle.badge.plus"
             }
         }
 
@@ -50,6 +51,7 @@ enum ProStore {
             case .cloud:   return Color(red: 0.251, green: 0.784, blue: 0.878)  // #40C8E0
             case .sync:    return Color(red: 0.188, green: 0.820, blue: 0.345)  // #30D158
             case .themes:  return Color(red: 0.949, green: 0.549, blue: 0.157)  // #F28C28
+            case .profile: return Color(red: 0.545, green: 0.361, blue: 0.965)  // #8B5CF6
             }
         }
 
@@ -61,6 +63,7 @@ enum ProStore {
             case .cloud:   return "Respaldo en la nube"
             case .sync:    return "Sincronización entre dispositivos"
             case .themes:  return "Temas premium"
+            case .profile: return "Tu perfil, a tu manera"
             }
         }
 
@@ -72,6 +75,7 @@ enum ProStore {
             case .cloud:   return "Tus preferencias, categorías y reglas, a salvo si cambias de teléfono."
             case .sync:    return "iPhone, iPad y laptop, siempre al día."
             case .themes:  return "Diez fondos animados para tu resumen: cinco de noche y cinco de día."
+            case .profile: return "Cielos animados en tu cabecera, aura y marco con brillo, y una entrada cuando tus amigos abren tu perfil."
             }
         }
 
@@ -84,6 +88,7 @@ enum ProStore {
             case .cloud:   return "Tu configuración a salvo en la nube."
             case .sync:    return "AgruPay en todos tus dispositivos."
             case .themes:  return "Temas con fondos animados para tu resumen."
+            case .profile: return "Tu perfil en Social, a tu manera."
             }
         }
     }
@@ -127,6 +132,8 @@ enum ProStore {
     @MainActor
     private static func didChange() {
         ConfigBackupManager.shared.markDirty()
+        // Los adornos Pro de mi perfil se ven o se apagan del lado de mis amigos.
+        Task { await SupabaseAuthManager.shared.pushSocialStyle() }
     }
 
     // MARK: - Interruptor de pruebas

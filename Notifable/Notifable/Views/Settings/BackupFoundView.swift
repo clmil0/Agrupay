@@ -76,14 +76,14 @@ struct BackupFoundView: View {
                 onRestore()
             } label: {
                 HStack(spacing: 8) {
-                    if isRestoring { ProgressView().tint(.white) }
+                    if isRestoring { ProgressView().tint(accent.buttonText) }
                     Text(isRestoring ? "Restaurando…" : "Restaurar")
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(accent.color)
+                .background(accent.buttonFill)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)

@@ -74,14 +74,14 @@ struct SelectionCheck: View {
         let filled = state != .off
         ZStack {
             Circle()
-                .strokeBorder(filled ? accent.color : palette.hairline, lineWidth: filled ? 0 : 1.5)
-                .background(Circle().fill(filled ? accent.color : Color.clear))
+                .strokeBorder(filled ? accent.buttonFill : palette.hairline, lineWidth: filled ? 0 : 1.5)
+                .background(Circle().fill(filled ? accent.buttonFill : Color.clear))
                 .frame(width: size, height: size)
 
             if filled {
                 Image(systemName: state == .on ? "checkmark" : "minus")
                     .font(.system(size: size * 0.5, weight: .bold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(accent.buttonText)
             }
         }
     }

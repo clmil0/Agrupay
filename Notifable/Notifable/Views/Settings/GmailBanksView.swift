@@ -392,10 +392,10 @@ struct GmailConnectCard: View {
             } label: {
                 Text(isLinking ? "Conectando…" : lacksPermission ? "Volver a conectar" : "Vincular Gmail")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(accent.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 14)

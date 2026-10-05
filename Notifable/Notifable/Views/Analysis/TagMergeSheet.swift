@@ -231,10 +231,10 @@ struct TagMergeSheet: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle((target == nil ? Color.white : accent.buttonText))
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(target == nil ? palette.tertiaryLabel : accent.color, in: Capsule())
+            .background(target == nil ? palette.tertiaryLabel : accent.buttonFill, in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(target == nil)

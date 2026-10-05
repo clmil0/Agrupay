@@ -184,10 +184,10 @@ struct FriendDebtsSection: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(filled ? Color.white : accent.onSurface(scheme))
+                .foregroundStyle(filled ? accent.buttonText : accent.onSurface(scheme))
                 .padding(.horizontal, 16)
                 .frame(height: 32)
-                .background(filled ? AnyShapeStyle(accent.color) : AnyShapeStyle(palette.surface), in: Capsule())
+                .background(filled ? AnyShapeStyle(accent.buttonFill) : AnyShapeStyle(palette.surface), in: Capsule())
                 .overlay(Capsule().stroke(filled ? Color.clear : palette.hairline, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
@@ -255,11 +255,11 @@ private struct SuggestionCard: View {
                 } label: {
                     Text(suggestion.needsLink ? "Sí, es \(friend.name)" : "Sí, era su pago")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(accent.buttonText)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                         .frame(height: 42)
-                        .background(accent.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(selected == nil)

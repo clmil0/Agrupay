@@ -307,10 +307,10 @@ struct PendingConfirmationView: View {
                 // que de verdad falta aceptar.
                 Text("Confirmar todo — " + Money.format(awaitingTotal))
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(accent.color)
+                    .background(accent.buttonFill)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(.plain)

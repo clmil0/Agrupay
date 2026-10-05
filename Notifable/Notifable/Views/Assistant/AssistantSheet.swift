@@ -307,10 +307,10 @@ struct AssistantSheet: View {
             case .user:
                 Text(message.text)
                     .font(.system(size: 15))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(accent.buttonText)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
-                    .background(accent.color, in: UnevenRoundedRectangle(
+                    .background(accent.buttonFill, in: UnevenRoundedRectangle(
                         topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18,
                         style: .continuous))
                     .frame(maxWidth: 300, alignment: .trailing)
@@ -384,7 +384,7 @@ struct AssistantSheet: View {
 
             Button(action: primaryAction) {
                 ZStack {
-                    Circle().fill(accent.color)
+                    Circle().fill(accent.buttonFill)
                     if isListening {
                         Circle()
                             .stroke(Color.white.opacity(0.5), lineWidth: 2)
@@ -392,7 +392,7 @@ struct AssistantSheet: View {
                             .padding(4)
                         Image(systemName: "stop.fill")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(accent.buttonText)
                     } else {
                         Image(systemName: draft.trimmingCharacters(in: .whitespaces).isEmpty ? "mic.fill" : "arrow.up")
                             .font(.system(size: 19, weight: .semibold))

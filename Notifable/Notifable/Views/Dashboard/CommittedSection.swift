@@ -152,9 +152,9 @@ struct CommittedSection: View {
                 } label: {
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(accent.buttonText)
                         .frame(width: 28, height: 28)
-                        .background(accent.color, in: Circle())
+                        .background(accent.buttonFill, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Aceptar " + Accounting.displayName(row.rule.merchant))

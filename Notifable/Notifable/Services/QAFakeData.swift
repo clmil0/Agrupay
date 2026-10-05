@@ -63,11 +63,40 @@ enum QAMode {
             look.species = species
             return look
         }
+        // Alejo y Diego son Pro, como Camila y Diego en «Social Pro»: uno con
+        // Aurora y estrellas, el otro con Atardecer y saltito. Vale no.
+        func pro(_ theme: ProTheme, aura: SocialStyle.Aura, background: SocialStyle.AvatarBackground,
+                 entrance: SocialStyle.Entrance) -> SocialStyle {
+            var style = SocialStyle()
+            style.pro = true
+            style.theme = theme.key
+            style.skyHeader = true
+            style.aura = aura
+            style.background = background
+            style.entrance = entrance
+            return style
+        }
+        var valeStyle = SocialStyle()
+        valeStyle.banner = SocialBanner.arcs.rawValue
         let friends = FriendsManager.shared
         friends.friends = [
-            Friend(id: "qa-vale", displayName: "Vale", status: "Mes tranquilo", penguin: look(1)),
-            Friend(id: "qa-alejo", displayName: "Alejo", status: "Ahorrando para volver a Cusco", penguin: look(5)),
-            Friend(id: "qa-diego", displayName: "Diego", status: "Modo ahorro", penguin: look(6)),
+            Friend(id: "qa-vale", displayName: "Vale", status: "Mes tranquilo", penguin: look(1), style: valeStyle),
+            Friend(id: "qa-alejo", displayName: "Alejo", status: "Ahorrando para volver a Cusco", penguin: look(5),
+                   style: pro(.aurora, aura: .theme, background: .theme, entrance: .stars)),
+            Friend(id: "qa-diego", displayName: "Diego", status: "Modo ahorro", penguin: look(6),
+                   style: pro(.sunset, aura: .theme, background: .sphere, entrance: .hop)),
+            // Ni le compartes ni te comparte: va plegada al final.
+            Friend(id: "qa-mateo", displayName: "Mateo", status: "Juntando para la PS5", penguin: look(3)),
+        ]
+        // Lo que tú compartes, para «lo ven N amigos» y «Compartes».
+        func mine(_ viewer: String, total: Bool, _ categories: [String]) -> FriendShareRow {
+            FriendShareRow(id: "qa-mine-" + viewer, sharerID: "qa-me", viewerID: viewer,
+                           shareTotal: total, shareCategories: categories, totalAmount: nil,
+                           categoryTotals: [], viewerStatus: "accepted", updatedAt: "")
+        }
+        friends.outgoing = [
+            mine("qa-alejo", total: true, ["Comida", "Transporte"]),
+            mine("qa-diego", total: false, ["Comida"]),
         ]
         func row(_ id: String, _ total: Double, _ categories: [(String, Double)]) -> FriendShareRow {
             FriendShareRow(id: "qa-share-" + id, sharerID: id, viewerID: "qa-me",

@@ -316,14 +316,14 @@ struct LockScreenView: View {
     private func filledButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if isWorking { ProgressView().tint(.white) }
+                if isWorking { ProgressView().tint(accent.readableText) }
                 Text(isWorking ? "Verificando…" : title)
             }
             .font(.headline)
-            .foregroundStyle(.white)
+            .foregroundStyle(accent.readableText)
             .frame(maxWidth: .infinity)
             .frame(height: 54)
-            .background(accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(accent.readableFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isWorking)

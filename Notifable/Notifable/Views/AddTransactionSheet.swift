@@ -103,7 +103,12 @@ struct AddTransactionSheet: View {
     private static let incomeFill = Color(red: 0.141, green: 0.541, blue: 0.239)   // #248A3D
 
     private var accentFill: Color {
-        draft.type == .gasto ? themeAccent.color : Self.incomeFill
+        draft.type == .gasto ? themeAccent.buttonFill : Self.incomeFill
+    }
+
+    /// El texto sobre `accentFill`: tinta oscura sobre los acentos claros.
+    private var onAccentFill: Color {
+        draft.type == .gasto ? themeAccent.buttonText : .white
     }
 
     private var accentText: Color {
@@ -331,7 +336,7 @@ struct AddTransactionSheet: View {
         } label: {
             Text(label)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(selected ? Color.white : palette.secondaryLabel)
+                .foregroundStyle(selected ? onAccentFill : palette.secondaryLabel)
                 .frame(width: 50, height: 32)
                 .background(Capsule().fill(selected ? accentFill : Color.clear))
         }
@@ -1430,7 +1435,7 @@ struct AddTransactionSheet: View {
                 .minimumScaleFactor(0.7)
         }
         .font(.headline)
-        .foregroundStyle(ready || justSaved ? Color.white : disabledTextColor)
+        .foregroundStyle(ready || justSaved ? onAccentFill : disabledTextColor)
         .frame(maxWidth: .infinity)
         .frame(height: 50)
         .background(ready || justSaved ? accentFill : palette.track)

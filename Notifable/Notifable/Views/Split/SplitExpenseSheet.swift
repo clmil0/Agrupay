@@ -240,9 +240,9 @@ struct SplitExpenseSheet: View {
             HStack(spacing: 10) {
                 Text("\(index + 1)")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(tint.readableText)
                     .frame(width: 22, height: 22)
-                    .background(tint, in: Circle())
+                    .background(tint.readableFill, in: Circle())
                 Text("Parte \(index + 1)")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(palette.secondaryLabel)
@@ -449,10 +449,10 @@ struct SplitExpenseSheet: View {
             Button(action: save) {
                 Text(isBalanced ? "Dividir en \(drafts.count) gastos" : statusText)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(isBalanced ? .white : palette.secondaryLabel)
+                    .foregroundStyle(isBalanced ? accent.buttonText : palette.secondaryLabel)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(isBalanced ? accent.color : palette.track,
+                    .background(isBalanced ? accent.buttonFill : palette.track,
                                 in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             }
             .buttonStyle(.plain)

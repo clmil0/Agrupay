@@ -170,10 +170,10 @@ struct OnboardingReadingView: View {
             Button(action: onDone) {
                 Text(isFinished ? "Ver mis gastos" : "Entrar mientras termina")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(isFinished ? .white : accent.onSurface(scheme))
+                    .foregroundStyle(isFinished ? accent.buttonText : accent.onSurface(scheme))
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(isFinished ? AnyShapeStyle(accent.color) : AnyShapeStyle(palette.surface))
+                    .background(isFinished ? AnyShapeStyle(accent.buttonFill) : AnyShapeStyle(palette.surface))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)

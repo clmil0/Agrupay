@@ -203,12 +203,12 @@ struct RecurrenceSheet: View {
                     } label: {
                         Text(Self.initials[weekday] ?? "")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(selected ? Color.white : palette.label)
+                            .foregroundStyle(selected ? accent.buttonText : palette.label)
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(selected ? accent.color : palette.surface)
+                                    .fill(selected ? accent.buttonFill : palette.surface)
                             )
                     }
                     .buttonStyle(.plain)

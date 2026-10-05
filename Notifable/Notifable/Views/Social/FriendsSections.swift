@@ -100,10 +100,10 @@ struct FriendsActionsSection: View {
                 .font(.system(size: 13.5, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(filled ? Color.white : palette.label)
+        .foregroundStyle(filled ? accent.buttonText : palette.label)
         .frame(maxWidth: .infinity)
         .frame(height: 44)
-        .background(filled ? AnyShapeStyle(accent.color) : AnyShapeStyle(palette.surface), in: Capsule())
+        .background(filled ? AnyShapeStyle(accent.buttonFill) : AnyShapeStyle(palette.surface), in: Capsule())
         .overlay(Capsule().stroke(filled ? Color.clear : palette.hairline, lineWidth: 0.5))
     }
 
@@ -137,10 +137,10 @@ struct FriendsActionsSection: View {
                     Text("Conectar Gmail")
                         .font(.system(size: 15.5, weight: .semibold))
                 }
-                .foregroundStyle(Color.white)
+                .foregroundStyle(accent.buttonText)
                 .padding(.horizontal, 22)
                 .frame(height: 50)
-                .background(accent.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
             .padding(.top, 22)
@@ -251,10 +251,10 @@ struct FriendsActionsSection: View {
             } label: {
                 Text("Aceptar")
                     .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(accent.buttonText)
                     .padding(.horizontal, 14)
                     .frame(height: 32)
-                    .background(accent.color, in: Capsule())
+                    .background(accent.buttonFill, in: Capsule())
             }
             .fixedSize()
         }
@@ -350,8 +350,50 @@ struct FriendsRosterSection: View {
                           usdToPen: rates.usdToPenRate)
     }
 
+    /// Al final, plegados: sólo los amigos con los que no se comparten nada
+    /// en ningún sentido. Los demás ya salen arriba —en el feed, en las
+    /// solicitudes o en «Compartes» de tu tarjeta—. Sin ninguno, no hay
+    /// sección.
+    private var quiet: [Friend] {
+        friendsManager.friends.filter { friend in
+            let mine = friendsManager.myShare(toward: friend.id)
+            let iShare = (mine?.shareTotal ?? false) || !(mine?.shareCategories.isEmpty ?? true)
+            let theyShare = friendsManager.acceptedIncoming.contains { $0.sharerID == friend.id }
+                || friendsManager.pendingIncoming.contains { $0.sharerID == friend.id }
+            return !iShare && !theyShare
+        }
+    }
+
+    @State private var quietOpen = false
+
+    private func quietHeader(count: Int) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.22)) { quietOpen.toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                Text("NO SE COMPARTEN NADA")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .tracking(0.6)
+                Text("\(count)")
+                    .font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.tertiaryLabel)
+                    .rotationEffect(.degrees(quietOpen ? 180 : 0))
+            }
+            .foregroundStyle(palette.secondaryLabel)
+            .padding(.horizontal, 2)
+            .padding(.bottom, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(quietOpen ? "Ocultar" : "Mostrar")
+    }
+
     var body: some View {
         let friends = friendsManager.friends
+        let quiet = self.quiet
 
         VStack(spacing: 0) {
             if friends.isEmpty {
@@ -360,13 +402,16 @@ struct FriendsRosterSection: View {
                                     title: "Todavía no tienes amigos aquí",
                                     message: "Crea una invitación o usa la de alguien para empezar.")
                 }
-            } else {
-                ShellSectionHeader(title: friends.count == 1 ? "1 amigo" : "\(friends.count) amigos")
-                MovementCard {
-                    ForEach(Array(friends.enumerated()), id: \.element.id) { index, friend in
-                        friendRow(friend)
-                        if index < friends.count - 1 { MovementSeparator() }
+            } else if !quiet.isEmpty {
+                quietHeader(count: quiet.count)
+                if quietOpen {
+                    MovementCard {
+                        ForEach(Array(quiet.enumerated()), id: \.element.id) { index, friend in
+                            friendRow(friend)
+                            if index < quiet.count - 1 { MovementSeparator() }
+                        }
                     }
+                    .transition(.opacity)
                 }
             }
         }
@@ -388,10 +433,18 @@ struct FriendsRosterSection: View {
                 FriendAvatar(friend: friend)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(friend.name)
-                        .font(.system(size: 16.5, weight: .semibold))
-                        .foregroundStyle(palette.label)
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(friend.name)
+                            .font(.system(size: 16.5, weight: .semibold))
+                            .foregroundStyle(palette.label)
+                            .lineLimit(1)
+                        if let theme = friend.proTheme {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(scheme == .dark ? theme.skyAccent : theme.skyInk)
+                                .accessibilityLabel("Perfil Pro")
+                        }
+                    }
 
                     HStack(spacing: 4) {
                         Image(systemName: state.icon)

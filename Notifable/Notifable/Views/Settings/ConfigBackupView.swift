@@ -256,10 +256,10 @@ struct ConfigBackupView: View {
                         }
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(accent.color)
+                .background(accent.buttonFill)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -696,10 +696,10 @@ struct RestoreConfirmSheet: View {
             Button(action: onConfirm) {
                 Text("Restaurar")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(accent.color)
+                    .background(accent.buttonFill)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)

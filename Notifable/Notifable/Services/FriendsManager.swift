@@ -19,6 +19,11 @@ struct Friend: Identifiable, Hashable {
     var friendSince: Date? = nil
     /// El pingüino que él se armó, si el servidor ya lo sirve y lo guardó.
     var penguin: PenguinLook? = nil
+    /// Su cabecera y sus adornos del perfil Pro (`profiles.social_style`).
+    var style: SocialStyle? = nil
+
+    /// Su tema, si es Pro: el anillo, la tira del feed y el chip de su ficha.
+    var proTheme: ProTheme? { style?.pro == true ? style?.tintTheme : nil }
 
     private var preferences: FriendPreferences { SocialProfileStore.shared.preferences(for: id) }
 
@@ -153,6 +158,17 @@ final class FriendsManager {
     private var profileNames: [String: String] = [:]
     private var profileStatuses: [String: String] = [:]
     private var profilePenguins: [String: PenguinLook] = [:]
+    private var profileStyles: [String: SocialStyle] = [:]
+
+    private static func decodeStyle(_ json: String?) -> SocialStyle? {
+        guard let data = json?.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(SocialStyle.self, from: data)
+    }
+
+    private static func encodeStyle(_ style: SocialStyle?) -> String? {
+        guard let style, let data = try? JSONEncoder().encode(style) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 
     private static func decodePenguin(_ json: String?) -> PenguinLook? {
         guard let data = json?.data(using: .utf8) else { return nil }
@@ -236,12 +252,14 @@ final class FriendsManager {
         if let cached = try? context.fetch(FetchDescriptor<CachedFriend>()), !cached.isEmpty {
             friends = cached.map {
                 Friend(id: $0.id, displayName: $0.displayName, status: $0.status,
-                       friendSince: $0.friendSince, penguin: Self.decodePenguin($0.penguinJSON))
+                       friendSince: $0.friendSince, penguin: Self.decodePenguin($0.penguinJSON),
+                       style: Self.decodeStyle($0.styleJSON))
             }
             for friend in friends {
                 profileNames[friend.id] = friend.displayName
                 profileStatuses[friend.id] = friend.status
                 profilePenguins[friend.id] = friend.penguin
+                profileStyles[friend.id] = friend.style
             }
         }
 
@@ -272,10 +290,13 @@ final class FriendsManager {
                 if row.status != friend.status { row.status = friend.status }
                 if row.friendSince != friend.friendSince { row.friendSince = friend.friendSince }
                 if row.penguinJSON != penguin { row.penguinJSON = penguin }
+                let style = Self.encodeStyle(friend.style)
+                if row.styleJSON != style { row.styleJSON = style }
             } else {
                 let row = CachedFriend(id: friend.id, displayName: friend.displayName,
                                        status: friend.status, friendSince: friend.friendSince)
                 row.penguinJSON = Self.encodePenguin(friend.penguin)
+                row.styleJSON = Self.encodeStyle(friend.style)
                 context.insert(row)
             }
         }
@@ -393,7 +414,8 @@ final class FriendsManager {
     /// llama no pisa la caché con una lista vacía.
     private func fetchProfiles(ids: [String]) async -> [Friend]? {
         guard !ids.isEmpty else { return [] }
-        for columns in ["id,display_name,status,penguin,avatar", "id,display_name,status,penguin",
+        for columns in ["id,display_name,status,penguin,avatar,social_style",
+                        "id,display_name,status,penguin,avatar", "id,display_name,status,penguin",
                         "id,display_name,status", "id,display_name"] {
             if let friends = await fetchProfiles(ids: ids, columns: columns) { return friends }
         }
@@ -411,6 +433,7 @@ final class FriendsManager {
             let status: String?
             let penguin: PenguinLook?
             let avatar: PenguinLook?
+            let social_style: SocialStyle?
 
             /// `avatar` es el personaje completo; `penguin`, el de antes.
             var look: PenguinLook? { avatar ?? penguin }
@@ -424,8 +447,10 @@ final class FriendsManager {
                 profileNames[row.id] = row.display_name
                 profileStatuses[row.id] = row.status ?? ""
                 profilePenguins[row.id] = row.look
+                profileStyles[row.id] = row.social_style
             }
-            return rows.map { Friend(id: $0.id, displayName: $0.display_name, status: $0.status ?? "", penguin: $0.look) }
+            return rows.map { Friend(id: $0.id, displayName: $0.display_name, status: $0.status ?? "",
+                                     penguin: $0.look, style: $0.social_style) }
         } catch {
             return nil
         }
@@ -445,7 +470,8 @@ final class FriendsManager {
 
     func friend(with id: String) -> Friend {
         friends.first { $0.id == id }
-            ?? Friend(id: id, displayName: name(for: id), status: status(for: id), penguin: penguin(for: id))
+            ?? Friend(id: id, displayName: name(for: id), status: status(for: id), penguin: penguin(for: id),
+                      style: profileStyles[id])
     }
 
     // MARK: - Compartidos

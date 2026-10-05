@@ -114,10 +114,10 @@ struct OnboardingView: View {
             } label: {
                 Text(page == Self.lastSlide ? "Empezar" : "Siguiente")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(accent.buttonText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(accent.color)
+                    .background(accent.buttonFill)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -799,18 +799,18 @@ struct OnboardingView: View {
         ZStack {
             Circle().fill(palette.surface).frame(width: 54, height: 54)
                 .shadow(color: .black.opacity(0.16), radius: 6, y: 2)
-            Circle().fill(accent.color).frame(width: 48, height: 48)
-            Text("C").font(.system(size: 19, weight: .bold)).foregroundStyle(.white)
+            Circle().fill(accent.buttonFill).frame(width: 48, height: 48)
+            Text("C").font(.system(size: 19, weight: .bold)).foregroundStyle(accent.buttonText)
         }
     }
 
     private func pillLabel(_ text: String, filled: Bool) -> some View {
         Text(text)
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(filled ? .white : palette.secondaryLabel)
+            .foregroundStyle(filled ? accent.buttonText : palette.secondaryLabel)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(filled ? accent.color : palette.track)
+            .background(filled ? accent.buttonFill : palette.track)
             .clipShape(Capsule())
     }
 
@@ -1054,10 +1054,10 @@ struct OnboardingView: View {
                     Text(isConnecting ? "Conectando…" : "Continuar con Google")
                         .font(.subheadline.weight(.semibold))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(accent.color)
+                .background(accent.buttonFill)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)

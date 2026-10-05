@@ -280,6 +280,11 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard)
             .onAppear(perform: resolveRecurring)
             .onChange(of: tab) { _, _ in markPendingSeenIfShown() }
+            // Mi cabecera en Social sigue al fondo Pro mientras no elija otra:
+            // que mis amigos vean el cambio.
+            .onChange(of: proThemeRaw) { _, _ in
+                Task { await SupabaseAuthManager.shared.pushSocialStyle() }
+            }
             .onChange(of: movementsSection) { _, _ in markPendingSeenIfShown() }
             .onChange(of: pendingIDs) { _, _ in markPendingSeenIfShown() }
             .onChange(of: appLock.isLocked) { _, locked in

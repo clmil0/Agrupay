@@ -260,10 +260,10 @@ struct BulkClassifyView: View {
                 } label: {
                     Text("Aplicar sugerencias")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(accent.buttonText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(accent.color.opacity(withHint.isEmpty ? 0.4 : 1),
+                        .background(accent.buttonFill.opacity(withHint.isEmpty ? 0.4 : 1),
                                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)

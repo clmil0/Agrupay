@@ -227,10 +227,41 @@ final class SupabaseAuthManager {
     private(set) var supportsProfileExtras = true
 
     /// Upsert por `id` (clave primaria de `profiles`): crea la fila la primera
-    /// vez, y la actualiza si el nombre cambió.
+    /// vez, y la actualiza si el nombre cambió. El perfil Pro va aparte, en
+    /// `pushSocialStyle`, para que un servidor sin su columna no tumbe el
+    /// resto.
     private func pushProfile(name: String,
                             status: String? = nil,
                             avatarEmoji: String? = nil) async {
+        await pushCoreProfile(name: name, status: status, avatarEmoji: avatarEmoji)
+        await pushSocialStyle()
+    }
+
+    /// `false` mientras `profiles` no tenga `social_style` (SQL v15).
+    private var supportsSocialStyle = true
+
+    /// Cabecera, cielo, aura, marco y entrada (`SocialStyle`), y si soy Pro.
+    /// También al cambiar de plan: un amigo deja de ver mis adornos Pro en
+    /// cuanto dejo de serlo.
+    func pushSocialStyle() async {
+        guard supportsSocialStyle, let style = Self.json(SocialProfileStore.shared.publishedStyle) else { return }
+        let name = SocialProfileStore.shared.displayName
+        let code = await postProfile(fields: ["display_name": name.isEmpty ? "Amigo" : name,
+                                              "social_style": style])
+        if code == 400 {
+            supportsSocialStyle = false
+            print("Amigos: `profiles` todavía no tiene `social_style` (agrupay_profile_v15_social_style.sql).")
+        }
+    }
+
+    private static func json<T: Encodable>(_ value: T) -> Any? {
+        guard let data = try? JSONEncoder().encode(value) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private func pushCoreProfile(name: String,
+                                 status: String? = nil,
+                                 avatarEmoji: String? = nil) async {
         let store = SocialProfileStore.shared
         let sentStatus = status ?? store.status
         let sentEmoji = avatarEmoji ?? store.avatarEmoji
@@ -290,11 +321,6 @@ final class SupabaseAuthManager {
 
     /// `false` mientras `profiles` no tenga la columna `avatar`.
     private var supportsAvatar = true
-
-    private static func json(_ look: PenguinLook) -> Any? {
-        guard let data = try? JSONEncoder().encode(look) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data)
-    }
 
     /// El código HTTP con el que respondió el servidor, `nil` sin sesión o
     /// sin red. El `id` se pone aquí, que es donde se sabe que hay sesión.

@@ -24,6 +24,9 @@ struct SocialHubView: View {
     @State private var friendsManager = FriendsManager.shared
     @State private var auth = SupabaseAuthManager.shared
     @State private var social = SocialProfileStore.shared
+    @AppStorage(ProStore.enabledKey) private var isPro = false
+    /// «Compartes» desplegado bajo tu tarjeta.
+    @State private var shareOpen = false
 
     @State private var showProfileSheet = false
     @State private var selectedFriend: Friend?
@@ -133,16 +136,20 @@ struct SocialHubView: View {
     }
 
     private var myCard: some View {
-        Button {
-            showProfileSheet = true
-        } label: {
+        // `publishedStyle` lee el plan de los ajustes; `isPro` (`@AppStorage`)
+        // es lo que redibuja la tarjeta al cambiarlo.
+        let style = social.publishedStyle
+
+        return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                SocialBannerView(index: social.bannerIndex)
+                SocialHeaderView(style: style)
                     .frame(height: 104)
 
                 HStack(alignment: .bottom, spacing: 12) {
-                    PenguinAvatar(look: social.penguin, size: 92, background: palette.background)
-                        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+                    StyledAvatar(size: 92, style: style, gap: palette.surface) { fill in
+                        PenguinAvatar(look: social.penguin, size: 92, background: palette.background, fill: fill)
+                    }
+                    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(social.displayName.isEmpty ? "Tu nombre" : social.displayName)
@@ -183,27 +190,55 @@ struct SocialHubView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
-            .background(palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(palette.hairline, lineWidth: 0.5))
+            // Un toque y no un `Button`: dentro va «lo ven N amigos», que
+            // despliega lo que compartes en vez de abrir el perfil.
+            .contentShape(Rectangle())
+            .onTapGesture { showProfileSheet = true }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Editar tu perfil")
+
+            if shareOpen && viewers > 0 {
+                ShareBreakdown(totals: totals)
+                    .transition(.opacity)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Editar tu perfil")
+        .background(palette.surface)
+        .socialFrame(style, radius: 22, hairline: palette.hairline)
     }
 
+    @ViewBuilder
     private var viewersChip: some View {
         let count = viewers
         let tint = count > 0 ? accent.onSurface(scheme) : palette.secondaryLabel
-        return HStack(spacing: 5) {
+        let label = HStack(spacing: 5) {
             Image(systemName: count > 0 ? "eye" : "eye.slash")
                 .font(.system(size: 11, weight: .semibold))
             Text(count == 0 ? "sólo lo ves tú" : count == 1 ? "lo ve 1 amigo" : "lo ven \(count) amigos")
                 .font(.system(size: 11.5, weight: .semibold))
+            if count > 0 {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .rotationEffect(.degrees(shareOpen ? 180 : 0))
+            }
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 10)
+        .padding(.leading, 10)
+        .padding(.trailing, count > 0 ? 8 : 10)
         .frame(height: 26)
         .background(count > 0 ? accent.color.opacity(0.12) : palette.track, in: Capsule())
+
+        if count > 0 {
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) { shareOpen.toggle() }
+            } label: {
+                label.contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(count == 1 ? "Lo ve 1 amigo" : "Lo ven \(count) amigos")
+            .accessibilityHint(shareOpen ? "Ocultar qué compartes" : "Ver qué compartes y con quién")
+        } else {
+            label
+        }
     }
 
     // MARK: - Solicitudes
@@ -232,10 +267,10 @@ struct SocialHubView: View {
                     } label: {
                         Text("Aceptar")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white)
+                            .foregroundStyle(accent.buttonText)
                             .padding(.horizontal, 14)
                             .frame(height: 32)
-                            .background(accent.color, in: Capsule())
+                            .background(accent.buttonFill, in: Capsule())
                     }
                     .buttonStyle(.plain)
 
@@ -266,15 +301,28 @@ struct SocialHubView: View {
         // Un toque y no un `Button`: dentro va el carrusel de categorías
         // (`2d`), y un `Button` se quedaba con el deslizamiento y abría el
         // perfil en vez de mover la fila.
+        //
+        // Un amigo Pro sólo lleva aquí su anillo y el ✦: el cielo de su
+        // tema se ve al abrir su ficha, no en el feed.
+        let theme = friend.proTheme
+
         return ShellCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
                     FriendAvatar(friend: friend)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(friend.name)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(palette.label)
+                        HStack(spacing: 5) {
+                            Text(friend.name)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(palette.label)
+                            if let theme {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(scheme == .dark ? theme.skyAccent : theme.skyInk)
+                                    .accessibilityLabel("Perfil Pro")
+                            }
+                        }
 
                         Text(friend.status.isEmpty
                              ? "Su gasto de " + Period.spanishMonthName(for: Date()).lowercased()

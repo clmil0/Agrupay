@@ -217,15 +217,15 @@ struct OnboardingHistoryView: View {
             HStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill(isOn ? accent.color : .clear)
+                        .fill(isOn ? accent.buttonFill : .clear)
                         .frame(width: 16, height: 16)
                     Circle()
-                        .strokeBorder(isOn ? accent.color : palette.tertiaryLabel.opacity(0.4), lineWidth: 1.5)
+                        .strokeBorder(isOn ? accent.buttonFill : palette.tertiaryLabel.opacity(0.4), lineWidth: 1.5)
                         .frame(width: 16, height: 16)
                     if isOn {
                         Image(systemName: "checkmark")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(accent.buttonText)
                     }
                 }
                 Image(bank.logoAsset)
@@ -290,11 +290,11 @@ struct OnboardingHistoryView: View {
         Button(action: action) {
             Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(isActive ? .white : palette.label)
+                .foregroundStyle(isActive ? accent.buttonText : palette.label)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)
-                .background(isActive ? accent.color : palette.track)
+                .background(isActive ? accent.buttonFill : palette.track)
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -319,14 +319,14 @@ struct OnboardingHistoryView: View {
                 startReading()
             } label: {
                 HStack(spacing: 8) {
-                    if isStarting { ProgressView().tint(.white) }
+                    if isStarting { ProgressView().tint(accent.buttonText) }
                     Text("Leer " + periodLabel(readPeriodMonths))
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(accent.buttonText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(accent.color)
+                .background(accent.buttonFill)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)

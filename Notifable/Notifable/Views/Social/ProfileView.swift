@@ -96,9 +96,9 @@ struct ProfileView: View {
 
                     Image(systemName: "pencil")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(accent.buttonText)
                         .frame(width: 30, height: 30)
-                        .background(accent.color, in: Circle())
+                        .background(accent.buttonFill, in: Circle())
                         .overlay(Circle().stroke(palette.background, lineWidth: 2.5))
                 }
             }
