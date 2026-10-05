@@ -717,7 +717,6 @@
 				INFOPLIST_KEY_CFBundleDisplayName = AgruPay;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Para desbloquear AgruPay y proteger tus movimientos, deudas e ingresos.";
-				INFOPLIST_KEY_NSFinancialDataUsageDescription = "Para leer los movimientos de tus tarjetas en Wallet y registrarlos en AgruPay.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Para dictar tus gastos e ingresos por voz.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Para convertir en texto lo que dictas y registrarlo como gasto o ingreso. Se procesa en tu iPhone cuando es posible.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -757,7 +756,6 @@
 				INFOPLIST_KEY_CFBundleDisplayName = AgruPay;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Para desbloquear AgruPay y proteger tus movimientos, deudas e ingresos.";
-				INFOPLIST_KEY_NSFinancialDataUsageDescription = "Para leer los movimientos de tus tarjetas en Wallet y registrarlos en AgruPay.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Para dictar tus gastos e ingresos por voz.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Para convertir en texto lo que dictas y registrarlo como gasto o ingreso. Se procesa en tu iPhone cuando es posible.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

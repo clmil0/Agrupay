@@ -488,9 +488,6 @@ struct SettingsView: View {
         case "lock":          AppLockSettingsView()
         case "diagnostics":   DiagnosticsView()
         case "delete":        DeleteDataView()
-        #if DEBUG
-        case "financekit":    FinanceKitPOCView()
-        #endif
         default:              DataBackupView()
         }
     }

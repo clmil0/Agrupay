@@ -246,23 +246,12 @@ struct SettingsEntry: Identifiable, Hashable {
                       section: "Ayuda", destination: "diagnostics")
     ]
 
-    /// Lo que se puede buscar, más las pruebas de desarrollo en DEBUG.
-    static var searchable: [SettingsEntry] {
-        #if DEBUG
-        return all + [SettingsEntry(id: "financekit", title: "FinanceKit (POC)",
-                                    keywords: ["financekit", "wallet", "apple card", "debug"],
-                                    section: "Desarrollo", destination: "financekit")]
-        #else
-        return all
-        #endif
-    }
-
     static func matching(_ query: String) -> [SettingsEntry] {
         let q = query.folding(options: [.diacriticInsensitive, .caseInsensitive],
                               locale: Locale(identifier: "es_PE"))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
-        return searchable.filter { entry in
+        return all.filter { entry in
             let haystack = ([entry.title, entry.section] + entry.keywords)
                 .joined(separator: " ")
                 .folding(options: [.diacriticInsensitive, .caseInsensitive],
