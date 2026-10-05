@@ -72,7 +72,7 @@ struct StatTile: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(palette.secondaryLabel)
                 Text(value)
-                    .font(.system(size: 20, weight: proTheme == .obsidian ? .medium : .bold,
+                    .font(.system(size: 20, weight: proTheme?.numberWeight ?? .bold,
                                   design: proTheme?.numberDesign ?? .default))
                     .foregroundStyle(tint ?? palette.label)
                     .lineLimit(1)

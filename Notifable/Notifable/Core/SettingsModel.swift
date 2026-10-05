@@ -272,10 +272,11 @@ struct AppAppearanceModifier: ViewModifier {
     @AppStorage(ProStore.enabledKey) private var isPro = false
 
     func body(content: Content) -> some View {
-        // Los temas Pro son de noche: con uno puesto, la app va en oscuro.
+        // Cada tema Pro tiene su modo: los de noche van en oscuro y los de
+        // día en claro, mientras estén puestos.
         let proTheme = isPro ? ProTheme(rawValue: proThemeRaw) : nil
         content
-            .preferredColorScheme(proTheme != nil ? .dark : AppAppearance(rawValue: raw)?.colorScheme)
+            .preferredColorScheme(proTheme?.colorScheme ?? AppAppearance(rawValue: raw)?.colorScheme)
             // En el entorno, para que las vistas que lo leen se redibujen al
             // cambiar de tema (`Palette` lo toma de las preferencias).
             .environment(\.proTheme, proTheme)

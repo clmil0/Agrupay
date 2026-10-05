@@ -46,6 +46,12 @@ enum AppPreferences {
         .init(key: ProTheme.obsidian.toneKey, kind: .string, note: "Variante de Obsidiana"),
         .init(key: ProTheme.aurora.toneKey, kind: .string, note: "Variante de Aurora"),
         .init(key: ProTheme.sunset.toneKey, kind: .string, note: "Variante de Atardecer"),
+        .init(key: ProTheme.abyss.toneKey, kind: .string, note: "Variante de Abismo"),
+        .init(key: ProTheme.pearl.toneKey, kind: .string, note: "Variante de Perla"),
+        .init(key: ProTheme.dawn.toneKey, kind: .string, note: "Variante de Alba"),
+        .init(key: ProTheme.glacier.toneKey, kind: .string, note: "Variante de Glaciar"),
+        .init(key: ProTheme.ivory.toneKey, kind: .string, note: "Variante de Marfil"),
+        .init(key: ProTheme.sage.toneKey, kind: .string, note: "Variante de Salvia"),
         .init(key: ProTheme.skyIntensityKey, kind: .double, note: "Intensidad del cielo de los temas Pro"),
 
         // Privacidad

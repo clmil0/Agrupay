@@ -88,7 +88,7 @@ struct Palette {
     /// Relleno del elemento elegido dentro de un control oscuro (la opción
     /// activa de «Semana · Mes», la tarjeta «Todas» del carrusel).
     var selectedFill: Color {
-        if let pro { return pro.accent.opacity(0.24) }
+        if let pro { return pro.accent.opacity(pro.isLight ? 0.14 : 0.24) }
         return dark ? Color(red: 0.137, green: 0.157, blue: 0.220)   // #232838
              : Color(red: 0.898, green: 0.906, blue: 0.925)
     }
@@ -133,7 +133,7 @@ struct Palette {
 
     /// Relleno de barras de progreso y pistas de gráficos.
     var track: Color {
-        if let pro { return pro.hairline }
+        if let pro { return pro.track }
         return dark ? Color(red: 0.165, green: 0.196, blue: 0.259)   // #2A3242
              : Color(red: 0.890, green: 0.890, blue: 0.909)
     }
@@ -167,9 +167,13 @@ struct Palette {
     var expenseText: Color { pro?.accentText ?? accent.onSurface(scheme) }
 
     /// Fondo del chip de delta de gasto.
-    /// Con tema Pro va oscuro y translúcido: el chip cae sobre el cielo, que
-    /// puede ser claro (el sol de Atardecer).
-    var expenseSoft: Color { pro.map { $0.base.opacity(0.55) } ?? accent.color.opacity(dark ? 0.16 : 0.12) }
+    /// Con tema Pro de noche va oscuro y translúcido: el chip cae sobre el
+    /// cielo, que puede ser claro (el sol de Atardecer). En los de día, el
+    /// acento lavado.
+    var expenseSoft: Color {
+        if let pro { return pro.isLight ? pro.accent.opacity(0.13) : pro.base.opacity(0.55) }
+        return accent.color.opacity(dark ? 0.16 : 0.12)
+    }
 
     /// El ingreso. En los temas de dos colores es el segundo acento —el gasto
     /// ya es el primero—, así ingreso, Neto positivo y deltas a la baja
@@ -264,10 +268,8 @@ extension AppThemeColor {
     /// Color para **texto e iconos sobre fondo claro**. `systemPurple` sobre
     /// blanco da 3.4:1 y no cumple AA para texto; esta variante sí.
     func onSurface(_ scheme: ColorScheme) -> Color {
-        guard scheme == .light else {
-            if let pro = Self.activeProTheme, pro.companionAccent == self { return pro.accentText }
-            return tintOnDark
-        }
+        if let pro = ProTheme.ambient(scheme), pro.companionAccent == self { return pro.accentText }
+        guard scheme == .light else { return tintOnDark }
         switch self {
         case .purple: return Color(red: 0.478, green: 0.235, blue: 0.600)   // #7A3C99
         case .blue:   return Color(red: 0.000, green: 0.349, blue: 0.698)   // #0059B2
@@ -314,6 +316,7 @@ extension AppThemeColor {
     /// tinte propio en claro (el genérico queda muy débil sobre blanco); en
     /// oscuro la fórmula genérica (20%) ya coincide con el diseño.
     func softFill(_ scheme: ColorScheme) -> Color {
+        if let pro = ProTheme.ambient(scheme), pro.companionAccent == self { return pro.soft }
         guard scheme == .light, isPastel else {
             return color.opacity(scheme == .dark ? 0.20 : 0.14)
         }

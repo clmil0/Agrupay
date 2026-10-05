@@ -143,13 +143,21 @@ struct ProPaywallSheet: View {
                     .foregroundStyle(palette.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
                 if item == .themes {
-                    HStack(spacing: 10) {
-                        ForEach(ProTheme.allCases) { theme in
-                            VStack(spacing: 3) {
-                                ProThemeSwatch(theme: theme, size: 30, sparkle: false)
-                                Text(theme.rawValue)
-                                    .font(.system(size: 9.5))
-                                    .foregroundStyle(palette.tertiaryLabel)
+                    // Una fila de noche y otra de día.
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach([ProTheme.night, ProTheme.day], id: \.self) { row in
+                            HStack(spacing: 8) {
+                                ForEach(row) { theme in
+                                    VStack(spacing: 3) {
+                                        ProThemeSwatch(theme: theme, size: 28, sparkle: false)
+                                        Text(theme.rawValue)
+                                            .font(.system(size: 9.5))
+                                            .foregroundStyle(palette.tertiaryLabel)
+                                            .lineLimit(1)
+                                            .fixedSize()
+                                    }
+                                    .frame(minWidth: 34)
+                                }
                             }
                         }
                     }

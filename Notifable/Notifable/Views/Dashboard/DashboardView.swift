@@ -396,7 +396,7 @@ struct DashboardView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(proTheme?.accentText ?? accent.onSurface(scheme))
                     .frame(width: 22, height: 22)
-                    .background(proTheme.map { $0.accent.opacity(0.22) } ?? accent.softFill(scheme),
+                    .background(proTheme.map(\.soft) ?? accent.softFill(scheme),
                                 in: RoundedRectangle(cornerRadius: 7, style: .continuous))
 
                 Text(selectedAccountName)
@@ -473,9 +473,9 @@ struct DashboardView: View {
                 HStack(alignment: .lastTextBaseline, spacing: 6) {
                     // Tapado va sin céntimos: «S/ •••» y nada más.
                     Text(hidesAmounts ? AmountPrivacy.mask(formatted) : (split.map { String($0.0) } ?? formatted))
-                        .font(.system(size: 46, weight: proTheme == .obsidian ? .medium : .bold,
+                        .font(.system(size: 46, weight: proTheme?.numberWeight ?? .bold,
                                       design: proTheme?.numberDesign ?? .default))
-                        .tracking(proTheme == .obsidian ? -0.6 : -1.8)
+                        .tracking(proTheme?.heroTracking ?? -1.8)
                         .monospacedDigit()
                         .foregroundStyle(heroAmountStyle(isEmpty: isEmpty))
                         // Las cifras ruedan al cambiar de mes; con el ojito
@@ -543,14 +543,10 @@ struct DashboardView: View {
     }
 
     /// El color del monto grande: el tema Pro puede pintarlo con un
-    /// degradado (oro en Obsidiana, cielo cálido en Atardecer).
+    /// degradado (oro en Obsidiana y Marfil, cielo cálido en Atardecer…).
     private func heroAmountStyle(isEmpty: Bool) -> AnyShapeStyle {
         if isEmpty { return AnyShapeStyle(palette.tertiaryLabel) }
-        if let colors = proTheme?.amountGradient {
-            return AnyShapeStyle(LinearGradient(colors: colors,
-                                                startPoint: proTheme == .sunset ? .top : .topLeading,
-                                                endPoint: proTheme == .sunset ? .bottom : .bottomTrailing))
-        }
+        if let gradient = proTheme?.amountGradient { return AnyShapeStyle(gradient) }
         return AnyShapeStyle(palette.label)
     }
 
@@ -1283,7 +1279,7 @@ struct DashboardView: View {
     private func bigNumber(_ value: String, caption: String, tint: Color? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
-                .font(.system(size: 30, weight: proTheme == .obsidian ? .medium : .bold,
+                .font(.system(size: 30, weight: proTheme?.numberWeight ?? .bold,
                               design: proTheme?.numberDesign ?? .default))
                 .monospacedDigit()
                 .foregroundStyle(tint ?? palette.label)

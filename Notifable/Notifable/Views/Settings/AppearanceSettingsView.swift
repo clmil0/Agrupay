@@ -1,21 +1,26 @@
 import SwiftUI
 
-/// Apariencia y resumen (`4h`): una vista previa del Resumen, los temas por
-/// familia —un color, dos colores y los Pro con fondo animado al final—,
-/// modo, texto, color y las estadísticas del Resumen.
+/// Apariencia (`2c`): una vista previa del Resumen, los temas en tres
+/// pestañas —un color, dos colores y Premium, con los Premium separados en
+/// Día y Noche—, el modo, el tamaño del texto y, plegadas en «Avanzadas», la
+/// tipografía, el tinte, los colores de categoría y la animación del dictado.
 ///
-/// Antes eran pestañas (Color · Texto · Voz) con la vista previa fija arriba;
-/// ahora es una sola lista, y Estadísticas vive aquí en vez de tener fila
-/// propia en la raíz. La vista previa marca con un anillo lo que acaba de
-/// cambiar.
+/// Ya no hay modal «Ver todos los temas»: todos están a la vista en su
+/// pestaña. La vista previa marca con un anillo lo que acaba de cambiar.
 struct AppearanceSettingsView: View {
 
     /// La parte de la vista previa que se ilumina tras un cambio.
-    enum Flash { case surface, cats, type, dict }
+    enum Flash { case surface, cats, type }
 
-    /// Los de la fila «Un color»: los clásicos. Los pastel de un color están
-    /// en «Ver todos los temas».
-    static let singleThemes: [AppThemeColor] = [.blue, .purple, .green, .orange, .red, .charcoal]
+    enum Family: String, CaseIterable, Identifiable {
+        case single = "Un color"
+        case duo = "Dos colores"
+        case premium = "Premium"
+        var id: String { rawValue }
+    }
+
+    static let singleThemes: [AppThemeColor] = [.blue, .purple, .green, .orange, .red, .charcoal,
+                                                .lilac, .mint, .salmon, .lightBlue, .pink, .sand]
     static let duoThemes: [AppThemeColor] = AppThemeColor.allCases.filter(\.isDuotone)
 
     @Environment(\.colorScheme) private var scheme
@@ -31,8 +36,10 @@ struct AppearanceSettingsView: View {
 
     @State private var flash: Flash?
     @State private var flashTask: Task<Void, Never>?
-    @State private var showsThemeGallery = false
     @State private var paywall: ProStore.Feature?
+    /// La pestaña elegida a mano; sin elegir, la del tema en uso.
+    @State private var pickedFamily: Family?
+    @State private var showsAdvanced = false
 
     private var accent: AppThemeColor { AppThemeColor(rawValue: appAccentColor) ?? .blue }
     private var appearance: AppAppearance { AppAppearance(rawValue: appearanceRaw) ?? .dark }
@@ -41,42 +48,37 @@ struct AppearanceSettingsView: View {
     private var fontDesign: AppFontDesign { AppFontDesign(rawValue: appFontDesign) ?? .sistema }
     private var activeProTheme: ProTheme? { isPro ? ProTheme(rawValue: proThemeRaw) : nil }
 
+    private var family: Family {
+        if let pickedFamily { return pickedFamily }
+        if activeProTheme != nil { return .premium }
+        return accent.isDuotone ? .duo : .single
+    }
+
     var body: some View {
         SettingsPage(title: "Apariencia") {
-            AppearancePreview(palette: palette.themed(activeProTheme), flash: flash, dictationStyle: dictationStyle,
-                              amountScale: textSize.amountScale)
+            AppearancePreview(palette: palette.themed(activeProTheme), flash: flash,
+                              fontDesign: fontDesign.design, amountScale: textSize.amountScale)
                 .padding(.horizontal, 16)
 
             themesSection
             if let activeProTheme {
                 ProThemeTuningSection(theme: activeProTheme, onChange: { ring(.surface) })
                     .id(activeProTheme)
+            } else {
+                modeSection
             }
-            modeSection
-            textSection
-            colorSection
-            voiceSection
-
+            textSizeSection
+            advancedSection
         }
         .animation(.easeInOut(duration: 0.3), value: appAccentColor)
+        .animation(.easeInOut(duration: 0.3), value: proThemeRaw)
         .animation(.easeInOut(duration: 0.3), value: intenseThemeTint)
-        .onChange(of: appAccentColor) { _, raw in
-            if let theme = AppThemeColor(rawValue: raw) { AppThemeColor.noteUsed(theme) }
-            ring(.surface)
-        }
+        .onChange(of: appAccentColor) { _, _ in ring(.surface) }
         .onChange(of: intenseThemeTint) { _, _ in ring(.surface) }
         .onChange(of: themedCategoryColors) { _, _ in ring(.cats) }
         .onChange(of: appFontDesign) { _, _ in ring(.type) }
         .onChange(of: appTextSize) { _, _ in ring(.type) }
-        .onChange(of: dictationStyle) { _, _ in ring(.dict) }
         .onDisappear { flashTask?.cancel() }
-        .fullScreenCover(isPresented: $showsThemeGallery) {
-            ThemeGalleryView(current: accent) { theme in
-                withAnimation(.easeInOut(duration: 0.2)) { pick(theme) }
-            }
-            .appAppearance()
-            .appTextSize()
-        }
         .proPaywall($paywall)
     }
 
@@ -97,74 +99,97 @@ struct AppearanceSettingsView: View {
         appAccentColor = theme.rawValue
     }
 
+    private func pick(_ theme: ProTheme) {
+        guard isPro else { paywall = .themes; return }
+        proThemeRaw = theme.rawValue
+        // El resto de la app toma el tono más cercano, para que no
+        // desentone con el Resumen.
+        appAccentColor = theme.companionAccent.rawValue
+        ring(.surface)
+    }
+
     // MARK: - Temas
 
     private var themesSection: some View {
         SettingsGroup(title: "Temas") {
-            VStack(alignment: .leading, spacing: 10) {
-                familyLabel("Un color")
-                swatchRow(Self.singleThemes)
+            VStack(alignment: .leading, spacing: 14) {
+                familyTabs
 
-                familyLabel("Dos colores")
-                    .padding(.top, 4)
-                swatchRow(Self.duoThemes)
-
-                HStack(spacing: 8) {
-                    familyLabel("Premium · con fondo animado")
-                    if !isPro { ProBadge() }
-                }
-                .padding(.top, 4)
-                HStack(spacing: 14) {
-                    ForEach(ProTheme.allCases) { theme in
-                        let selected = activeProTheme == theme
-                        Button {
-                            guard isPro else { paywall = .themes; return }
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                proThemeRaw = theme.rawValue
-                                // El resto de la app toma el tono más
-                                // cercano, para que no desentone con el Resumen.
-                                appAccentColor = theme.companionAccent.rawValue
-                            }
-                            ring(.surface)
-                        } label: {
-                            ProThemeSwatch(theme: theme, size: 40)
-                                .padding(3)
-                                .overlay(Circle().stroke(selected ? palette.label : .clear, lineWidth: 2))
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
+                switch family {
+                case .single:
+                    basicGrid(Self.singleThemes, columns: 6, size: 42)
+                case .duo:
+                    basicGrid(Self.duoThemes, columns: 4, size: 50)
+                case .premium:
+                    VStack(alignment: .leading, spacing: 10) {
+                        periodLabel("Día", icon: "sun.max.fill")
+                        premiumGrid(ProTheme.day)
+                        periodLabel("Noche", icon: "moon.fill")
+                            .padding(.top, 2)
+                        premiumGrid(ProTheme.night)
                     }
                 }
 
-                Button("Ver todos los temas") { showsThemeGallery = true }
-                    .font(.subheadline)
-                    .foregroundStyle(accent.onSurface(scheme))
-                    .buttonStyle(.plain)
-                    .padding(.top, 6)
+                Text(familyDescription)
+                    .font(.caption)
+                    .foregroundStyle(palette.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 2)
             }
-            .padding(14)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func familyLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.footnote)
+    private var familyTabs: some View {
+        HStack(spacing: 4) {
+            ForEach(Family.allCases) { item in
+                let selected = item == family
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { pickedFamily = item }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(item.rawValue)
+                        if item == .premium { ProBadge() }
+                    }
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? palette.label : palette.secondaryLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 32)
+                    .background { if selected { Capsule().fill(palette.selectedFill) } }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(palette.background, in: Capsule())
+        .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
+    }
+
+    private func periodLabel(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.system(size: 11.5, weight: .semibold))
             .foregroundStyle(palette.secondaryLabel)
     }
 
-    private func swatchRow(_ themes: [AppThemeColor]) -> some View {
-        HStack(spacing: 14) {
+    private func grid(_ count: Int) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 0), count: count)
+    }
+
+    private func basicGrid(_ themes: [AppThemeColor], columns: Int, size: CGFloat) -> some View {
+        LazyVGrid(columns: grid(columns), spacing: 12) {
             ForEach(themes) { theme in
                 let selected = theme == accent && activeProTheme == nil
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) { pick(theme) }
                 } label: {
-                    ThemeSwatch(theme: theme, size: 40)
-                        .padding(3)
-                        .overlay(Circle().stroke(selected ? palette.label : .clear, lineWidth: 2))
-                        .contentShape(Circle())
+                    swatchTile(name: theme.rawValue, selected: selected, size: size) {
+                        ThemeSwatch(theme: theme, size: size - 6)
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(theme.rawValue)
@@ -173,77 +198,148 @@ struct AppearanceSettingsView: View {
         }
     }
 
-    // MARK: - Modo, texto y color
+    private func premiumGrid(_ themes: [ProTheme]) -> some View {
+        LazyVGrid(columns: grid(6), spacing: 12) {
+            ForEach(themes) { theme in
+                let selected = activeProTheme == theme
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { pick(theme) }
+                } label: {
+                    swatchTile(name: theme.rawValue, selected: selected, size: 42) {
+                        ProThemeSwatch(theme: theme, size: 36, sparkle: false)
+                            .overlay(Circle().stroke(Color.black.opacity(0.1), lineWidth: 0.5))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(theme.rawValue)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    /// Un tema de la cuadrícula: su círculo con el anillo y la palomita si
+    /// está elegido, y el nombre debajo.
+    private func swatchTile<Swatch: View>(name: String, selected: Bool, size: CGFloat,
+                                          @ViewBuilder swatch: () -> Swatch) -> some View {
+        VStack(spacing: 5) {
+            swatch()
+                .overlay {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: size * 0.36, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 1.5, y: 1)
+                        .opacity(selected ? 1 : 0)
+                }
+                .padding(3)
+                .overlay(Circle().stroke(selected ? palette.label : .clear, lineWidth: 2))
+                .frame(width: size, height: size)
+            Text(name)
+                .font(.system(size: 10.5, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? palette.label : palette.secondaryLabel)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var familyDescription: String {
+        if let activeProTheme {
+            return "\(activeProTheme.rawValue) · \(activeProTheme.isLight ? "Día" : "Noche") — \(activeProTheme.blurb) Los temas Premium requieren Pro."
+        }
+        if family == .premium {
+            return "Fondos animados de día y de noche. Los temas Premium requieren Pro."
+        }
+        return accent.isDuotone
+            ? "\(accent.rawValue) — El segundo color se usa en ingresos, “hoy” y lo que baja. Incluido sin Pro."
+            : "\(accent.rawValue) — Un solo color para gasto, ingresos y “hoy”. Incluido sin Pro."
+    }
+
+    // MARK: - Modo y texto
 
     private var modeSection: some View {
-        SettingsGroup(title: "Modo",
-                      footer: activeProTheme == nil ? nil : "Los temas Pro son de noche: mientras uses \(activeProTheme?.rawValue ?? ""), la app va en oscuro.") {
+        SettingsGroup(title: "Modo", footer: "Sistema sigue el modo de tu iPhone.") {
             ShellSegment(items: [AppAppearance.dark, .light, .system], selection: appearanceBinding) { option in
                 option == .system ? "Sistema" : option.rawValue
             }
             .padding(8)
-            .disabled(activeProTheme != nil)
-            .opacity(activeProTheme == nil ? 1 : 0.5)
         }
     }
 
-    private var textSection: some View {
-        SettingsGroup(title: "Texto") {
-            Menu {
-                Picker("Tipografía", selection: $appFontDesign) {
-                    ForEach(AppFontDesign.allCases) { option in
-                        Text(option.rawValue).tag(option.rawValue)
+    private var textSizeSection: some View {
+        SettingsGroup(title: "Tamaño del texto") {
+            ShellSegment(items: AppTextSize.allCases, selection: textSizeBinding) { $0.rawValue }
+                .padding(8)
+        }
+    }
+
+    // MARK: - Avanzadas
+
+    private var advancedSection: some View {
+        SettingsGroup {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) { showsAdvanced.toggle() }
+            } label: {
+                SettingsItem(icon: "slider.horizontal.3", tint: palette.expense,
+                             title: "Avanzadas", subtitle: "Tipografía, color y dictado") {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(palette.tertiaryLabel)
+                        .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(showsAdvanced ? "Abiertas" : "Cerradas")
+
+            if showsAdvanced {
+                SettingsDivider(inset: 14)
+                segmentRow("Tipografía") {
+                    ShellSegment(items: AppFontDesign.allCases, selection: fontDesignBinding) { $0.rawValue }
+                }
+                // El tinte es de los temas básicos: los Premium ya traen sus
+                // superficies.
+                if activeProTheme == nil {
+                    SettingsDivider(inset: 14)
+                    SettingsToggle(title: "Intensificar el color del tema", subtitle: "Tiñe tarjetas y bordes",
+                                   isOn: $intenseThemeTint)
+                }
+                SettingsDivider(inset: 14)
+                SettingsToggle(title: "Categorías con colores del tema", isOn: $themedCategoryColors)
+                SettingsDivider(inset: 14)
+                segmentRow("Animación al dictar") {
+                    ShellSegment(items: [DictationStyle.bars, .blob], selection: dictationBinding) {
+                        $0 == .blob ? "Orgánica" : "Barras"
                     }
                 }
-            } label: {
-                SettingsItem(title: "Tipografía") { SettingsValueChevron(value: fontDesign.rawValue) }
             }
-            .buttonStyle(.plain)
-            SettingsDivider(inset: 14)
-            Menu {
-                Picker("Tamaño", selection: $appTextSize) {
-                    ForEach(AppTextSize.allCases) { option in
-                        Text(option.rawValue).tag(option.rawValue)
-                    }
-                }
-            } label: {
-                SettingsItem(title: "Tamaño",
-                             subtitle: textSize == .sistema ? "El que tengas configurado en iOS" : nil) {
-                    SettingsValueChevron(value: textSize.rawValue)
-                }
-            }
-            .buttonStyle(.plain)
         }
     }
 
-    private var colorSection: some View {
-        SettingsGroup(title: "Color") {
-            SettingsToggle(title: "Intensificar el color del tema", subtitle: "Tiñe tarjetas y bordes",
-                           isOn: $intenseThemeTint)
-            SettingsDivider(inset: 14)
-            SettingsToggle(title: "Categorías con colores del tema", isOn: $themedCategoryColors)
+    private func segmentRow<Segment: View>(_ title: String, @ViewBuilder segment: () -> Segment) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .foregroundStyle(palette.label)
+            segment()
         }
-    }
-
-    private var voiceSection: some View {
-        SettingsGroup(title: "Dictado") {
-            Menu {
-                Picker("Animación al escuchar", selection: $dictationStyle) {
-                    Text("Barras").tag(DictationStyle.bars.rawValue)
-                    Text("Orgánica").tag(DictationStyle.blob.rawValue)
-                }
-            } label: {
-                SettingsItem(title: "Animación al escuchar",
-                             subtitle: "También se ve en la píldora «Dictar» de la vista previa") {
-                    SettingsValueChevron(value: dictationStyle == DictationStyle.blob.rawValue ? "Orgánica" : "Barras")
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var appearanceBinding: Binding<AppAppearance> {
         Binding(get: { appearance }, set: { appearanceRaw = $0.rawValue })
+    }
+
+    private var textSizeBinding: Binding<AppTextSize> {
+        Binding(get: { textSize }, set: { appTextSize = $0.rawValue })
+    }
+
+    private var fontDesignBinding: Binding<AppFontDesign> {
+        Binding(get: { fontDesign }, set: { appFontDesign = $0.rawValue })
+    }
+
+    private var dictationBinding: Binding<DictationStyle> {
+        Binding(get: { DictationStyle(rawValue: dictationStyle) ?? .bars },
+                set: { dictationStyle = $0.rawValue })
     }
 }
 
@@ -271,66 +367,81 @@ private struct ProThemeTuningSection: View {
     private var isDefault: Bool { selected == theme.tones[0] && intensity >= 1 }
 
     var body: some View {
-        SettingsGroup(title: "Ajustar \(theme.rawValue)",
-                      footer: "Con el cielo más tenue el fondo se oscurece y las tarjetas resaltan más.") {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Matiz")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(palette.label)
-                        Spacer()
-                        Text(selected.name)
-                            .font(.subheadline)
-                            .foregroundStyle(palette.secondaryLabel)
-                    }
-                    HStack(spacing: 14) {
-                        ForEach(theme.tones) { tone in
-                            toneButton(tone)
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Brillo del cielo")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(palette.label)
-                        Spacer()
-                        Text("\(Int((intensity * 100).rounded())) %")
-                            .font(.subheadline)
-                            .monospacedDigit()
-                            .foregroundStyle(palette.secondaryLabel)
-                    }
-                    HStack(spacing: 10) {
-                        Image(systemName: "moon.fill")
-                            .font(.footnote)
-                            .foregroundStyle(palette.secondaryLabel)
-                        Slider(value: $intensity, in: ProTheme.skyIntensityRange) { editing in
-                            if !editing { onChange() }
-                        }
-                        .accessibilityLabel("Brillo del cielo")
-                        Image(systemName: "sparkles")
-                            .font(.footnote)
-                            .foregroundStyle(palette.secondaryLabel)
-                    }
-                }
-
+        VStack(alignment: .leading, spacing: 8) {
+            // El rótulo de `SettingsGroup`, con «Restablecer» a la derecha.
+            HStack {
+                Text("Ajustar \(theme.rawValue)".uppercased())
+                    .font(.caption)
+                    .tracking(0.3)
+                    .foregroundStyle(palette.secondaryLabel)
+                Spacer()
                 if !isDefault {
-                    Button("Restablecer \(theme.rawValue)") {
+                    Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             toneName = ""
                             intensity = 1
                         }
                         onChange()
+                    } label: {
+                        Label("Restablecer", systemImage: "arrow.counterclockwise")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(palette.expenseText)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(palette.expenseText)
                     .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 20)
+            .padding(.horizontal, 20)
+
+            SettingsGroup(footer: "Con el cielo más tenue las tarjetas resaltan más. \(theme.rawValue) es de \(theme.isLight ? "Día" : "Noche"): la app va en \(theme.isLight ? "claro" : "oscuro") mientras lo uses.") {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Matiz")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(palette.label)
+                            Spacer()
+                            Text(selected.name)
+                                .font(.subheadline)
+                                .foregroundStyle(palette.secondaryLabel)
+                        }
+                        HStack(spacing: 14) {
+                            ForEach(theme.tones) { tone in
+                                toneButton(tone)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Brillo del cielo")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(palette.label)
+                            Spacer()
+                            Text("\(Int((intensity * 100).rounded())) %")
+                                .font(.subheadline)
+                                .monospacedDigit()
+                                .foregroundStyle(palette.secondaryLabel)
+                        }
+                        HStack(spacing: 10) {
+                            Image(systemName: "moon.fill")
+                                .font(.footnote)
+                                .foregroundStyle(palette.secondaryLabel)
+                            Slider(value: $intensity, in: ProTheme.skyIntensityRange) { editing in
+                                if !editing { onChange() }
+                            }
+                            .tint(palette.expense)
+                            .accessibilityLabel("Brillo del cielo")
+                            Image(systemName: "sparkles")
+                                .font(.footnote)
+                                .foregroundStyle(palette.secondaryLabel)
+                        }
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -343,9 +454,10 @@ private struct ProThemeTuningSection: View {
             onChange()
         } label: {
             Circle()
-                .fill(RadialGradient(colors: [Color.white.opacity(0.55),
+                .fill(RadialGradient(colors: [Color.white.opacity(0.6),
                                               theme.accent(for: tone), theme.base],
                                      center: UnitPoint(x: 0.3, y: 0.3), startRadius: 0, endRadius: 30))
+                .overlay(Circle().stroke(Color.black.opacity(theme.isLight ? 0.1 : 0), lineWidth: 0.5))
                 .frame(width: 40, height: 40)
                 .padding(3)
                 .overlay(Circle().stroke(isSelected ? palette.label : .clear, lineWidth: 2))
@@ -357,55 +469,30 @@ private struct ProThemeTuningSection: View {
     }
 }
 
-// MARK: - Indicador de dictado en miniatura
-
-/// Las mismas animaciones de la hoja de dictado, a escala de muestra.
-struct DictationIndicator: View {
-    enum Size { case pill, tile }
-
-    let style: DictationStyle
-    let size: Size
-
-    private var accent: AppThemeColor { .current }
-
-    var body: some View {
-        switch style {
-        case .bars:
-            DictationBars(level: 0.55, isActive: true,
-                          count: size == .pill ? 5 : 14,
-                          height: size == .pill ? 18 : 40,
-                          spacing: 3)
-                .frame(width: size == .pill ? 26 : nil)
-        case .blob:
-            let diameter: CGFloat = size == .pill ? 26 : 44
-            ZStack {
-                DictationBlob(level: 0.3, isActive: true, size: diameter)
-                Circle()
-                    .fill(accent.color)
-                    .frame(width: diameter * 0.72, height: diameter * 0.72)
-                Image(systemName: "mic.fill")
-                    .font(.system(size: diameter * 0.33, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-        }
-    }
-}
-
 // MARK: - Vista previa
 
-/// Mini-Resumen: chip de cuentas, monto con su delta, barras, dos tarjetas,
-/// la píldora de Dictar y el +. Cifras de muestra fijas.
+/// Mini-Resumen: chip de cuentas, monto con su delta, las barras del
+/// gráfico de siempre —carril gris y sólo hoy en color, con su monto— y dos
+/// tarjetas. Cifras de muestra fijas.
 private struct AppearancePreview: View {
     let palette: Palette
     let flash: AppearanceSettingsView.Flash?
-    let dictationStyle: String
+    let fontDesign: Font.Design
     let amountScale: CGFloat
 
-    private static let bars: [Double] = [64, 92, 38, 12, 71, 55, 84]
+    private static let days = ["D", "L", "M", "X", "J", "V", "S"]
+    private static let values: [Double] = [64, 112, 38, 156, 92, 0, 180]
 
     private var scheme: ColorScheme { palette.scheme }
     private var accent: AppThemeColor { palette.accent }
+    private var pro: ProTheme? { palette.pro }
     private var month: String { Period.spanishMonthName(for: Date()).uppercased() }
+    private var previousMonth: String {
+        let date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+        return Period.spanishMonthName(for: date).lowercased()
+    }
+    /// Las cifras: con serifa en Obsidiana y Marfil, si no la tipografía elegida.
+    private var numberDesign: Font.Design { pro?.numberDesign ?? fontDesign }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -419,35 +506,23 @@ private struct AppearancePreview: View {
             }
 
             amount
-                .ringed(flash == .type, color: accent.color)
+                .ringed(flash == .type, color: palette.expense)
 
             bars
 
             HStack(spacing: 10) {
                 categoriesCard
-                    .ringed(flash == .cats, color: accent.color, radius: 16)
+                    .ringed(flash == .cats, color: palette.expense, radius: 16)
                 pendingCard
-                    .ringed(flash == .surface, color: accent.color, radius: 16)
+                    .ringed(flash == .surface, color: palette.expense, radius: 16)
             }
             .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                dictationPill
-                    .ringed(flash == .dict, color: accent.color, radius: 19)
-                Spacer()
-                Circle()
-                    .fill(palette.expense)
-                    .frame(width: 42, height: 42)
-                    .overlay(Image(systemName: "plus").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white))
-                    .shadow(color: palette.expense.opacity(0.38), radius: 11)
-            }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .fontDesign(fontDesign)
+        .padding(14)
         .background {
             // Con tema Pro, la vista previa lleva su cielo animado.
-            if let pro = palette.pro {
+            if let pro {
                 ProThemeBackdrop(theme: pro)
                     .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             } else {
@@ -455,7 +530,7 @@ private struct AppearancePreview: View {
             }
         }
         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .stroke(palette.label.opacity(0.09), lineWidth: 1))
+            .stroke(palette.hairline, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Vista previa del resumen con la apariencia elegida")
     }
@@ -463,11 +538,11 @@ private struct AppearancePreview: View {
     private var accountChip: some View {
         HStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(accent.softFill(scheme))
+                .fill(pro?.soft ?? accent.softFill(scheme))
                 .frame(width: 18, height: 18)
                 .overlay(Image(systemName: "building.columns.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(accent.onSurface(scheme)))
+                    .foregroundStyle(pro?.accentText ?? accent.onSurface(scheme)))
             Text("Todas las cuentas")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(palette.label)
@@ -479,27 +554,31 @@ private struct AppearancePreview: View {
         .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
     }
 
+    private var amountStyle: AnyShapeStyle {
+        if let gradient = pro?.amountGradient { return AnyShapeStyle(gradient) }
+        return AnyShapeStyle(palette.label)
+    }
+
     private var amount: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("GASTADO EN " + month)
+            Text("GASTOS EN " + month)
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.25)
                 .foregroundStyle(palette.secondaryLabel)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("S/ 2,612")
-                    .font(.system(size: 34 * amountScale, weight: .bold))
+                    .font(.system(size: 34 * amountScale, weight: pro?.numberWeight ?? .bold, design: numberDesign))
                     .tracking(-1.2)
-                    .foregroundStyle(palette.label)
+                    .foregroundStyle(amountStyle)
                 Text(".40")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(palette.secondaryLabel)
-                Text("↑ S/ 318 vs. mes anterior")
+                Text("↑ S/ 318 vs. " + previousMonth)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent.isDuotone ? accent.secondaryOnSurface(scheme) : accent.onSurface(scheme))
+                    .foregroundStyle(deltaText)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(accent.isDuotone ? accent.secondarySoftFill(scheme) : palette.expenseSoft,
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .background(deltaBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .padding(.leading, 4)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -508,18 +587,44 @@ private struct AppearancePreview: View {
         .padding(2)
     }
 
+    private var deltaText: Color {
+        if let pro { return pro.accentText }
+        return accent.isDuotone ? accent.secondaryOnSurface(scheme) : accent.onSurface(scheme)
+    }
+
+    private var deltaBackground: Color {
+        if pro == nil, accent.isDuotone { return accent.secondarySoftFill(scheme) }
+        return palette.expenseSoft
+    }
+
     private var bars: some View {
-        let top = palette.expense.mixed(with: .white, amount: 0.28, scheme: scheme)
-        let peak = Self.bars.max() ?? 1
+        let peak = Self.values.max() ?? 1
+        let today = Self.values.count - 1
         return HStack(alignment: .bottom, spacing: 8) {
-            ForEach(Array(Self.bars.enumerated()), id: \.offset) { index, value in
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(LinearGradient(colors: [palette.expense, top], startPoint: .bottom, endPoint: .top))
-                    .frame(height: max(4, 58 * value / peak))
-                    .opacity(index == Self.bars.count - 1 ? 1 : 0.55)
+            ForEach(Self.values.indices, id: \.self) { index in
+                let isToday = index == today
+                VStack(spacing: 5) {
+                    VStack(spacing: 3) {
+                        Spacer(minLength: 0)
+                        if isToday {
+                            Text("S/ 180")
+                                .font(.system(size: 10.5, weight: .semibold, design: numberDesign))
+                                .foregroundStyle(palette.expenseText)
+                                .fixedSize()
+                        }
+                        RoundedRectangle(cornerRadius: pro?.barCornerRadius ?? 5, style: .continuous)
+                            .fill(isToday ? palette.expense : palette.track)
+                            .frame(width: 18, height: max(3, 52 * Self.values[index] / peak))
+                    }
+                    .frame(height: 68)
+                    Text(Self.days[index])
+                        .font(.system(size: 9.5, weight: isToday ? .semibold : .regular))
+                        .foregroundStyle(isToday ? palette.expenseText : palette.secondaryLabel)
+                }
+                .frame(maxWidth: .infinity)
             }
         }
-        .frame(height: 58)
+        .padding(.horizontal, 8)
     }
 
     private var categoriesCard: some View {
@@ -554,8 +659,8 @@ private struct AppearancePreview: View {
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(palette.label)
             Text("3")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(accent.secondaryOnSurface(scheme))
+                .font(.system(size: 24, weight: .bold, design: numberDesign))
+                .foregroundStyle(pro?.accentText ?? accent.secondaryOnSurface(scheme))
             Text("de este mes")
                 .font(.system(size: 11))
                 .foregroundStyle(palette.secondaryLabel)
@@ -564,21 +669,6 @@ private struct AppearancePreview: View {
         .padding(10)
         .background(palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(palette.hairline, lineWidth: 0.5))
-    }
-
-    private var dictationPill: some View {
-        HStack(spacing: 8) {
-            DictationIndicator(style: DictationStyle(rawValue: dictationStyle) ?? .bars, size: .pill)
-                .frame(width: 30, height: 30)
-            Text("Escuchando…")
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(accent.onSurface(scheme))
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 14)
-        .frame(height: 38)
-        .background(palette.surface, in: Capsule())
-        .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
     }
 }
 
@@ -624,217 +714,5 @@ struct ThemeSwatch: View {
             }
         }
         .frame(width: size, height: size)
-    }
-}
-
-// MARK: - Galería de temas
-
-/// Modal a pantalla completa con todos los temas (`1e`). Cada tarjeta es un
-/// mini-Resumen con los colores de ese tema; elegir uno sólo lo marca, y
-/// "Usar …" lo aplica y cierra.
-struct ThemeGalleryView: View {
-
-    enum Filter: String, CaseIterable, Identifiable {
-        case all = "Todos"
-        case single = "Un color"
-        case duo = "Dos colores"
-        var id: String { rawValue }
-    }
-
-    let current: AppThemeColor
-    var onApply: (AppThemeColor) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var scheme
-
-    @State private var draft: AppThemeColor
-    @State private var filter: Filter = .all
-
-    init(current: AppThemeColor, onApply: @escaping (AppThemeColor) -> Void) {
-        self.current = current
-        self.onApply = onApply
-        _draft = State(initialValue: current)
-    }
-
-    /// La galería se pinta con el tema que se está probando, no con el guardado.
-    private var palette: Palette { Palette(scheme, accent: draft).withoutPro() }
-
-    private var themes: [AppThemeColor] {
-        let filtered = AppThemeColor.allCases.filter { theme in
-            switch filter {
-            case .all: return true
-            case .single: return !theme.isDuotone
-            case .duo: return theme.isDuotone
-            }
-        }
-        // El tema en uso va primero.
-        return filtered.filter { $0 == current } + filtered.filter { $0 != current }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-
-            Picker("Filtro", selection: $filter) {
-                ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)],
-                          spacing: 11) {
-                    ForEach(themes) { theme in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) { draft = theme }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        } label: {
-                            ThemeGalleryCard(theme: theme, isSelected: draft == theme, palette: palette)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(theme.rawValue)
-                        .accessibilityAddTraits(draft == theme ? [.isSelected] : [])
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .animation(.easeInOut(duration: 0.2), value: filter)
-            }
-
-            footer
-        }
-        .background(palette.background.ignoresSafeArea())
-    }
-
-    private var header: some View {
-        HStack {
-            Text("Temas")
-                .font(.title2.bold())
-                .foregroundStyle(palette.label)
-            Spacer()
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(palette.secondaryLabel)
-                    .frame(width: 30, height: 30)
-                    .background(palette.track)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Cerrar")
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
-    }
-
-    private var footer: some View {
-        VStack(spacing: 9) {
-            Text(draft.isDuotone
-                 ? "El segundo color se usa en ingresos, “hoy” y lo que baja."
-                 : "Un solo color para gasto, ingresos y “hoy”.")
-                .font(.caption)
-                .foregroundStyle(palette.secondaryLabel)
-                .multilineTextAlignment(.center)
-
-            Button {
-                onApply(draft)
-                dismiss()
-            } label: {
-                Text(draft == current ? "Seguir con " + draft.rawValue : "Usar " + draft.rawValue)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(draft.color)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-        .background(
-            palette.surfaceElevated.opacity(0.92)
-                .overlay(alignment: .top) {
-                    Rectangle().fill(palette.separator).frame(height: 0.5)
-                }
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
-}
-
-/// Mini-Resumen con los colores de un tema.
-private struct ThemeGalleryCard: View {
-
-    let theme: AppThemeColor
-    let isSelected: Bool
-    let palette: Palette
-
-    private var scheme: ColorScheme { palette.scheme }
-    private var dark: Bool { scheme == .dark }
-    private var miniTrack: Color { dark ? Color.white.opacity(0.14) : Color(red: 0.890, green: 0.890, blue: 0.909) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("GASTADO")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(theme.onSurface(scheme))
-                Text("S/ 1,842")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(dark ? Color.white : Color.black)
-                    .padding(.top, 2)
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(miniTrack)
-                        Capsule()
-                            .fill(theme.color)
-                            .frame(width: geo.size.width * 0.72)
-                    }
-                }
-                .frame(height: 5)
-                .padding(.top, 6)
-
-                HStack(spacing: 4) {
-                    Capsule().fill(theme.color)
-                    Capsule().fill(theme.isDuotone ? theme.secondaryColor : theme.color.opacity(0.45))
-                    Capsule().fill(miniTrack)
-                }
-                .frame(height: 12)
-                .padding(.top, 7)
-            }
-            .padding(9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                (dark ? Color(red: 0.082, green: 0.082, blue: 0.090) : Color.white)
-                    .mixed(with: theme.color, amount: dark ? 0.08 : 0.05, scheme: scheme)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-            HStack(spacing: 6) {
-                ThemeSwatch(theme: theme, size: 14)
-                Text(theme.rawValue)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(palette.label)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(theme.onSurface(scheme))
-                }
-            }
-            .padding(.horizontal, 2)
-        }
-        .padding(9)
-        // Seleccionado = tinte del propio tema, sin borde de color.
-        .background(isSelected ? theme.softFill(scheme) : Palette(scheme, accent: theme).withoutPro().surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Palette(scheme, accent: theme).withoutPro().hairline, lineWidth: 0.5)
-        )
     }
 }

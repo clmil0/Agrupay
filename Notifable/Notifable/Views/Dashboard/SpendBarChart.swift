@@ -130,9 +130,9 @@ struct SpendBarChart: View {
     }
 
     /// Color liso sólo en la elegida; las demás, el gris del carril. Sin
-    /// degradado, sin línea clara ni halo. Obsidiana conserva sus cápsulas.
+    /// degradado, sin línea clara ni halo. Obsidiana y Marfil conservan sus cápsulas.
     private func bar(hasSpend: Bool, isSelected: Bool, height: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: proTheme == .obsidian ? 40 : 5, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: proTheme?.barCornerRadius ?? 5, style: .continuous)
         return shape
             .fill(isSelected && hasSpend ? selectedColor.opacity(0.9) : palette.track)
             .frame(width: barWidth, height: height)

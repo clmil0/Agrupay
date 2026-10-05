@@ -71,7 +71,7 @@ enum ProStore {
             case .alerts:  return "Una animación más llamativa cuando le recuerdas un pago a un amigo."
             case .cloud:   return "Tus preferencias, categorías y reglas, a salvo si cambias de teléfono."
             case .sync:    return "iPhone, iPad y laptop, siempre al día."
-            case .themes:  return "Nebulosa, Obsidiana, Aurora y Atardecer: fondos animados para tu resumen."
+            case .themes:  return "Diez fondos animados para tu resumen: cinco de noche y cinco de día."
             }
         }
 

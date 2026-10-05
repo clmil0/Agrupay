@@ -1,16 +1,34 @@
 import SwiftUI
 
-/// Los temas Pro de Resumen (`3b`–`3e`): fondos animados que se eligen en
-/// Apariencia, en la fila «Premium · con fondo animado».
+/// Los temas Pro de Resumen: fondos animados que se eligen en Apariencia ›
+/// Temas › Premium. Los de noche (`3b`–`3e` y Abismo) fuerzan el modo
+/// oscuro; los de día (Perla, Alba, Glaciar, Marfil y Salvia) son su
+/// contraparte clara y fuerzan el claro.
 enum ProTheme: String, CaseIterable, Identifiable {
     case nebula = "Nebulosa"
     case obsidian = "Obsidiana"
     case aurora = "Aurora"
     case sunset = "Atardecer"
+    case abyss = "Abismo"
+    case pearl = "Perla"
+    case dawn = "Alba"
+    case glacier = "Glaciar"
+    case ivory = "Marfil"
+    case sage = "Salvia"
 
     var id: String { rawValue }
 
     static let storageKey = "proTheme"
+
+    /// En el orden de Apariencia.
+    static let day: [ProTheme] = [.pearl, .dawn, .glacier, .ivory, .sage]
+    static let night: [ProTheme] = [.nebula, .obsidian, .aurora, .sunset, .abyss]
+
+    /// Los de día: van en claro mientras se usan.
+    var isLight: Bool { Self.day.contains(self) }
+
+    /// El modo que impone el tema a toda la app.
+    var colorScheme: ColorScheme { isLight ? .light : .dark }
 
     /// El tema Pro en uso, sólo si hay Pro: sin él, Resumen vuelve al tema
     /// básico que estuviera elegido (el color de acento no se toca).
@@ -18,28 +36,46 @@ enum ProTheme: String, CaseIterable, Identifiable {
         AppThemeColor.activeProTheme
     }
 
-    /// El tema Pro que tiñe toda la app: el elegido, sólo en oscuro (los
-    /// temas Pro fuerzan el modo oscuro; una vista previa en claro no lo lleva).
+    /// El tema Pro que tiñe toda la app: el elegido, sólo en su modo (una
+    /// vista previa en el modo contrario no lo lleva).
     static func ambient(_ scheme: ColorScheme) -> ProTheme? {
-        scheme == .dark ? current : nil
+        guard let current, current.colorScheme == scheme else { return nil }
+        return current
+    }
+
+    /// Una línea para Apariencia, debajo de la lista de temas.
+    var blurb: String {
+        switch self {
+        case .nebula:   return "Nubes de color que respiran y estrellas."
+        case .obsidian: return "Negro cálido con un halo de oro."
+        case .aurora:   return "Cintas boreales sobre un cielo nocturno."
+        case .sunset:   return "Un sol que late sobre el agua."
+        case .abyss:    return "Medusas que laten en aguas profundas."
+        case .pearl:    return "Nácar que gira, burbujas y destellos."
+        case .dawn:     return "Cielo durazno con un sol que sube."
+        case .glacier:  return "Facetas de hielo, un destello y nieve que cae."
+        case .ivory:    return "Papel crema con grano y brillo de oro."
+        case .sage:     return "Luz que se filtra entre hojas."
+        }
     }
 
     /// La esfera de muestra: la misma que en el paywall y en Apariencia.
     var swatch: RadialGradient {
-        switch self {
-        case .nebula:
-            return RadialGradient(colors: [tone(0xC084FC), tone(0x6D28D9), tone(0x06061A)],
-                                  center: UnitPoint(x: 0.3, y: 0.3), startRadius: 0, endRadius: 34)
-        case .obsidian:
-            return RadialGradient(colors: [tone(0xF6E7B8), tone(0xB8892F), tone(0x0B0A08)],
-                                  center: UnitPoint(x: 0.3, y: 0.3), startRadius: 0, endRadius: 34)
-        case .aurora:
-            return RadialGradient(colors: [tone(0xA5F3FC), tone(0x10B981), tone(0x04110F)],
-                                  center: UnitPoint(x: 0.3, y: 0.3), startRadius: 0, endRadius: 34)
-        case .sunset:
-            return RadialGradient(colors: [tone(0xFDE68A), tone(0xFB7185), tone(0x3B0F2E)],
-                                  center: UnitPoint(x: 0.3, y: 0.7), startRadius: 0, endRadius: 34)
-        }
+        let (stops, center): ([UInt32], UnitPoint) = {
+            switch self {
+            case .nebula:   return ([0xC084FC, 0x6D28D9, 0x06061A], UnitPoint(x: 0.3, y: 0.3))
+            case .obsidian: return ([0xF6E7B8, 0xB8892F, 0x0B0A08], UnitPoint(x: 0.3, y: 0.3))
+            case .aurora:   return ([0xA5F3FC, 0x10B981, 0x04110F], UnitPoint(x: 0.3, y: 0.3))
+            case .sunset:   return ([0xFDE68A, 0xFB7185, 0x3B0F2E], UnitPoint(x: 0.3, y: 0.7))
+            case .abyss:    return ([0xCFFAFE, 0x22D3EE, 0x0E7490, 0x03141A], UnitPoint(x: 0.3, y: 0.3))
+            case .pearl:    return ([0xFFFFFF, 0xF5C6E0, 0xC8B8FF, 0xA6E6D4], UnitPoint(x: 0.3, y: 0.3))
+            case .dawn:     return ([0xFFF4D6, 0xFDBA74, 0xFFD9C2, 0xFFF1E6], UnitPoint(x: 0.7, y: 0.75))
+            case .glacier:  return ([0xFFFFFF, 0xBFDDF7, 0x6FA9E8, 0x1F6FD1], UnitPoint(x: 0.3, y: 0.3))
+            case .ivory:    return ([0xFFFFFF, 0xF6E7B8, 0xD4AF61, 0xB8892F], UnitPoint(x: 0.3, y: 0.3))
+            case .sage:     return ([0xFFF6D6, 0xCFE6C8, 0x7FBF95, 0x3E9A6E], UnitPoint(x: 0.35, y: 0.3))
+            }
+        }()
+        return RadialGradient(colors: stops.map { tone($0) }, center: center, startRadius: 0, endRadius: 34)
     }
 }
 
@@ -55,16 +91,30 @@ extension ProTheme {
         case .obsidian: return tone(0x0B0A08)
         case .aurora:   return tone(0x04110F)
         case .sunset:   return tone(0x1A0B14)
+        case .abyss:    return tone(0x03141A)
+        case .pearl:    return tone(0xFBF8FB)
+        case .dawn:     return tone(0xFFF8F1)
+        case .glacier:  return tone(0xF2F7FC)
+        case .ivory:    return tone(0xFAF6EC)
+        case .sage:     return tone(0xF5F8F3)
         }
     }
 
-    /// Tarjetas: vidrio oscuro con un poco del cielo detrás.
+    /// Tarjetas: vidrio con un poco del cielo detrás. En los de día, vidrio
+    /// blanco casi opaco, para que el texto secundario siga cumpliendo AA
+    /// sobre el cielo.
     var surface: Color {
         switch self {
         case .nebula:   return tone(0x100E2C, opacity: 0.84)
         case .obsidian: return tone(0x15130E)
         case .aurora:   return tone(0x081E1B, opacity: 0.86)
         case .sunset:   return tone(0x2A0F1E, opacity: 0.86)
+        case .abyss:    return tone(0x062028, opacity: 0.86)
+        case .pearl:    return Color.white.opacity(0.80)
+        case .dawn:     return Color.white.opacity(0.82)
+        case .glacier:  return Color.white.opacity(0.86)
+        case .ivory:    return Color(hex: 0xFFFDF7, opacity: 0.9)
+        case .sage:     return Color.white.opacity(0.82)
         }
     }
 
@@ -76,6 +126,9 @@ extension ProTheme {
         case .obsidian: return tone(0x1C1912)
         case .aurora:   return tone(0x0B2522)
         case .sunset:   return tone(0x2E1424)
+        case .abyss:    return tone(0x092A33)
+        case .ivory:    return Color(hex: 0xFFFDF7)
+        case .pearl, .dawn, .glacier, .sage: return .white
         }
     }
 
@@ -85,6 +138,25 @@ extension ProTheme {
         case .obsidian: return tone(0xE9D29A, opacity: 0.22)
         case .aurora:   return tone(0x6EE7B7, opacity: 0.14)
         case .sunset:   return tone(0xFDBA74, opacity: 0.16)
+        case .abyss:    return tone(0x67E8F9, opacity: 0.16)
+        case .pearl:    return tone(0x5B3FC4, opacity: 0.14)
+        case .dawn:     return tone(0xB2431A, opacity: 0.14)
+        case .glacier:  return tone(0x145096, opacity: 0.16)
+        case .ivory:    return tone(0xB8892F, opacity: 0.30)
+        case .sage:     return tone(0x1E6B50, opacity: 0.14)
+        }
+    }
+
+    /// El carril de las barras y de las pistas. En los de noche, el mismo
+    /// hairline; en los de día un tono opaco propio, que se lee sobre el cielo.
+    var track: Color {
+        switch self {
+        case .pearl:   return tone(0xDCD1EC)
+        case .dawn:    return tone(0xF3E3D6)
+        case .glacier: return tone(0xCCDBEB)
+        case .ivory:   return tone(0xEEE6D3)
+        case .sage:    return tone(0xE2EBDF)
+        default:       return hairline
         }
     }
 
@@ -94,6 +166,12 @@ extension ProTheme {
         case .obsidian: return tone(0xF4EEDF)
         case .aurora:   return tone(0xE8FFF6)
         case .sunset:   return tone(0xFFF1E6)
+        case .abyss:    return tone(0xE6FBFF)
+        case .pearl:    return tone(0x1E1530)
+        case .dawn:     return tone(0x2A1A12)
+        case .glacier:  return tone(0x0B1A2E)
+        case .ivory:    return tone(0x1F1A10)
+        case .sage:     return tone(0x13241A)
         }
     }
 
@@ -103,6 +181,12 @@ extension ProTheme {
         case .obsidian: return tone(0xA89F8A)
         case .aurora:   return tone(0x9CC3B6)
         case .sunset:   return tone(0xD6AFA6)
+        case .abyss:    return tone(0x9CC0C8)
+        case .pearl:    return tone(0x665E74)
+        case .dawn:     return tone(0x76594B)
+        case .glacier:  return tone(0x4E5F73)
+        case .ivory:    return tone(0x6B604A)
+        case .sage:     return tone(0x56675C)
         }
     }
 
@@ -112,6 +196,12 @@ extension ProTheme {
         case .obsidian: return tone(0x8C8471)
         case .aurora:   return tone(0x7FA79A)
         case .sunset:   return tone(0xB08C86)
+        case .abyss:    return tone(0x7FA3AC)
+        case .pearl:    return tone(0x8A8396)
+        case .dawn:     return tone(0x987D70)
+        case .glacier:  return tone(0x75849A)
+        case .ivory:    return tone(0x8C826C)
+        case .sage:     return tone(0x7B8A80)
         }
     }
 
@@ -124,6 +214,12 @@ extension ProTheme {
         case .obsidian: return 0xD4AF61
         case .aurora:   return 0x34D399
         case .sunset:   return 0xFB7185
+        case .abyss:    return 0x22D3EE
+        case .pearl:    return 0x7B5BE6
+        case .dawn:     return 0xF2683C
+        case .glacier:  return 0x1F6FD1
+        case .ivory:    return 0xB8892F
+        case .sage:     return 0x3E9A6E
         }
     }
 
@@ -134,36 +230,33 @@ extension ProTheme {
         case .obsidian: return tone(0xE9D29A)
         case .aurora:   return tone(0x6EE7B7)
         case .sunset:   return tone(0xFDBA74)
+        case .abyss:    return tone(0x67E8F9)
+        case .pearl:    return tone(0x5B3FC4)
+        case .dawn:     return tone(0xB2431A)
+        case .glacier:  return tone(0x14569F)
+        case .ivory:    return tone(0x8A5514)
+        case .sage:     return tone(0x1E6B50)
         }
     }
 
-    /// Neto positivo e ingresos.
+    /// Fondo tenue del acento: chips y el cuadrito del ícono de cuentas.
+    var soft: Color { accent.opacity(isLight ? 0.14 : 0.22) }
+
+    /// Neto positivo e ingresos. No gira con la variante: un ingreso no
+    /// debe confundirse con el gasto.
     var positive: Color {
         switch self {
         case .nebula:   return Color(hex: 0x5EEAD4)
         case .obsidian: return Color(hex: 0xE9D29A)
         case .aurora:   return Color(hex: 0x6EE7B7)
         case .sunset:   return Color(hex: 0xFDE68A)
-        }
-    }
-
-    /// De abajo arriba, la barra elegida del gráfico.
-    var barGradient: [Color] {
-        switch self {
-        case .nebula:   return [tone(0x6D28D9), tone(0x8B5CF6), tone(0xC4B5FD)]
-        case .obsidian: return [tone(0x6E5020), tone(0xD4AF61), tone(0xF6E7B8)]
-        case .aurora:   return [tone(0x065F46), tone(0x34D399), tone(0xA5F3FC)]
-        case .sunset:   return [tone(0x9F1239), tone(0xFB7185), tone(0xFDBA74), tone(0xFDE68A)]
-        }
-    }
-
-    /// El + del Resumen.
-    var fabGradient: [Color] {
-        switch self {
-        case .nebula:   return [tone(0x8B5CF6), tone(0xA78BFA)]
-        case .obsidian: return [tone(0xB8892F), tone(0xF6E7B8)]
-        case .aurora:   return [tone(0x10B981), tone(0x22D3EE)]
-        case .sunset:   return [tone(0xFB7185), tone(0xF59E0B)]
+        case .abyss:    return Color(hex: 0xA7F3D0)
+        case .pearl:    return Color(hex: 0x0F7F63)
+        case .dawn:     return Color(hex: 0x1F7A4C)
+        case .glacier:  return Color(hex: 0x0B7A6C)
+        case .ivory:    return Color(hex: 0x5E7A2A)
+        // Azul: el verde se confundiría con el acento.
+        case .sage:     return Color(hex: 0x2A6FA8)
         }
     }
 
@@ -175,20 +268,66 @@ extension ProTheme {
         case .obsidian: return .sand
         case .aurora:   return .mint
         case .sunset:   return .salmon
+        case .abyss:    return .lightBlue
+        case .pearl:    return .lilac
+        case .dawn:     return .salmon
+        case .glacier:  return .lightBlue
+        case .ivory:    return .sand
+        case .sage:     return .mint
         }
     }
 
-    /// Obsidiana escribe las cifras con serifa (New York).
-    var numberDesign: Font.Design { self == .obsidian ? .serif : .default }
+    /// Obsidiana y Marfil escriben las cifras con serifa (New York).
+    var usesSerifNumbers: Bool { self == .obsidian || self == .ivory }
 
-    /// El monto grande: oro pulido en Obsidiana, cielo cálido en Atardecer.
-    var amountGradient: [Color]? {
+    var numberDesign: Font.Design { usesSerifNumbers ? .serif : .default }
+
+    /// El peso de las cifras grandes: la serifa va en medio, salvo Marfil,
+    /// que necesita más peso sobre el crema.
+    var numberWeight: Font.Weight {
+        switch self {
+        case .obsidian: return .medium
+        default:        return .bold
+        }
+    }
+
+    /// El espaciado del monto grande: la serifa no se aprieta tanto.
+    var heroTracking: CGFloat { usesSerifNumbers ? -0.6 : -1.8 }
+
+    /// Barras en cápsula: Obsidiana y su par de día.
+    var barCornerRadius: CGFloat { usesSerifNumbers ? 40 : 5 }
+
+    /// El monto grande con degradado, si el tema lo lleva.
+    var amountGradient: LinearGradient? {
+        func stops(_ list: [(UInt32, Double)]) -> [Gradient.Stop] {
+            list.map { Gradient.Stop(color: tone($0.0), location: $0.1) }
+        }
         switch self {
         case .obsidian:
-            return [tone(0x8C6A2F), tone(0xE9D29A), tone(0xB8892F), tone(0xF6E7B8), tone(0x9A7430)]
+            return LinearGradient(stops: stops([(0x8C6A2F, 0), (0xE9D29A, 0.25), (0xB8892F, 0.5), (0xF6E7B8, 0.75), (0x9A7430, 1)]),
+                                  startPoint: .topLeading, endPoint: .bottomTrailing)
         case .sunset:
-            return [tone(0xFFF1E6), tone(0xFDBA74), tone(0xFB7185)]
-        default:
+            return LinearGradient(stops: stops([(0xFFF1E6, 0), (0xFDBA74, 0.5), (0xFB7185, 1)]),
+                                  startPoint: .top, endPoint: .bottom)
+        case .abyss:
+            return LinearGradient(stops: stops([(0xE6FBFF, 0.45), (0xA5F3FC, 1)]),
+                                  startPoint: .top, endPoint: .bottom)
+        case .pearl:
+            return LinearGradient(stops: stops([(0x2A1D52, 0), (0x5B3FC4, 0.45), (0xA8408A, 1)]),
+                                  startPoint: .leading, endPoint: .trailing)
+        case .dawn:
+            return LinearGradient(stops: stops([(0x3A1E10, 0.3), (0xB2431A, 1)]),
+                                  startPoint: .top, endPoint: .bottom)
+        case .glacier:
+            return LinearGradient(stops: stops([(0x0B1A2E, 0.35), (0x14569F, 0.75), (0x2E86C8, 1)]),
+                                  startPoint: .top, endPoint: .bottom)
+        case .ivory:
+            return LinearGradient(stops: stops([(0x5E431A, 0), (0x9A7430, 0.3), (0x6E5020, 0.55), (0xB08A3E, 0.78), (0x5E431A, 1)]),
+                                  startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .sage:
+            return LinearGradient(stops: stops([(0x13241A, 0.4), (0x1E6B50, 1)]),
+                                  startPoint: .top, endPoint: .bottom)
+        case .nebula, .aurora:
             return nil
         }
     }
@@ -213,7 +352,7 @@ extension ProTheme {
         case .nebula:
             return [.init(name: "Violeta", degrees: 0), .init(name: "Índigo", degrees: -28),
                     .init(name: "Orquídea", degrees: 32), .init(name: "Azul cósmico", degrees: -50)]
-        case .obsidian:
+        case .obsidian, .ivory:
             return [.init(name: "Oro", degrees: 0), .init(name: "Champaña", degrees: 10),
                     .init(name: "Cobre", degrees: -18), .init(name: "Oro rosa", degrees: -35)]
         case .aurora:
@@ -222,6 +361,21 @@ extension ProTheme {
         case .sunset:
             return [.init(name: "Coral", degrees: 0), .init(name: "Ámbar", degrees: 25),
                     .init(name: "Fucsia", degrees: -30), .init(name: "Lavanda", degrees: -70)]
+        case .abyss:
+            return [.init(name: "Cian", degrees: 0), .init(name: "Turquesa", degrees: -18),
+                    .init(name: "Azul abisal", degrees: 28), .init(name: "Violeta abisal", degrees: 75)]
+        case .pearl:
+            return [.init(name: "Nácar", degrees: 0), .init(name: "Ópalo", degrees: 30),
+                    .init(name: "Rosa perla", degrees: -35), .init(name: "Menta perla", degrees: 140)]
+        case .dawn:
+            return [.init(name: "Durazno", degrees: 0), .init(name: "Miel", degrees: 18),
+                    .init(name: "Rosa alba", degrees: -25), .init(name: "Lila alba", degrees: -60)]
+        case .glacier:
+            return [.init(name: "Hielo", degrees: 0), .init(name: "Turquesa", degrees: -25),
+                    .init(name: "Índigo", degrees: 25), .init(name: "Lavanda", degrees: 50)]
+        case .sage:
+            return [.init(name: "Salvia", degrees: 0), .init(name: "Eucalipto", degrees: 25),
+                    .init(name: "Oliva", degrees: -30), .init(name: "Musgo", degrees: -15)]
         }
     }
 

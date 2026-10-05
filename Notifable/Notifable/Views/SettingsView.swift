@@ -377,9 +377,9 @@ struct SettingsView: View {
 
     /// «Azul · Oscuro».
     private var appearanceSubtitle: String {
-        // Con tema Pro, su nombre; y va siempre en oscuro.
+        // Con tema Pro, su nombre y el modo que impone.
         if isPro, let pro = ProTheme(rawValue: proThemeRaw) {
-            return [pro.rawValue, AppAppearance.dark.rawValue].joined(separator: " · ")
+            return [pro.rawValue, (pro.isLight ? AppAppearance.light : .dark).rawValue].joined(separator: " · ")
         }
         return [accent.rawValue, appearance.rawValue].joined(separator: " · ")
     }
