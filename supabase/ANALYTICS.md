@@ -120,8 +120,8 @@ El automático que llega del correo se cuenta con `email_parse.auto`. El de voz,
 |---|---|---|
 | `paywall_shown` | `feature` (`history`, `ai`, `alerts`, `cloud`, `sync`, `themes`, `profile`, `general`) | Al abrir el paywall, con la función que lo abrió. |
 | `paywall_dismissed` | `feature`, `plan`, `seconds` | Al cerrarlo sin probar. |
-| `pro_trial_started` | `feature`, `plan`, `seconds` | «Probar 7 días gratis». |
-| `pro_cancelled` | `plan` | Volver a Gratis. |
+| `pro_trial_started` | `source` (`paywall`, `test_switch`), `feature?`, `plan`, `seconds?` | «Probar 7 días gratis» en el paywall, o encender «Premium (pruebas)». |
+| `pro_cancelled` | `source` (`test_switch`), `plan` | Volver a Gratis. Hoy sólo existe desde el interruptor de pruebas. |
 | `pro_feature_used` | `feature` | Una vez al día por función, sólo siendo Pro: `history` (mirar o leer ≥ 3 meses atrás), `ai` (asistente), `alerts` (cobro intenso), `cloud` (respaldo activo), `themes` (tema Pro puesto), `profile` (perfil Pro publicado). |
 | `theme_changed` | `theme`, `pro` | Al elegir un tema. |
 
@@ -168,7 +168,7 @@ Las `_daily` traen una fila por día para filtrar por rango en el panel; las `_3
 | Retención D1 / D7 / D30 por cohorte | `analytics_retention_cohorts` |
 | Qué trae a la gente de vuelta | `analytics_open_sources_daily`, `analytics_open_hours_30d` |
 | Notificaciones enviadas y abiertas | `analytics_notifications_daily` |
-| Paywall: qué función vende | `analytics_paywall_daily`, `analytics_paywall_30d` |
+| Paywall: qué función vende (sin el interruptor de pruebas) | `analytics_paywall_daily`, `analytics_paywall_30d` |
 | Uso de funciones Pro | `analytics_pro_feature_usage_daily`, `analytics_pro_engagement_30d`, `analytics_themes_30d` |
 | Adopción de ajustes (Face ID, widgets, Gmail…) | `analytics_adoption_latest` |
 | Arranque y carga | `analytics_launch_perf_daily`, `analytics_screen_perf_daily`, `analytics_metrickit_daily` |

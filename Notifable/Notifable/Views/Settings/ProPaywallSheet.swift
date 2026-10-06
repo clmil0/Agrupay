@@ -251,6 +251,7 @@ struct ProPaywallSheet: View {
             Button {
                 startedTrial = true
                 Analytics.track(.proTrialStarted, ["feature": feature?.rawValue ?? "general",
+                                                   "source": "paywall",
                                                    "plan": plan.rawValue,
                                                    "seconds": Int(Date().timeIntervalSince(shownAt))])
                 ProStore.startTrial(plan: plan)

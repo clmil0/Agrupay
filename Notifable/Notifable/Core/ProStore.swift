@@ -120,10 +120,11 @@ enum ProStore {
         didChange()
     }
 
-    /// Volver al plan Gratis (sólo desde el modo QA por ahora).
+    /// Volver al plan Gratis (sólo desde el interruptor de pruebas por ahora).
+    /// `source` llega a la analítica: `test_switch` no es una baja real.
     @MainActor
-    static func cancel() {
-        if isPro { Analytics.track(.proCancelled, ["plan": plan.rawValue]) }
+    static func cancel(source: String) {
+        if isPro { Analytics.track(.proCancelled, ["plan": plan.rawValue, "source": source]) }
         UserDefaults.standard.set(false, forKey: enabledKey)
         didChange()
     }
@@ -153,7 +154,15 @@ enum ProStore {
     /// Enciende o apaga Pro sin pasar por el paywall.
     @MainActor
     static func setForTesting(_ on: Bool) {
-        on ? startTrial(plan: plan) : cancel()
+        guard on != isPro else { return }
+        if on {
+            // El alta y la baja de pruebas van marcadas igual, para que el
+            // panel las pueda dejar fuera juntas.
+            Analytics.track(.proTrialStarted, ["plan": plan.rawValue, "source": "test_switch"])
+            startTrial(plan: plan)
+        } else {
+            cancel(source: "test_switch")
+        }
     }
 
     // MARK: - Límites del plan Gratis

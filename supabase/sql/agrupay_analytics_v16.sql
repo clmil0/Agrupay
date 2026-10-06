@@ -786,6 +786,8 @@ select day, coalesce(props ->> 'feature', 'general') as feature,
        count(*) filter (where event = 'pro_trial_started') as trials
 from public.analytics_ev
 where event in ('paywall_shown', 'pro_trial_started')
+  -- El interruptor «Premium (pruebas)» no es una conversión.
+  and coalesce(props ->> 'source', '') <> 'test_switch'
 group by 1, 2;
 
 create or replace view public.analytics_paywall_30d
@@ -797,6 +799,7 @@ select coalesce(props ->> 'feature', 'general') as feature,
              / nullif(count(distinct install_id) filter (where event = 'paywall_shown'), 0), 1) as pct_conversion
 from public.analytics_ev
 where event in ('paywall_shown', 'pro_trial_started')
+  and coalesce(props ->> 'source', '') <> 'test_switch'
   and occurred_at > now() - interval '30 days'
 group by 1;
 
