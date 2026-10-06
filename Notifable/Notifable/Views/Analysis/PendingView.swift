@@ -672,7 +672,11 @@ struct PendingView: View {
             Button {
                 // Aceptar la sugerencia clasifica sólo lo elegido; la regla
                 // para lo que llegue se pide en la hoja («Otra»).
-                apply(hint.category, to: pickedIDs(in: group), rules: AssignCategoryRules())
+                var props = Analytics.suggestionProps(hint)
+                props["screen"] = "pending"
+                Analytics.track(.suggestionAccepted, props)
+                apply(hint.category, to: pickedIDs(in: group), rules: AssignCategoryRules(),
+                      via: .pendingSuggestion)
             } label: {
                 Text("Sí")
                     .font(.system(size: 13, weight: .bold))
@@ -684,6 +688,9 @@ struct PendingView: View {
             .buttonStyle(.plain)
 
             Button {
+                var props = Analytics.suggestionProps(hint)
+                props["screen"] = "pending"
+                Analytics.track(.suggestionDismissed, props)
                 let ids = pickedIDs(in: group)
                 assigning = AssignTarget(ids: ids, groups: groups,
                                          earlier: Self.earlierPending(than: ids, in: expenses).count)
@@ -700,6 +707,7 @@ struct PendingView: View {
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 14)
+        .onAppear { Analytics.suggestionShown(hint, merchant: group.merchant, screen: "pending") }
     }
 
     // MARK: - Aplicar
@@ -712,12 +720,17 @@ struct PendingView: View {
     /// (los dos interruptores llegan apagados): `rules.past` arrastra lo
     /// pendiente más antiguo de esos comercios, aunque esté fuera del alcance
     /// visible, y `rules.future` deja la regla para lo que llegue.
-    private func apply(_ category: String, to ids: Set<UUID>, rules: AssignCategoryRules) {
+    private func apply(_ category: String, to ids: Set<UUID>, rules: AssignCategoryRules,
+                       via: ClassificationVia = .pendingSheet) {
         let picked = expenses.filter { ids.contains($0.id) }
         let earlier = rules.past ? Self.earlierPending(than: ids, in: expenses) : []
 
+        Analytics.classified((picked + earlier).map { ($0.id, $0.category) }, to: category,
+                             via: via, ruleCreated: rules.future)
         if rules.future {
-            for merchant in Set(picked.map(\.merchant)) { MerchantRules.set(category, for: merchant) }
+            let merchants = Set(picked.map(\.merchant))
+            for merchant in merchants { MerchantRules.set(category, for: merchant) }
+            Analytics.ruleCreated(origin: "pending", count: merchants.count)
         }
         for expense in picked + earlier {
             expense.category = category

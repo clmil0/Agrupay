@@ -11,6 +11,10 @@ struct NotifableApp: App {
     var sharedModelContainer: ModelContainer { AppModelContainer.shared }
 
     init() {
+        AnalyticsPerformance.markInit()
+        // Antes que nada: para saber si quien abre ya usaba la app (el bloque
+        // del onboarding de abajo marca `hasSeenOnboarding`).
+        MainActor.assumeIsolated { Analytics.shared.start() }
         // Traduce el `dashboardFilter` guardado por la versión anterior al
         // nuevo `Period` único y borra las claves que ya no existen.
         Period.migrateLegacyFilterIfNeeded()
@@ -148,10 +152,16 @@ struct NotifableApp: App {
             // de Notificaciones o bloquear el teléfono no pide la cara.
             if newPhase == .active {
                 AppLock.shared.sceneDidBecomeActive()
+                ScreenTracker.shared.appDidBecomeActive()
+                Analytics.shared.appDidBecomeActive()
+                AppOpenTracker.appDidBecomeActive(fromBackground: oldPhase == .background)
+                AnalyticsSnapshot.runIfNeeded(container: sharedModelContainer)
             } else {
                 if newPhase == .background {
                     AppLock.shared.sceneDidEnterBackground()
                     GmailSyncService.shared.appDidEnterBackground()
+                    ScreenTracker.shared.appDidEnterBackground()
+                    Analytics.shared.appDidEnterBackground()
                 } else {
                     GmailSyncService.shared.stopForegroundPolling()
                 }

@@ -245,6 +245,7 @@ final class SupabaseAuthManager {
     /// cuanto dejo de serlo.
     func pushSocialStyle() async {
         guard supportsSocialStyle, let style = Self.json(SocialProfileStore.shared.publishedStyle) else { return }
+        if (style as? [String: Any])?["pro"] as? Bool == true { Analytics.proFeatureUsed(.profile) }
         let name = SocialProfileStore.shared.displayName
         let code = await postProfile(fields: ["display_name": name.isEmpty ? "Amigo" : name,
                                               "social_style": style])

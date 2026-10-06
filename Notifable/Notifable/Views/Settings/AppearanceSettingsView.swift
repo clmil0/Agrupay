@@ -95,12 +95,20 @@ struct AppearanceSettingsView: View {
 
     /// Un tema básico quita el tema Pro que hubiera.
     private func pick(_ theme: AppThemeColor) {
+        Analytics.track(.themeChanged, ["theme": theme.rawValue, "pro": false])
         proThemeRaw = ""
         appAccentColor = theme.rawValue
     }
 
     private func pick(_ theme: ProTheme) {
-        guard isPro else { paywall = .themes; return }
+        guard isPro else {
+            Analytics.tap("appearance.locked_theme", ["theme": theme.rawValue])
+            paywall = .themes
+            return
+        }
+        Analytics.track(.themeChanged, ["theme": theme.rawValue, "pro": true])
+        Analytics.featureUsed(.proTheme)
+        Analytics.proFeatureUsed(.themes)
         proThemeRaw = theme.rawValue
         // El resto de la app toma el tono más cercano, para que no
         // desentone con el Resumen.

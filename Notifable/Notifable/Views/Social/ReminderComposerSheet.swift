@@ -106,6 +106,11 @@ struct ReminderComposerSheet: View {
     // MARK: - Cuerpo
 
     var body: some View {
+        trackedBody.trackScreen("reminder_composer", feature: .paymentReminder)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -625,9 +630,14 @@ struct ReminderComposerSheet: View {
         )
 
         if result.failed {
+            Analytics.error("payment_reminder", code: "send_failed")
             outcome = "No se pudo enviar. " + (reminders.lastErrorMessage ?? "Revisa tu conexión.")
             return
         }
+        Analytics.track(.featureUsed, ["feature": AppFeature.paymentReminder.rawValue, "action": "sent",
+                                       "friends": sendableFriends.count, "split": splitEnabled,
+                                       "intense": isPro && intensity == .intense])
+        if isPro, intensity == .intense { Analytics.proFeatureUsed(.alerts) }
 
         await loadSentStatus()
 

@@ -123,6 +123,7 @@ enum ProStore {
     /// Volver al plan Gratis (sólo desde el modo QA por ahora).
     @MainActor
     static func cancel() {
+        if isPro { Analytics.track(.proCancelled, ["plan": plan.rawValue]) }
         UserDefaults.standard.set(false, forKey: enabledKey)
         didChange()
     }

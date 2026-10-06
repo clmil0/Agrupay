@@ -51,6 +51,11 @@ struct OnboardingView: View {
     private static let lastSlide = 2
 
     var body: some View {
+        trackedBody.trackScreen("onboarding")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         ZStack {
             palette.background.ignoresSafeArea()
 
@@ -63,8 +68,11 @@ struct OnboardingView: View {
             }
         }
         .animation(.snappy, value: step)
+        .onAppear { Self.step(page == 3 ? "login" : "slide_\(page + 1)") }
+        .onChange(of: page) { _, page in Self.step(page == 3 ? "login" : "slide_\(page + 1)") }
         .onChange(of: gmailAuth.isAuthenticated) { _, isAuthenticated in
             guard isAuthenticated, isConnecting else { return }
+            Self.step("connected")
             isConnecting = false
             withAnimation(.snappy) { step = .link }
         }
@@ -85,7 +93,10 @@ struct OnboardingView: View {
             HStack {
                 Spacer()
                 if page <= Self.lastSlide {
-                    Button("Saltar") { withAnimation(.snappy) { page = 3 } }
+                    Button("Saltar") {
+                        Analytics.tap("onboarding.skip", ["slide": page + 1])
+                        withAnimation(.snappy) { page = 3 }
+                    }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(palette.secondaryLabel)
                 }
@@ -975,8 +986,12 @@ struct OnboardingView: View {
             }
         }
         .confirmationDialog("¿Continuar sin cuenta?", isPresented: $showNoAccountConfirm, titleVisibility: .visible) {
-            Button("Sin cuenta", role: .destructive) { finish() }
+            Button("Sin cuenta", role: .destructive) {
+                Self.step("no_account")
+                finish()
+            }
             Button("Conectar") {
+                Self.step("connect_tapped", ["from": "no_account_dialog"])
                 isConnecting = true
                 GmailAuthService.shared.signIn()
             }
@@ -1042,6 +1057,7 @@ struct OnboardingView: View {
     private var loginButtons: some View {
         VStack(spacing: 12) {
             Button {
+                Self.step("connect_tapped")
                 isConnecting = true
                 GmailAuthService.shared.signIn()
             } label: {
@@ -1082,7 +1098,20 @@ struct OnboardingView: View {
         // La secuencia ya se hizo aquí dentro; sin esto, la marca que dejó
         // `signIn()` haría que la app la repitiera nada más entrar.
         UserDefaults.standard.set(false, forKey: GmailAuthService.pendingLinkFlowKey)
+        let withAccount = GmailAuthService.hasStoredSession || OutlookAuthService.hasStoredSession
+        Self.step("finished", ["with_account": withAccount])
+        Analytics.track(.onboardingCompleted, ["with_account": withAccount,
+                                               "restored": ConfigBackupManager.shared.isEnabled,
+                                               "read_months": UserDefaults.standard.integer(forKey: "readPeriodMonths")])
         hasSeenOnboarding = true
+    }
+
+    /// Un paso del embudo, una vez por instalación: volver atrás en el
+    /// carrusel no cuenta dos veces.
+    static func step(_ name: String, _ props: [String: Any] = [:]) {
+        var all = props
+        all["step"] = name
+        Analytics.trackOnce("onboarding." + name, AnalyticsEvent.onboardingStep.rawValue, all)
     }
 }
 

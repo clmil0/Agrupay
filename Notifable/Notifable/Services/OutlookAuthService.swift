@@ -76,6 +76,7 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
             Diagnostics.shared.log("Outlook auth: ✗ falta el client ID de Azure")
             return
         }
+        Analytics.track(.accountConnectStarted, ["provider": "outlook"])
         let verifier = Self.randomURLSafe(bytes: 32)
         let state = Self.randomURLSafe(bytes: 16)
         let challenge = Self.base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
@@ -97,6 +98,10 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
         authSession = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.callbackScheme) { callbackURL, error in
             guard error == nil, let callbackURL else {
                 let nsError = error as NSError?
+                let cancelled = nsError?.domain == ASWebAuthenticationSessionErrorDomain
+                    && nsError?.code == ASWebAuthenticationSessionError.canceledLogin.rawValue
+                Analytics.track(.accountConnectFailed, ["provider": "outlook",
+                                                        "reason": cancelled ? "cancelled" : "auth_window"])
                 Diagnostics.shared.log("Outlook auth: la ventana de Microsoft terminó sin respuesta (\(nsError?.domain ?? "?") \(nsError?.code ?? 0))")
                 return
             }
@@ -105,6 +110,7 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
                   let code = items.first(where: { $0.name == "code" })?.value else {
                 let msError = items.first(where: { $0.name == "error_description" })?.value
                     ?? items.first(where: { $0.name == "error" })?.value ?? "ninguno"
+                Analytics.track(.accountConnectFailed, ["provider": "outlook", "reason": "no_code"])
                 Diagnostics.shared.log("Outlook auth: ✗ respuesta sin código o con otro state (error de Microsoft: \(msError))")
                 return
             }
@@ -125,6 +131,7 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
     /// account.live.com (el botón «Permisos de Microsoft»).
     func signOut() {
         Diagnostics.shared.log("Outlook auth: se desvincula la cuenta")
+        Analytics.track(.accountDisconnected, ["provider": "outlook", "reason": "user"])
         SecureStore.outlook.removeAll()
         setIDToken(nil)
         let d = UserDefaults.standard
@@ -189,6 +196,7 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
         let label = isLink ? "canje del código" : "renovación"
         URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data, error == nil else {
+                if isLink { Analytics.track(.accountConnectFailed, ["provider": "outlook", "reason": "network"]) }
                 Diagnostics.shared.log("Outlook auth: ✗ \(label), error de red: \(error?.localizedDescription ?? "sin datos")")
                 return completion(nil)
             }
@@ -198,8 +206,10 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
 
             guard let access = json["access_token"] as? String else {
                 if json["error"] as? String == "invalid_grant", !isLink { self.markAccessRevoked() }
+                if isLink { Analytics.track(.accountConnectFailed, ["provider": "outlook", "reason": "token_exchange"]) }
                 return completion(nil)
             }
+            if isLink { Analytics.track(.accountConnected, ["provider": "outlook", "read_scope": true]) }
             SecureStore.outlook.write(access, for: Keys.accessToken)
             if let refresh = json["refresh_token"] as? String {
                 SecureStore.outlook.write(refresh, for: Keys.refreshToken)
@@ -225,6 +235,7 @@ final class OutlookAuthService: NSObject, ObservableObject, ASWebAuthenticationP
 
     private func markAccessRevoked() {
         Diagnostics.shared.log("Outlook auth: ✗ Microsoft respondió invalid_grant; hay que volver a conectar")
+        Analytics.track(.accountDisconnected, ["provider": "outlook", "reason": "revoked"])
         SecureStore.outlook.removeAll()
         setIDToken(nil)
         UserDefaults.standard.removeObject(forKey: Keys.hasIdentity)

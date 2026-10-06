@@ -51,6 +51,11 @@ struct ExpenseDetailsView: View {
     /// Un aviso de anulación no tiene ficha: tocarlo es elegir qué compra se
     /// anuló.
     var body: some View {
+        trackedBody.trackScreen("expense_detail")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         if expense.isDeleted || expense.modelContext == nil {
             // Borrado mientras la hoja se cierra (el aviso ya resuelto).
             Color.clear

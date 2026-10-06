@@ -115,6 +115,8 @@ struct DashboardView: View {
         })
     }
 
+    private static var reportedCatalogTime = false
+
     static func month(offset: Int) -> Period {
         var period = Period(granularity: .mes, reference: Date())
         for _ in 0..<max(0, offset) { period = period.previous }
@@ -160,10 +162,19 @@ struct DashboardView: View {
     /// tarjetas y a qué banco llega cada Plin—, así que se arma fuera del
     /// cuerpo y una sola vez por aparición, no en cada dibujado.
     private func loadCatalog() {
+        let started = Date()
         loaded.catalog = StoreRevision.current
         let all = (try? modelContext.fetch(FetchDescriptor<Expense>())) ?? []
         let allIncomes = (try? modelContext.fetch(FetchDescriptor<Income>())) ?? []
         catalog = AccountCatalog(expenses: all, incomes: allIncomes)
+        defer {
+            // Lo que más pesa del Resumen: recorre el historial entero. Una
+            // muestra por apertura.
+            if !Self.reportedCatalogTime {
+                Self.reportedCatalogTime = true
+                AnalyticsPerformance.screenReady("dashboard_catalog", since: started)
+            }
+        }
         let keys = NewMovements.keys(expenses: all, incomes: allIncomes)
         newMovements.baselineIfNeeded(keys)
         if keys != movementKeys { movementKeys = keys }
@@ -278,10 +289,14 @@ struct DashboardView: View {
             guard let day = Self.briefDay, day != AssistantBrief.dayKey(Date()) else { return }
             refreshBrief()
         }
-        .onChange(of: chartMode) { _, _ in selectedColumn = nil }
-        .onChange(of: monthOffset) { _, _ in
+        .onChange(of: chartMode) { _, mode in
+            selectedColumn = nil
+            Analytics.track(.chartMode, ["mode": mode.rawValue])
+        }
+        .onChange(of: monthOffset) { _, offset in
             selectedColumn = nil
             loadMonthExtras()
+            Analytics.periodChanged(screen: "dashboard", period: Self.month(offset: offset))
         }
         .onChange(of: categoryBudgets.budgets) { _, _ in
             loadMonthExtras()
@@ -340,6 +355,8 @@ struct DashboardView: View {
     }
 
     private func openAssistant() {
+        Analytics.tap("summary.assistant", ["has_news": AssistantDot.shared.hasNews])
+        Analytics.proFeatureUsed(.ai)
         let inputs = AssistantData.inputs(context: modelContext, usdToPen: rate)
         let cards = AssistantBrief.cards(inputs)
         AssistantSeenState().markSeen(cards)
@@ -395,6 +412,7 @@ struct DashboardView: View {
                 ForEach(accounts) { account in
                     let name = accountBook.preferences.name(for: account)
                     Button {
+                        Analytics.featureUsed(.accountFilter, ["screen": "summary"])
                         filter.selection = account.key
                     } label: {
                         if filter.selection == account.key {
@@ -603,6 +621,7 @@ struct DashboardView: View {
     ///
     /// Con «Reducir movimiento», un fundido simple sin desenfoque ni escala.
     private func toggleAmounts() {
+        Analytics.featureUsed(.hideAmounts, ["hide": !hidesAmounts])
         guard !reduceMotion else {
             withAnimation(.easeInOut(duration: 0.2)) { hidesAmounts.toggle() }
             return

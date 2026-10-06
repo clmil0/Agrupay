@@ -67,6 +67,15 @@ struct LogExpenseIntent: AppIntent {
             context.insert(newExpense)
             
             try context.save()
+            if autoCategory != Accounting.unclassified {
+                ClassificationLedger.record(newExpense.id, engine: .keyword)
+            }
+            Analytics.track(.movementCreated, ["source": "siri", "kind": "expense",
+                                               "category_source": autoCategory == Accounting.unclassified ? "none" : "keyword",
+                                               "category": Analytics.categoryLabel(autoCategory)])
+            Analytics.featureUsed(.siri)
+            Analytics.milestone(.firstMovement)
+            Analytics.shared.flush()
             WidgetSnapshotWriter.shared.refreshNow()
 
             print("Expense saved successfully: $\(finalAmount) at \(finalMerchant) (\(autoCategory))")

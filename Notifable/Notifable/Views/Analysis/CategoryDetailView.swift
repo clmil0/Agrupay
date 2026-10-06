@@ -69,6 +69,11 @@ struct CategoryDetailView: View {
     }
 
     var body: some View {
+        trackedBody.trackScreen("category_detail", feature: .categoryDetail)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         let items = movements(in: period)
         let spent = total(items)
         let previous = total(movements(in: period.previous))
@@ -182,6 +187,9 @@ struct CategoryDetailView: View {
     private func monthChip(_ target: Period, isCurrent: Bool) -> some View {
         let selected = isCurrent && !showsYear
         return Button {
+            if target != month || showsYear {
+                Analytics.periodChanged(screen: "category_detail", period: target)
+            }
             withAnimation(.easeInOut(duration: 0.2)) {
                 month = target
                 showsYear = false

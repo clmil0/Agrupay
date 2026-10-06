@@ -35,6 +35,11 @@ struct RecurringManagementView: View {
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
+        trackedBody.trackScreen("recurring", feature: .recurring)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         Group {
             if tab == .quick && isReorderingQuick {
                 // Reordenar necesita `List` y su `onMove`; fuera de ese modo,

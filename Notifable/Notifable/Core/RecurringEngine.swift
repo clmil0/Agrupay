@@ -209,6 +209,13 @@ enum RecurringEngine {
             )
             context.insert(expense)
             created.append(expense)
+            if expense.category != Accounting.unclassified {
+                ClassificationLedger.record(expense.id, engine: .recurring)
+            }
+            Analytics.track(.movementCreated, ["source": "recurring", "kind": "expense",
+                                               "category_source": expense.category == Accounting.unclassified ? "none" : "recurring",
+                                               "category": Analytics.categoryLabel(expense.category),
+                                               "auto_confirm": rule.autoConfirm])
         }
         advance(rule, to: occurrence.dates.max())
         return created

@@ -78,6 +78,7 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
     /// no se puede canjear; y el `state` descarta una respuesta que no pidió
     /// este login.
     func signIn() {
+        Analytics.track(.accountConnectStarted, ["provider": "gmail"])
         UserDefaults.standard.set(true, forKey: Self.pendingLinkFlowKey)
         let verifier = Self.randomURLSafe(bytes: 32)
         let state = Self.randomURLSafe(bytes: 16)
@@ -90,6 +91,10 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
             guard error == nil, let callbackURL = callbackURL else {
                 print("Auth Error: \(String(describing: error))")
                 let nsError = error as NSError?
+                let cancelled = nsError?.domain == ASWebAuthenticationSessionErrorDomain
+                    && nsError?.code == ASWebAuthenticationSessionError.canceledLogin.rawValue
+                Analytics.track(.accountConnectFailed, ["provider": "gmail",
+                                                        "reason": cancelled ? "cancelled" : "auth_window"])
                 Diagnostics.shared.log("Gmail auth: la ventana de Google terminó sin respuesta (\(nsError?.domain ?? "?") \(nsError?.code ?? 0): \(nsError?.localizedDescription ?? "sin error"))")
                 return
             }
@@ -100,6 +105,7 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
                 print("Gmail: respuesta de Google sin código o con otro state; se descarta.")
                 let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
                 let googleError = items.first(where: { $0.name == "error" })?.value ?? "ninguno"
+                Analytics.track(.accountConnectFailed, ["provider": "gmail", "reason": "no_code"])
                 Diagnostics.shared.log("Gmail auth: ✗ respuesta sin código o con otro state (error de Google: \(googleError))")
                 return
             }
@@ -116,6 +122,7 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
     /// que hubiera quedado en otro lado deja de servir.
     func signOut() {
         Diagnostics.shared.log("Gmail auth: se desvincula la cuenta")
+        Analytics.track(.accountDisconnected, ["provider": "gmail", "reason": "user"])
         UserDefaults.standard.removeObject(forKey: Self.grantedScopeKey)
         setMissingGmailScope(false)
         if let token = getRefreshToken() ?? getAccessToken() { revoke(token) }
@@ -135,6 +142,7 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
     /// cuenta hay que volver a vincular) y la app lo muestra.
     private func markAccessRevoked() {
         Diagnostics.shared.log("Gmail auth: ✗ Google respondió invalid_grant; el permiso ya no vale y hay que volver a conectar")
+        Analytics.track(.accountDisconnected, ["provider": "gmail", "reason": "revoked"])
         SecureStore.gmail.removeAll()
         setIDToken(nil)
         UserDefaults.standard.removeObject(forKey: Keys.hasIdentity)
@@ -170,6 +178,7 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data = data, error == nil else {
+                Analytics.track(.accountConnectFailed, ["provider": "gmail", "reason": "network"])
                 Diagnostics.shared.log("Gmail auth: ✗ canje del código, error de red: \(error?.localizedDescription ?? "sin datos")")
                 return
             }
@@ -192,6 +201,12 @@ class GmailAuthService: NSObject, ObservableObject, ASWebAuthenticationPresentat
                     }
                     if let refreshToken = json["refresh_token"] as? String {
                         self.saveRefreshToken(refreshToken)
+                    }
+                    if json["access_token"] != nil {
+                        let canRead = (json["scope"] as? String)?.contains("gmail.readonly") ?? false
+                        Analytics.track(.accountConnected, ["provider": "gmail", "read_scope": canRead])
+                    } else {
+                        Analytics.track(.accountConnectFailed, ["provider": "gmail", "reason": "token_exchange"])
                     }
                     self.saveIdentity(from: json)
                     if json["refresh_token"] != nil { self.setAccessRevoked(false) }

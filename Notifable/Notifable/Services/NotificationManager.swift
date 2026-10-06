@@ -46,6 +46,9 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
+        let type = Self.analyticsType(of: response.notification.request.identifier, info: info)
+        Analytics.track(.notificationOpened, ["type": type])
+        Task { @MainActor in AppOpenTracker.note("notification", ["notification": type]) }
         if info["reminderId"] != nil {
             Task { @MainActor in await PaymentReminders.shared.refresh() }
         }
@@ -145,6 +148,19 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         AppBadge.update(pending: pending, overLimits: statuses.filter(\.isOver).count)
     }
     
+    /// Qué aviso se tocó, sin nada de su texto.
+    static func analyticsType(of identifier: String, info: [AnyHashable: Any]) -> String {
+        if info["reminderId"] != nil { return "payment_reminder" }
+        if identifier.hasPrefix("imported-") { return "imported" }
+        if identifier.hasPrefix("categoryLimit-") { return "category_limit" }
+        switch identifier {
+        case debtReminderID:      return "debt_reminder"
+        case recurringReminderID: return "recurring"
+        case budgetNoticeID:      return "budget"
+        default:                  return "other"
+        }
+    }
+
     static let debtReminderID = "dailyDebtReminder"
     static let recurringReminderID = "recurringPendingReminder"
 
@@ -366,6 +382,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
         let request = UNNotificationRequest(identifier: "imported-" + UUID().uuidString,
                                             content: content, trigger: nil)
+        Analytics.track(.notificationSent, ["type": "imported"])
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Diagnostics.shared.log("Notificaciones: error en aviso de movimiento: \(error.localizedDescription)") }
         }

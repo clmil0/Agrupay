@@ -40,6 +40,11 @@ struct SettingsView: View {
     @State private var backup = ConfigBackupManager.shared
 
     @AppStorage(ProStore.enabledKey) private var isPro = false
+    /// Configuración › Ayuda › «Compartir estadísticas de uso» (`Analytics`).
+    @AppStorage(Analytics.enabledKey) private var shareUsageStats = true
+    @State private var analyticsPending: Int?
+    @State private var analyticsResult: String?
+    @State private var sendingAnalytics = false
     @AppStorage(ProTheme.storageKey) private var proThemeRaw = ""
     @AppStorage("appAccentColor") private var appAccentColor = AppThemeColor.blue.rawValue
     @AppStorage(AppThemeColor.intenseTintKey) private var intenseThemeTint = false
@@ -69,6 +74,11 @@ struct SettingsView: View {
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
+        trackedBody.trackScreen("settings")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
@@ -333,6 +343,51 @@ struct SettingsView: View {
                         tint: Color(white: 0.35), subtitle: "Para enviar un informe si algo falla") {
                 DiagnosticsView()
             }
+            SettingsSeparator()
+            SettingsToggle(icon: "chart.bar.xaxis", tint: Color(white: 0.35),
+                           title: "Compartir estadísticas de uso",
+                           subtitle: "Anónimas: qué pantallas se usan y si la lectura falla. Nunca montos ni comercios.",
+                           isOn: Binding(get: { shareUsageStats }, set: { on in
+                               shareUsageStats = on
+                               if !on { Analytics.shared.discardPending() }
+                           }))
+            if shareUsageStats {
+                SettingsSeparator()
+                SettingsButton(icon: "paperplane.fill", tint: Color(white: 0.35),
+                               title: "Enviar estadísticas ahora",
+                               subtitle: analyticsStatus,
+                               value: sendingAnalytics ? "Enviando…" : "",
+                               chevron: false) {
+                    Task { await sendAnalytics() }
+                }
+                .disabled(sendingAnalytics)
+                .task { analyticsPending = await Analytics.shared.pendingCount() }
+            }
+        }
+    }
+
+    /// Lo último que pasó al enviar o, si no se envió nada aún, lo que espera.
+    /// Con el inicio del ID para encontrar este teléfono en el panel.
+    private var analyticsStatus: String {
+        let id = "ID " + Analytics.installID.prefix(8)
+        if let analyticsResult { return analyticsResult + " · " + id }
+        guard let pending = analyticsPending else { return id }
+        let waiting = pending == 0 ? "Nada pendiente"
+            : (pending == 1 ? "1 evento esperando" : "\(pending) eventos esperando")
+        return waiting + " · " + id
+    }
+
+    private func sendAnalytics() async {
+        sendingAnalytics = true
+        defer { sendingAnalytics = false }
+        let report = await Analytics.shared.sendNow()
+        analyticsPending = report.pending
+        if let failure = report.failure {
+            analyticsResult = report.sent > 0 ? "Enviados \(report.sent); \(failure)" : failure
+        } else if report.sent == 0 {
+            analyticsResult = "Nada que enviar"
+        } else {
+            analyticsResult = report.sent == 1 ? "Enviado 1 evento" : "Enviados \(report.sent) eventos"
         }
     }
 

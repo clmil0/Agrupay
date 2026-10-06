@@ -40,6 +40,7 @@ struct DataBackupView: View {
                     }
                     exportDocument = ExportDocument(data: data, type: .json,
                                                     filename: "AgruPay respaldo " + Self.fileDate())
+                    Analytics.featureUsed(.export, ["format": "json"])
                     showsExporter = true
                 }
                 SettingsDivider()
@@ -49,6 +50,7 @@ struct DataBackupView: View {
                 SettingsButton(icon: "tablecells.fill", tint: Color(white: 0.4), title: "Exportar a CSV") {
                     exportDocument = ExportDocument(data: csvData(), type: .commaSeparatedText,
                                                     filename: "AgruPay movimientos " + Self.fileDate())
+                    Analytics.featureUsed(.export, ["format": "csv"])
                     showsExporter = true
                 }
             }

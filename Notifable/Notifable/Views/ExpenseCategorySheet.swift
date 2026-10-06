@@ -18,10 +18,17 @@ struct ExpenseCategorySheet: View {
                             onClear: {
             // Vuelve a Pendientes. También se anota, o la relectura
             // del correo le devolvería la categoría que tenía.
+            if expense.category != Accounting.unclassified {
+                Analytics.track(.movementUnclassified, ["via": "detail"])
+                _ = ClassificationLedger.take(expense.id)
+            }
             expense.category = Accounting.unclassified
             ExpenseEditStore.record(expense, category: Accounting.unclassified)
             try? modelContext.save()
         }) { newCategory, createRule in
+            Analytics.classified([(expense.id, expense.category)], to: newCategory,
+                                 via: .detail, ruleCreated: createRule)
+            if createRule { Analytics.ruleCreated(origin: "detail") }
             expense.category = newCategory
             // Se anota aunque haya regla: la regla sólo mira hacia
             // adelante, y sin la anotación la próxima relectura del

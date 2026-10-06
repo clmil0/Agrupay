@@ -154,6 +154,7 @@ final class AppLock: ObservableObject {
         defaults.set(true, forKey: Self.enabledKey)
         isLocked = false
         objectWillChange.send()
+        Analytics.featureUsed(.appLock)
         return nil
     }
 
@@ -195,6 +196,8 @@ final class AppLock: ObservableObject {
         guard !defersForQuickEntry else { return }
         // Cancelado por iOS al salir de la app: se vuelve a pedir al regresar.
         if failure == .cancelled, leftDuringAttempt { return }
+        Analytics.track(.unlockResult, ["result": failure?.analyticsName ?? "ok",
+                                        "passcode": preferPasscode])
         lastFailure = failure
         if lastFailure == nil {
             isLocked = false

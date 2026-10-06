@@ -93,6 +93,11 @@ struct StatSheet: View {
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
+        trackedBody.trackScreen("stat_sheet", feature: .statSheet)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         VStack(spacing: 16) {
             HStack {
                 Spacer()

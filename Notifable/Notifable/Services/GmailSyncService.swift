@@ -287,6 +287,12 @@ class GmailSyncService: ObservableObject {
             if gmailOn, gmail.error == nil { reachable.insert(.gmail) }
             if outlookOn, outlook.error == nil { reachable.insert(.outlook) }
             let errors = [gmail.error, outlook.error].compactMap { $0 }
+            if gmail.error != nil {
+                Analytics.error("sync_list", code: gmail.transient ? "transient" : "failed", ["provider": "gmail"])
+            }
+            if outlook.error != nil {
+                Analytics.error("sync_list", code: outlook.transient ? "transient" : "failed", ["provider": "outlook"])
+            }
             guard !reachable.isEmpty else {
                 self.isSyncing = false
                 self.lastSyncError = errors.joined(separator: " ")
@@ -797,7 +803,12 @@ class GmailSyncService: ObservableObject {
                                         let title = expense.merchant
                                         let amount = expense.amount
                                         let currency = expense.currency
+                                        let auto = expense.category == Accounting.unclassified ? "none"
+                                            : (ClassificationLedger.peek(expense.id)?.rawValue ?? "other")
                                         inserted = self?.handleExpenseInsertion(expenseData: (expense, parsed.bankName), emailID: id, context: context) == true
+                                        Self.trackParse(bank: parsed.bankName, kind: "expense", inserted: inserted,
+                                                        emailID: id, receivedAt: receivedAt, isRange: isRangeSync,
+                                                        extra: ["auto": auto, "reversal": expense.isReversal])
                                         Diagnostics.shared.log("Sync Gmail: correo \(id) → \(parsed.bankName) gasto\(expense.isReversal ? " (anulación)" : "") \(currency) \(amount) «\(title)» \(inserted ? "insertado" : "no insertado (duplicado o unido)")")
                                         // Sólo lo que acaba de llegar: leer seis
                                         // meses de pasado no son cien avisos.
@@ -810,6 +821,8 @@ class GmailSyncService: ObservableObject {
                                         let amount = income.amount
                                         let currency = income.currency
                                         inserted = self?.handleIncomeInsertion(income: income, emailID: id, context: context) == true
+                                        Self.trackParse(bank: parsed.bankName, kind: "income", inserted: inserted,
+                                                        emailID: id, receivedAt: receivedAt, isRange: isRangeSync)
                                         Diagnostics.shared.log("Sync Gmail: correo \(id) → \(parsed.bankName) ingreso \(currency) \(amount) \(inserted ? "insertado" : "no insertado (duplicado)")")
                                         if inserted, !isRangeSync {
                                             NotificationManager.shared.notifyImported(
@@ -869,6 +882,22 @@ class GmailSyncService: ObservableObject {
                 self?.backfillAccountData(token: token)
                 print("Sync complete. Found \(newExpensesFound) new expenses of \(newMessages.count) checked.")
                 let seconds = Int(Date().timeIntervalSince(runStart))
+                // El sondeo de cada 10 s casi nunca trae nada: sólo cuentan
+                // las lecturas que procesaron algo.
+                if !newMessages.isEmpty || failedFetches > 0 {
+                    Analytics.track(.emailSyncRun, ["range": isRangeSync,
+                                                    "checked": newMessages.count,
+                                                    "new": newExpensesFound,
+                                                    "already": alreadyImportedCount,
+                                                    "unrecognized": unrecognized,
+                                                    "failed_fetch": failedFetches,
+                                                    "retries": retries.count,
+                                                    "seconds": seconds,
+                                                    "quiet": quiet])
+                }
+                if failedFetches > 0 {
+                    Analytics.error("sync_fetch", code: "message_download", ["count": failedFetches])
+                }
                 Diagnostics.shared.log("Sync Gmail: fin en \(seconds) s · revisados \(newMessages.count) · nuevos \(newExpensesFound) · ya importados \(alreadyImportedCount) · no reconocidos \(unrecognized) · descargas fallidas \(failedFetches)")
                 if !quiet, !messages.isEmpty {
                     func count(_ n: Int, _ one: String, _ many: String) -> String { "\(n) " + (n == 1 ? one : many) }
@@ -1338,6 +1367,7 @@ class GmailSyncService: ObservableObject {
                 // por bueno un gasto falso. Mejor «no reconocido» en Diagnóstico.
                 guard Money.cents(expense.amount) > 0 else {
                     Diagnostics.shared.log("Sync Gmail: \(parser.bankName) reconoció el correo pero no su monto; se descarta")
+                    Analytics.track(.emailParse, ["bank": parser.bankName, "kind": "expense", "result": "amount_missing"])
                     continue
                 }
                 let fixed = Self.correctedDate(expense.date, receivedAt: receivedAt)
@@ -1358,6 +1388,7 @@ class GmailSyncService: ObservableObject {
             if let income = parser.parseIncome(cleanText: cleanText) {
                 guard Money.cents(income.amount) > 0 else {
                     Diagnostics.shared.log("Sync Gmail: \(parser.bankName) reconoció el ingreso pero no su monto; se descarta")
+                    Analytics.track(.emailParse, ["bank": parser.bankName, "kind": "income", "result": "amount_missing"])
                     continue
                 }
                 income.date = Self.correctedDate(income.date, receivedAt: receivedAt)
@@ -1388,6 +1419,7 @@ class GmailSyncService: ObservableObject {
         if let rule = MerchantRules.category(for: expense.merchant) {
             expense.category = rule
             expense.isSubscription = BuiltInCategories.marksSubscription(rule)
+            if rule != Accounting.unclassified { ClassificationLedger.record(expense.id, engine: .rule) }
             return expense
         }
 
@@ -1405,7 +1437,27 @@ class GmailSyncService: ObservableObject {
         let resolved = CategoryCatalog.shared.builtIns.resolve(autoCategory) ?? Accounting.unclassified
         expense.category = resolved
         expense.isSubscription = autoCategory == "Suscripciones"
+        if resolved != Accounting.unclassified { ClassificationLedger.record(expense.id, engine: .keyword) }
         return expense
+    }
+
+    /// `email_parse` de un correo reconocido. La latencia es lo que tardó en
+    /// aparecer desde que llegó: sólo dice algo en las lecturas normales.
+    static func trackParse(bank: String, kind: String, inserted: Bool, emailID: String,
+                           receivedAt: Date?, isRange: Bool, extra: [String: Any] = [:]) {
+        var props = extra
+        props["bank"] = bank
+        props["kind"] = kind
+        props["result"] = inserted ? "inserted" : "duplicate"
+        props["provider"] = OutlookMail.isOutlookID(emailID) ? "outlook" : "gmail"
+        props["range"] = isRange
+        if let receivedAt, !isRange {
+            props["latency_min"] = max(0, Date().timeIntervalSince(receivedAt) / 60)
+        }
+        Analytics.track(.emailParse, props)
+        guard inserted else { return }
+        Analytics.milestone(.firstMovement)
+        Analytics.milestone(.firstEmailMovement)
     }
     
     private func decodeBase64Url(_ base64Url: String) -> String? {

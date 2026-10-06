@@ -29,6 +29,7 @@ struct SettingsRow<Destination: View>: View {
     var body: some View {
         NavigationLink {
             destination()
+                .trackScreen("settings/" + title)
         } label: {
             HStack(spacing: 12) {
                 SettingsRowIcon(systemName: icon, tint: tint)

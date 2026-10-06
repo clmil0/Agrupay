@@ -28,6 +28,11 @@ struct IncomeDetailsView: View {
     private var palette: Palette { Palette(colorScheme) }
 
     var body: some View {
+        trackedBody.trackScreen("income_detail")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {

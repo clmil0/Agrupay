@@ -77,6 +77,11 @@ struct BulkClassifyView: View {
     // MARK: - Cuerpo
 
     var body: some View {
+        trackedBody.trackScreen("bulk_classify", feature: .bulkClassify)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         let rows = self.rows
         let chosen = rows.filter { selected.contains($0.id) }
 
@@ -205,6 +210,7 @@ struct BulkClassifyView: View {
                         Text("→ " + hint.category)
                             .font(.system(size: 11.5, weight: .semibold))
                             .foregroundStyle(accent.onSurface(scheme))
+                            .onAppear { Analytics.suggestionShown(hint, merchant: row.merchant, screen: "bulk") }
                     } else {
                         Text("sin sugerencia")
                             .font(.system(size: 11.5))
@@ -303,25 +309,33 @@ struct BulkClassifyView: View {
 
     private func applySuggestions(_ rows: [Row]) {
         for row in rows {
-            guard let category = row.suggestion?.category else { continue }
-            assign(category, to: row, createRule: true)
+            guard let suggestion = row.suggestion else { continue }
+            var props = Analytics.suggestionProps(suggestion)
+            props["screen"] = "bulk"
+            Analytics.track(.suggestionAccepted, props)
+            assign(suggestion.category, to: row, createRule: true, via: .bulkSuggestions)
         }
         finish(rows)
     }
 
     private func apply(_ category: String, to rows: [Row], createRules: Bool) {
-        for row in rows { assign(category, to: row, createRule: createRules) }
+        for row in rows { assign(category, to: row, createRule: createRules, via: .bulk) }
         finish(rows)
     }
 
     /// Una regla por comercio, para que lo que llegue después ya venga
     /// clasificado. En «Por comercio» se arrastra además todo su historial sin
     /// clasificar; en «Por fecha», sólo el movimiento elegido.
-    private func assign(_ category: String, to row: Row, createRule: Bool) {
-        if createRule { MerchantRules.set(category, for: row.merchant) }
+    private func assign(_ category: String, to row: Row, createRule: Bool, via: ClassificationVia) {
+        if createRule {
+            MerchantRules.set(category, for: row.merchant)
+            Analytics.ruleCreated(origin: "bulk")
+        }
         let targets = mode == .byMerchant
             ? expenses.filter { $0.merchant == row.merchant && $0.category == Accounting.unclassified }
             : row.expenses
+        Analytics.classified(targets.map { ($0.id, $0.category) }, to: category,
+                             via: via, ruleCreated: createRule)
         for expense in targets {
             expense.category = category
             ExpenseEditStore.record(expense, category: category)

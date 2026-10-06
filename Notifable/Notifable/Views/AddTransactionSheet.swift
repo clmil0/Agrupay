@@ -82,6 +82,9 @@ struct AddTransactionSheet: View {
 
     /// Gasto rápido por registrar al aparecer. Se consume una sola vez.
     @State private var pendingQuickSave: UUID?
+    /// La categoría que puso la app («la de siempre» de ese comercio): si se
+    /// guarda tal cual, cuenta como sugerida y no como elegida.
+    @State private var prefilledCategory: String?
 
     /// Cobro de una deuda concreta, abierto desde "Estado del cobro" en el
     /// detalle del gasto: ingreso, marcado como abono, con esa deuda elegida y
@@ -124,6 +127,11 @@ struct AddTransactionSheet: View {
     /// cuándo), «+ Detalle» para título y descripción, y la categoría. Todo lo
     /// demás —repetir, guardar como atajo— vive dentro de Detalle.
     var body: some View {
+        trackedBody.trackScreen("add_movement")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         VStack(spacing: 0) {
             topBar
             amountHero
@@ -567,6 +575,7 @@ struct AddTransactionSheet: View {
         }?.merchant ?? title
         if let usual = usualCategory(for: match) {
             withAnimation(.easeInOut(duration: 0.2)) { draft.category = usual }
+            prefilledCategory = usual
         }
     }
 
@@ -849,6 +858,10 @@ struct AddTransactionSheet: View {
     private func saveImmediately(_ quick: QuickExpense) {
         let expense = quick.makeExpense()
         modelContext.insert(expense)
+        Analytics.track(.movementCreated, ["source": "quick", "kind": "expense",
+                                           "category_source": "quick",
+                                           "category": Analytics.categoryLabel(expense.category)])
+        Analytics.milestone(.firstMovement)
         quick.useCount += 1
         quick.lastUsedAt = Date()
         try? modelContext.save()
@@ -908,7 +921,10 @@ struct AddTransactionSheet: View {
     private func pickMerchant(_ name: String) {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
             draft.merchant = Accounting.displayName(name)
-            if let usual = usualCategory(for: name) { draft.category = usual }
+            if let usual = usualCategory(for: name) {
+                draft.category = usual
+                prefilledCategory = usual
+            }
         }
     }
 
@@ -1451,6 +1467,15 @@ struct AddTransactionSheet: View {
             draft.isSubscription = recurrence.repeats
             guard let expense = draft.makeExpense() else { return }
             modelContext.insert(expense)
+            let categorySource = expense.category == Accounting.unclassified ? "none"
+                : (expense.category == prefilledCategory ? "prefilled" : "user")
+            Analytics.track(.movementCreated, ["source": isLockedEntry ? "form_locked" : "form",
+                                               "kind": "expense",
+                                               "category_source": categorySource,
+                                               "category": Analytics.categoryLabel(expense.category),
+                                               "recurring": recurrence.repeats,
+                                               "saved_quick": saveAsQuick,
+                                               "used_quick": activeQuickID != nil])
 
             if let rule = recurrence.build(merchant: expense.merchant,
                                            category: expense.category,
@@ -1491,6 +1516,9 @@ struct AddTransactionSheet: View {
             guard let resolution = draft.resolveIncome() else { return }
             let income = resolution.income
             modelContext.insert(income)
+            Analytics.track(.movementCreated, ["source": isLockedEntry ? "form_locked" : "form",
+                                               "kind": "income",
+                                               "pays_debt": resolution.debt != nil])
             // El vínculo se anota por la huella del gasto, no sólo por la
             // relación de SwiftData: esa relación se rompe cada vez que el
             // gasto se rearma desde el correo.
@@ -1507,6 +1535,7 @@ struct AddTransactionSheet: View {
             }
         }
         try? modelContext.save()
+        Analytics.milestone(.firstMovement)
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { justSaved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { dismiss() }
@@ -1547,6 +1576,7 @@ struct AddTransactionSheet: View {
             draft.category = category
             if createRule {
                 MerchantRules.set(category, for: draft.merchant.trimmed)
+                Analytics.ruleCreated(origin: "add_form")
             }
             showAllCategories = false
         }

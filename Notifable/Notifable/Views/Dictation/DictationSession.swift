@@ -53,6 +53,8 @@ final class DictationSession: ObservableObject {
     static let countdown: Duration = .seconds(countdownSeconds)
 
     private var context: ModelContext?
+    /// Tarjetas cuya categoría cambió el usuario: ya no es la de la voz.
+    private var editedCategories: Set<DictationCard.ID> = []
     private var incomplete: VoiceMovement?
     private var queue: Task<Void, Never>?
     /// Si tras el relato no llega ningún monto, se interpreta igual (y se
@@ -241,6 +243,9 @@ final class DictationSession: ObservableObject {
 
     /// Guardar tras editar vuelve a contar: se ve el cambio antes de que quede.
     func saveEdit(_ id: DictationCard.ID, amount: Double, category: String) {
+        if let card = cards.first(where: { $0.id == id }), card.movement.category != category {
+            editedCategories.insert(id)
+        }
         update(id) {
             $0.movement.amount = amount
             if $0.movement.kind == .gasto { $0.movement.category = category }
@@ -268,19 +273,36 @@ final class DictationSession: ObservableObject {
 
         switch movement.kind {
         case .gasto:
-            context.insert(Expense(amount: amount,
-                                   merchant: title,
-                                   date: movement.date,
-                                   category: movement.category,
-                                   currency: movement.currency))
+            let expense = Expense(amount: amount,
+                                  merchant: title,
+                                  date: movement.date,
+                                  category: movement.category,
+                                  currency: movement.currency)
+            context.insert(expense)
+            // La categoría la puso la voz si el usuario no la cambió en la
+            // tarjeta: si luego la corrige, es una corrección de la voz.
+            let source: String
+            if movement.category == Accounting.unclassified {
+                source = "none"
+            } else if editedCategories.contains(id) {
+                source = "user"
+            } else {
+                source = "voice"
+                ClassificationLedger.record(expense.id, engine: .voice)
+            }
+            Analytics.track(.movementCreated, ["source": "voice", "kind": "expense",
+                                               "category_source": source,
+                                               "category": Analytics.categoryLabel(movement.category)])
         case .ingreso:
             context.insert(Income(amount: amount,
                                   currency: movement.currency,
                                   source: movement.source ?? "Transferencia",
                                   title: title,
                                   date: movement.date))
+            Analytics.track(.movementCreated, ["source": "voice", "kind": "income"])
         }
         try? context.save()
+        Analytics.milestone(.firstMovement)
         update(id) { $0.status = .saved }
     }
 

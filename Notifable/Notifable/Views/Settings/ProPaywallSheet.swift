@@ -20,6 +20,24 @@ struct ProPaywallSheet: View {
     private static let violet = Color(hex: 0xBF5AF2)
 
     var body: some View {
+        trackedBody.trackScreen("paywall")
+            .onAppear {
+                shownAt = Date()
+                Analytics.track(.paywallShown, ["feature": feature?.rawValue ?? "general"])
+            }
+            .onDisappear {
+                guard !startedTrial else { return }
+                Analytics.track(.paywallDismissed, ["feature": feature?.rawValue ?? "general",
+                                                    "plan": plan.rawValue,
+                                                    "seconds": Int(Date().timeIntervalSince(shownAt))])
+            }
+    }
+
+    @State private var shownAt = Date()
+    @State private var startedTrial = false
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         ZStack(alignment: .topTrailing) {
             ScrollView {
                 VStack(spacing: 18) {
@@ -231,6 +249,10 @@ struct ProPaywallSheet: View {
     private var cta: some View {
         VStack(spacing: 10) {
             Button {
+                startedTrial = true
+                Analytics.track(.proTrialStarted, ["feature": feature?.rawValue ?? "general",
+                                                   "plan": plan.rawValue,
+                                                   "seconds": Int(Date().timeIntervalSince(shownAt))])
                 ProStore.startTrial(plan: plan)
                 dismiss()
             } label: {

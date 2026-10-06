@@ -49,6 +49,11 @@ struct SplitExpenseSheet: View {
     private var isBalanced: Bool { restCents == 0 && drafts.allSatisfy { $0.cents > 0 } }
 
     var body: some View {
+        trackedBody.trackScreen("split", feature: .split)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView {

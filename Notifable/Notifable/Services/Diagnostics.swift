@@ -167,6 +167,7 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber {
     private func pong(at date: Date) {
         if let started = hangStartedAt {
             write("\(Self.stamp.string(from: date)) [watchdog] ✅ el hilo principal volvió tras \(String(format: "%.1f", date.timeIntervalSince(started))) s")
+            Analytics.track(.mainHang, ["seconds": date.timeIntervalSince(started)])
             hangStartedAt = nil
         }
         lastPong = max(lastPong, date)
@@ -186,6 +187,13 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber {
             try? payload.jsonRepresentation().write(to: directory.appendingPathComponent(name))
             log("MetricKit entregó un informe: \(kind)")
         }
+        AnalyticsMetricKit.forward(payloads)
+    }
+
+    /// El informe diario de rendimiento (arranque, memoria, cuelgues): sólo
+    /// para la analítica, la bitácora no lo guarda.
+    func didReceive(_ payloads: [MXMetricPayload]) {
+        AnalyticsMetricKit.forward(payloads)
     }
 }
 

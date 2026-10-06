@@ -24,6 +24,11 @@ struct DictationSheet: View {
     private var style: DictationStyle { DictationStyle(rawValue: styleRaw) ?? .bars }
 
     var body: some View {
+        trackedBody.trackScreen("dictation", feature: .dictation)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             DictationHeader(speech: session.speech, session: session, onClose: { dismiss() })
             DictationListeningRow(speech: session.speech, style: style)

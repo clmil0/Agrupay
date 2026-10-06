@@ -200,6 +200,7 @@ struct AddFriendSheet: View {
                     ShareLink(item: InviteLinks.shareText(token: invite.token, linkReady: inviteLinkReady)) {
                         bigLabel(icon: "square.and.arrow.up", title: "Compartir", filled: true)
                     }
+                    .simultaneousGesture(TapGesture().onEnded { Analytics.featureUsed(.invite) })
                 } else {
                     Button { Task { await createInvite() } } label: {
                         Group {

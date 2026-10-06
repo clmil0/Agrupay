@@ -34,6 +34,11 @@ struct CategoryLimitEditorView: View {
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
+        trackedBody.trackScreen("category_limit", feature: .categoryLimit)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView {

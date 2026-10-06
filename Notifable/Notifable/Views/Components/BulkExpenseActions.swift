@@ -148,6 +148,7 @@ enum BulkExpenseEdit {
     /// (se mezclan comercios y gastos ya clasificados; una regla ahí sería
     /// una sorpresa).
     static func assign(_ category: String, to chosen: [Expense], in context: ModelContext) {
+        Analytics.classified(chosen.map { ($0.id, $0.category) }, to: category, via: .selection)
         for expense in chosen {
             expense.category = category
             ExpenseEditStore.record(expense, category: category)

@@ -39,6 +39,11 @@ struct PendingConfirmationView: View {
     }
 
     var body: some View {
+        trackedBody.trackScreen("recurring_confirm")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {

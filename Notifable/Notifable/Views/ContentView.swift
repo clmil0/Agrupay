@@ -207,6 +207,26 @@ struct ContentView: View {
         tab = newTab
     }
 
+    // MARK: - Analítica
+
+    /// Lo que se ve debajo de las hojas: `summary`, `summary/categories`,
+    /// `movements/pending`, `friends/receivables`…
+    private var rootScreenName: String {
+        switch tab {
+        case .summary:
+            return path.last.map { "summary/" + $0.analyticsName } ?? "summary"
+        case .movements: return "movements/" + movementsSection.analyticsName
+        case .friends:   return "friends/" + friendsSection.analyticsName
+        case .goals:     return "goals"
+        case .add:       return "summary"
+        }
+    }
+
+    private func sectionSelected(_ section: AppSection) {
+        Analytics.track(.sectionSelect, ["section": section.analyticsName])
+        if let feature = section.analyticsFeature { Analytics.featureUsed(feature) }
+    }
+
     /// El «+» es una pestaña más para el sistema (la de búsqueda, que en iOS
     /// 26 se dibuja como círculo aparte), pero no se elige: abre el
     /// formulario y la pestaña de antes sigue abierta.
@@ -214,9 +234,11 @@ struct ContentView: View {
         Binding(get: { tab }, set: { newTab in
             micAnchor = nil
             if newTab == .add {
+                Analytics.tap("tabbar.add")
                 presentAdd(.gasto, source: nil, quickID: nil)
                 return
             }
+            if newTab != tab { Analytics.track(.tabSelect, ["tab": newTab.analyticsName]) }
             // Llegó algo sin clasificar que aún no se vio: Movimientos abre
             // la bandeja esta vez; las siguientes, la lista.
             if newTab == .movements, tab != .movements {
@@ -285,7 +307,17 @@ struct ContentView: View {
             .onChange(of: proThemeRaw) { _, _ in
                 Task { await SupabaseAuthManager.shared.pushSocialStyle() }
             }
-            .onChange(of: movementsSection) { _, _ in markPendingSeenIfShown() }
+            .onChange(of: movementsSection) { _, section in
+                markPendingSeenIfShown()
+                sectionSelected(section)
+            }
+            .onChange(of: friendsSection) { _, section in sectionSelected(section) }
+            // La pantalla de abajo de la pila de `ScreenTracker`: la pestaña,
+            // su sección o lo apilado sobre el Resumen.
+            .onChange(of: rootScreenName, initial: true) { _, name in
+                ScreenTracker.shared.setRoot(name)
+            }
+            .onAppear { AnalyticsPerformance.markFirstFrame() }
             .onChange(of: pendingIDs) { _, _ in markPendingSeenIfShown() }
             .onChange(of: appLock.isLocked) { _, locked in
                 // Ajustes y las hojas se presentan en la capa de modales de
@@ -354,6 +386,12 @@ struct ContentView: View {
             .onOpenURL { url in
                 guard let link = AppDeepLink(url: url) else { return }
                 Diagnostics.shared.log("Enlace: \(url.host ?? "")")
+                if case .friendInvite = link {
+                    AppOpenTracker.note("invite")
+                } else {
+                    // Los widgets y la app Atajos abren con `agrupay://`.
+                    AppOpenTracker.note("link", ["link": url.host ?? "?"])
+                }
                 pendingLink = link
                 applyPendingLinkIfReady()
             }
@@ -449,6 +487,7 @@ struct ContentView: View {
         // Mantener presionado el «+» saca el micrófono: la barra del sistema
         // no tiene ese gesto, se le cuelga uno (`TabBarLongPress`).
         .background(TabBarLongPress { frame in
+            Analytics.featureUsed(.micHold)
             withAnimation(.bouncy(duration: 0.4)) { micAnchor = frame }
         })
         .overlay {
@@ -486,14 +525,23 @@ struct ContentView: View {
     private var summaryStack: some View {
         NavigationStack(path: $path) {
             DashboardScreen(progress: scrollProgress,
-                            onOpen: { show($0) },
-                            onSettings: { showSettings = true })
+                            onOpen: {
+                                Analytics.tap("summary.card", ["section": $0.analyticsName])
+                                show($0)
+                            },
+                            onSettings: {
+                                Analytics.tap("summary.settings")
+                                showSettings = true
+                            })
                 // Transparente: el fondo es el cielo compartido de las
                 // pestañas. Si no, la pila pinta el negro del sistema encima.
                 .containerBackground(.clear, for: .navigation)
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: AppSection.self) { section in
                     DrillScreen(entry: section)
+                        .onAppear {
+                            if let feature = section.analyticsFeature { Analytics.featureUsed(feature) }
+                        }
                 }
         }
     }

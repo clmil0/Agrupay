@@ -161,6 +161,11 @@ struct AssignCategorySheet: View {
     private var palette: Palette { Palette(scheme) }
 
     var body: some View {
+        trackedBody.trackScreen("assign_category")
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView {
@@ -661,6 +666,13 @@ struct AssignCategorySheet: View {
     /// límite: avisar antes convertiría el límite en un obstáculo. El aviso va
     /// después, en el toast que compone quien llama.
     private func confirm(_ category: String) {
+        // Sólo si el comercio todavía no tenía categoría: reabrir la hoja de
+        // algo ya clasificado no es una sugerencia nueva.
+        if let hint = suggestion, context.current == nil || context.current == Accounting.unclassified {
+            var props = Analytics.suggestionProps(hint)
+            props["screen"] = "assign_sheet"
+            Analytics.track(category == hint.category ? .suggestionAccepted : .suggestionDismissed, props)
+        }
         if case .pending = context.ruleScope {
             onAssign(category, rules)
         } else {

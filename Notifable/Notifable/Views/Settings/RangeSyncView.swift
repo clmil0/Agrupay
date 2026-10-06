@@ -35,6 +35,11 @@ struct RangeSyncView: View {
     }
 
     var body: some View {
+        trackedBody.trackScreen("range_sync", feature: .rangeSync)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         Form {
             if gmailSync.isSyncing {
                 Section {
@@ -85,6 +90,10 @@ struct RangeSyncView: View {
                 Section {
                     Button {
                         gmailSync.modelContext = modelContext
+                        let months = Analytics.monthsBack(from: startDate)
+                        Analytics.track(.rangeSync, ["origin": "settings", "months": months,
+                                                     "days": Int(endDate.timeIntervalSince(startDate) / 86_400)])
+                        if months >= ProStore.freeHistoryMonths { Analytics.proFeatureUsed(.history) }
                         if !DeletedEmails.undecided().isEmpty {
                             showRecoveryAlert = true
                         } else {

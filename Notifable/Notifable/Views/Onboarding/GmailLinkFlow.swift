@@ -42,6 +42,7 @@ struct GmailLinkFlow: View {
                 checking
             case .restore(let header):
                 OnboardingRestoreView(header: header) { restored in
+                    Analytics.track(.onboardingStep, ["step": restored ? "restore_accepted" : "restore_declined"])
                     // "Empezar de cero" no puede subir este teléfono vacío
                     // encima de la copia: queda en pausa apuntando a ella.
                     if !restored { ConfigBackupManager.shared.keepRemotePaused(header) }
@@ -50,7 +51,10 @@ struct GmailLinkFlow: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             case .history:
                 OnboardingHistoryView(usesGmail: true) { monthsLabel in
+                    Analytics.track(.rangeSync, ["origin": "link_flow",
+                                                 "months": monthsLabel == nil ? 0 : UserDefaults.standard.integer(forKey: "readPeriodMonths")])
                     if let monthsLabel {
+                        OnboardingView.step("reading")
                         withAnimation(.snappy) { step = .reading(monthsLabel: monthsLabel) }
                     } else {
                         onFinish()
@@ -90,6 +94,7 @@ struct GmailLinkFlow: View {
         }
         if let header = await manager.peek(code: nil), header.hasData {
             manager.lastErrorMessage = nil
+            OnboardingView.step("restore_offered")
             withAnimation(.snappy) { step = .restore(header) }
         } else {
             manager.lastErrorMessage = nil
@@ -107,6 +112,7 @@ struct GmailLinkFlow: View {
             await manager.enableWithAccount()
         }
         manager.dismissBackupOffer()
+        OnboardingView.step("history")
         withAnimation(.snappy) { step = .history }
     }
 }

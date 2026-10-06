@@ -135,6 +135,7 @@ final class FriendsManager {
         // La extensión de notificaciones pinta el aviso de un cobro con la
         // cara y el apodo que ves aquí (`ReminderSenders`).
         didSet {
+            if !friends.isEmpty, oldValue.isEmpty { Analytics.milestone(.firstFriend) }
             ReminderSenders.save(friends.map {
                 .init(id: $0.id, name: $0.name, look: $0.usesEmoji ? nil : $0.penguin)
             })

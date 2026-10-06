@@ -116,7 +116,22 @@ struct HistoryView: View {
         } action: { _, offset in
             progress.update(offset)
         }
-        .onChange(of: granularity) { _, _ in offset = 0 }
+        .onChange(of: granularity) { _, _ in
+            offset = 0
+            trackPeriod()
+        }
+        .onChange(of: offset) { _, _ in trackPeriod() }
+    }
+
+    /// El periodo elegido y lo más viejo que alcanzan las barras.
+    private func trackPeriod() {
+        let periods = self.periods
+        guard let selected = periods.last else { return }
+        var extra: [String: Any] = ["offset": offset]
+        if let oldest = periods.first {
+            extra["window_months_back"] = Analytics.monthsBack(from: oldest.interval.start)
+        }
+        Analytics.periodChanged(screen: "history", period: selected, extra: extra)
     }
 
     // MARK: - Gráfico

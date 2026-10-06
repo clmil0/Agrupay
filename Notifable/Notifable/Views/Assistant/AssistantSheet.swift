@@ -153,6 +153,11 @@ struct AssistantSheet: View {
     private var isListening: Bool { speech.phase == .listening || speech.phase == .starting }
 
     var body: some View {
+        trackedBody.trackScreen("assistant", feature: .assistant)
+    }
+
+    /// El `body` de siempre; `body` lo envuelve para contarlo como pantalla.
+    @ViewBuilder private var trackedBody: some View {
         VStack(spacing: 0) {
             header
 

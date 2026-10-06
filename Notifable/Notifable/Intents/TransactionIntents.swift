@@ -329,6 +329,17 @@ enum IntentSaving {
         let context = AppModelContainer.shared.mainContext
         context.insert(model)
         try context.save()
+        if let expense = model as? Expense {
+            Analytics.track(.movementCreated, ["source": "siri", "kind": "expense",
+                                               "category_source": expense.category == Accounting.unclassified ? "none" : "user",
+                                               "category": Analytics.categoryLabel(expense.category)])
+        } else if model is Income {
+            Analytics.track(.movementCreated, ["source": "siri", "kind": "income"])
+        }
+        Analytics.featureUsed(.siri)
+        Analytics.milestone(.firstMovement)
+        // Siri puede suspender la app al terminar: que salga ya.
+        Analytics.shared.flush()
         // Sin esperar la ráfaga: Siri puede suspender la app al terminar.
         WidgetSnapshotWriter.shared.refreshNow()
     }
