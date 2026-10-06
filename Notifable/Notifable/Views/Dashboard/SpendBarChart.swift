@@ -6,24 +6,39 @@ import SwiftUI
 /// entrar cada barra se llena con un rebote corto. Las burbujas de la barra
 /// elegida se quitaron: eran lo que trababa el scroll.
 ///
-/// «Semana» son los últimos siete días, uno por barra, terminando hoy. «Mes»
-/// son las últimas seis semanas contando la actual, una por barra: treinta
-/// barras de un día eran rayas que no se podían tocar.
+/// «Días» son los últimos siete días, uno por barra, terminando hoy.
+/// «Semanas», las del mes mostrado; «Meses», los últimos seis.
 ///
-/// Tocar una barra pone su monto encima. Por defecto se ve la última con gasto.
+/// Con ingresos en los periodos (`3b` de «Resumen Gráficas Ingresos») el
+/// gráfico se parte en espejo: el ingreso sube desde el eje y el gasto baja,
+/// y lo del periodo elegido se lee en una línea encima («Vie 18 +S/ 45
+/// −S/ 86»). Sin ingresos queda el de siempre, con el monto sobre la barra.
+///
+/// Tocar una barra la elige. Por defecto, la última con movimiento.
 struct SpendBarChart: View {
 
     enum Mode: String, CaseIterable, Hashable {
-        case week = "Semana"
-        case month = "Mes"
+        case days = "Días"
+        case weeks = "Semanas"
+        case months = "Meses"
+
+        /// La segunda línea del menú.
+        var hint: String {
+            switch self {
+            case .days: return "Últimos 7 días"
+            case .weeks: return "Semanas de este mes"
+            case .months: return "Últimos 6 meses"
+            }
+        }
     }
 
     struct Column: Identifiable {
         let id: Int
         let label: String
-        /// Para VoiceOver: «martes 22», «semana del 15 set».
-        let accessibilityLabel: String
+        /// La línea de lectura y VoiceOver: «Vie 18», «21–27 set (esta semana)».
+        let detail: String
         let total: Double
+        var income: Double = 0
     }
 
     let columns: [Column]
@@ -45,6 +60,10 @@ struct SpendBarChart: View {
     @State private var filled = false
 
     private static let barArea: CGFloat = 100
+    /// Cada mitad del espejo; la línea de lectura va encima.
+    private static let halfArea: CGFloat = 46
+    private static let halfBar: CGFloat = 44
+    private static let readoutRoom: CGFloat = 26
     private static let labelRoom: CGFloat = 22
     /// Aire entre el monto de la barra más alta y el título del gráfico: sin
     /// él, con la barra a la izquierda, el monto quedaba pegado al subtítulo.
@@ -53,19 +72,33 @@ struct SpendBarChart: View {
     private static let sideInset: CGFloat = 14
 
     private var maximum: Double { columns.map(\.total).max() ?? 0 }
+    private var incomeMaximum: Double { columns.map(\.income).max() ?? 0 }
+    private var isMirrored: Bool { Money.cents(incomeMaximum) > 0 }
 
     /// Identifica el juego de periodos, no sus montos: un gasto nuevo no
     /// repite la entrada.
     private var periodsKey: String { columns.map(\.label).joined(separator: "|") + (isReady ? "" : "|…") }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            ForEach(columns) { column in
-                columnView(column)
+        Group {
+            if isMirrored {
+                VStack(alignment: .leading, spacing: 8) {
+                    readout
+                    HStack(alignment: .bottom, spacing: 10) {
+                        ForEach(columns) { mirroredColumn($0) }
+                    }
+                    .padding(.horizontal, Self.sideInset)
+                }
+            } else {
+                HStack(alignment: .bottom, spacing: 10) {
+                    ForEach(columns) { column in
+                        columnView(column)
+                    }
+                }
+                // Un poco más angosto que la tarjeta: las barras no llegan a los bordes.
+                .padding(.horizontal, Self.sideInset)
             }
         }
-        // Un poco más angosto que la tarjeta: las barras no llegan a los bordes.
-        .padding(.horizontal, Self.sideInset)
         .frame(height: Self.barArea + Self.labelRoom + Self.topRoom, alignment: .bottom)
         .task(id: periodsKey) {
             guard isReady else { filled = false; return }
@@ -105,18 +138,14 @@ struct SpendBarChart: View {
                         .amountVeil()
                         .font(.system(size: 13, weight: .semibold, design: proTheme?.numberDesign ?? .default))
                         .monospacedDigit()
-                        .foregroundStyle(palette.duoText ?? (proTheme == nil ? palette.expense : palette.expenseText))
+                        .foregroundStyle(amountColor)
                         .fixedSize()
                         .offset(y: -Self.labelRoom + max(0, Self.barArea - barHeight) - 4)
                         .transition(.opacity)
                 }
             }
 
-            Text(column.label)
-                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? palette.expenseText : palette.secondaryLabel)
-                .lineLimit(1)
-                .fixedSize()
+            label(column.label, isSelected: isSelected)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
@@ -124,9 +153,114 @@ struct SpendBarChart: View {
             withAnimation(.easeInOut(duration: 0.18)) { selected = column.id }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(column.accessibilityLabel)
+        .accessibilityLabel(column.detail)
         .accessibilityValue(Money.format(column.total).masked(hidesAmounts))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    // MARK: Espejo
+
+    /// «Vie 18  +S/ 45  −S/ 86» del periodo elegido.
+    private var readout: some View {
+        let column = columns.first { $0.id == selected }
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let column {
+                Text(column.detail)
+                    .foregroundStyle(palette.secondaryLabel)
+                if Money.cents(column.income) > 0 {
+                    Text(("+" + Money.formatCompact(column.income)).masked(hidesAmounts))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(palette.income)
+                        .amountVeil()
+                }
+                Text((Money.cents(column.total) > 0 ? "−" + Money.formatCompact(column.total)
+                                                     : Money.formatCompact(0)).masked(hidesAmounts))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(amountColor)
+                    .amountVeil()
+            }
+        }
+        .font(.system(size: 12.5))
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .frame(height: 18)
+        .padding(.horizontal, Self.sideInset + 2)
+        .animation(nil, value: selected)
+    }
+
+    private func mirroredColumn(_ column: Column) -> some View {
+        let isSelected = selected == column.id
+        let hasSpend = Money.cents(column.total) > 0
+        let hasIncome = Money.cents(column.income) > 0
+        let incomeHeight = hasIncome ? max(3, Self.halfBar * CGFloat(column.income / incomeMaximum)) : 0
+        let spendHeight = hasSpend && maximum > 0 ? max(3, Self.halfBar * CGFloat(column.total / maximum)) : 3
+        let index = columns.firstIndex { $0.id == column.id } ?? 0
+        let entry: Animation? = filled ? .spring(duration: 0.55, bounce: 0.3).delay(Double(index) * Self.stagger) : nil
+        let radius = proTheme?.barCornerRadius ?? 5
+
+        return VStack(spacing: 0) {
+            // El ingreso sube desde el eje.
+            UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: 1.5,
+                                   bottomTrailingRadius: 1.5, topTrailingRadius: radius, style: .continuous)
+                .fill(isSelected ? palette.income : palette.income.opacity(0.3))
+                .frame(width: barWidth, height: incomeHeight)
+                .offset(y: filled ? 0 : incomeHeight + 2)
+                .animation(entry, value: filled)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.halfArea, alignment: .bottom)
+                .clipShape(OpenTopClip())
+
+            Rectangle()
+                .fill(palette.track)
+                .frame(height: 1)
+                .padding(.horizontal, -5)
+                .padding(.vertical, 2)
+
+            // El gasto baja.
+            UnevenRoundedRectangle(topLeadingRadius: 1.5, bottomLeadingRadius: radius,
+                                   bottomTrailingRadius: radius, topTrailingRadius: 1.5, style: .continuous)
+                .fill(isSelected && hasSpend ? selectedColor.opacity(0.9) : palette.track)
+                .frame(width: barWidth, height: spendHeight)
+                .offset(y: filled ? 0 : -(spendHeight + 2))
+                .animation(entry, value: filled)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.halfArea, alignment: .top)
+                .clipShape(OpenBottomClip())
+
+            label(column.label, isSelected: isSelected)
+                .padding(.top, 7)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.18)) { selected = column.id }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(column.detail)
+        .accessibilityValue(accessibilityValue(column))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func accessibilityValue(_ column: Column) -> String {
+        var value = "Gasto " + Money.format(column.total).masked(hidesAmounts)
+        if Money.cents(column.income) > 0 {
+            value += ", ingreso " + Money.format(column.income).masked(hidesAmounts)
+        }
+        return value
+    }
+
+    private func label(_ text: String, isSelected: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? palette.expenseText : palette.secondaryLabel)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    /// El monto del gasto elegido, sobre la barra o en la línea de lectura.
+    private var amountColor: Color {
+        palette.duoText ?? (proTheme == nil ? palette.expense : palette.expenseText)
     }
 
     /// Color liso sólo en la elegida; las demás, el gris del carril. Sin
@@ -170,40 +304,10 @@ private struct OpenTopClip: Shape {
     }
 }
 
-/// «Semana · Mes»: el conmutador chico, sobre el fondo, del gráfico.
-struct CompactSegment<Item: Hashable>: View {
-    let items: [Item]
-    @Binding var selection: Item
-    let label: (Item) -> String
-
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.proTheme) private var proTheme
-    private var palette: Palette { Palette(scheme).themed(proTheme) }
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(items, id: \.self) { item in
-                let isOn = selection == item
-                Button {
-                    guard !isOn else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) { selection = item }
-                } label: {
-                    Text(label(item))
-                        .font(.system(size: 12, weight: isOn ? .semibold : .regular))
-                        .foregroundStyle(isOn ? palette.label : palette.secondaryLabel)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background {
-                            if isOn { Capsule().fill(palette.selectedFill) }
-                        }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isOn ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .background(proTheme.map { $0.base.opacity(0.6) } ?? palette.background, in: Capsule())
-        .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
+/// El espejo de `OpenTopClip`: el gasto del gráfico en espejo baja desde el
+/// eje y rebota hacia abajo.
+private struct OpenBottomClip: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX - 4, y: rect.minY - 2, width: rect.width + 8, height: rect.height + 42))
     }
 }

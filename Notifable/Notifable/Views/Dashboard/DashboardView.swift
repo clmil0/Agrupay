@@ -25,7 +25,9 @@ struct DashboardView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    /// El mes mostrado y el anterior, nada más.
+    /// Los seis meses que terminan en el mostrado: el gráfico de «Meses» los
+    /// necesita. Lo demás del resumen usa sólo el mostrado y el anterior
+    /// (`recentStart`).
     @Query private var expenses: [Expense]
     @Query private var incomes: [Income]
     /// Todo lo que falta clasificar, de cualquier fecha y cuenta: lo mismo
@@ -69,7 +71,7 @@ struct DashboardView: View {
     /// catálogo y no en cada dibujado.
     @State private var limitStatuses: [CategoryLimitStatus] = []
     /// Comercios sin categoría de antes del mes mostrado.
-    @State private var chartMode: SpendBarChart.Mode = .week
+    @State private var chartMode: SpendBarChart.Mode = .days
     @State private var selectedColumn: Int?
     @State private var openStat: StatDetail?
     @State private var scrollToTop = false
@@ -95,9 +97,11 @@ struct DashboardView: View {
 
         let shown = Self.month(offset: monthOffset.wrappedValue)
         self.month = shown
-        // Desde el mes anterior: el delta del titular, y los últimos 7 días
-        // del gráfico cuando empiezan antes del 1.
-        let start = shown.previous.interval.start
+        // Seis meses para el gráfico de «Meses»; el resto, desde el mes
+        // anterior (`recentStart`).
+        var first = shown
+        for _ in 0..<5 { first = first.previous }
+        let start = first.interval.start
         let end = shown.interval.end
 
         _expenses = Query(filter: #Predicate<Expense> { $0.date >= start && $0.date < end },
@@ -135,6 +139,10 @@ struct DashboardView: View {
         guard let account = filter.selection, let catalog else { return incomes }
         return incomes.filter { AccountFilter.matches($0, account: account, catalog: catalog) }
     }
+
+    /// Desde el mes anterior al mostrado: el delta del titular, y los últimos
+    /// 7 días del gráfico cuando empiezan antes del 1.
+    private var recentStart: Date { month.previous.interval.start }
 
     /// Las cuentas marcadas como tuyas, en el orden del carrusel.
     private var accounts: [DetectedAccount] {
@@ -180,8 +188,12 @@ struct DashboardView: View {
     // MARK: - Cuerpo
 
     var body: some View {
-        let expenses = filteredExpenses
-        let incomes = filteredIncomes
+        let allExpenses = filteredExpenses
+        let allIncomes = filteredIncomes
+        let recentStart = self.recentStart
+        // Las consultas vienen ordenadas de la más nueva a la más vieja.
+        let expenses = Array(allExpenses.prefix { $0.date >= recentStart })
+        let incomes = Array(allIncomes.prefix { $0.date >= recentStart })
         // Una sola conversión a snapshots por dibujado: cada `totals` sobre
         // los modelos volvía a convertirlos todos, y el gráfico de seis
         // semanas pedía seis.
@@ -191,7 +203,10 @@ struct DashboardView: View {
                                        period: month, usdToPen: rate)
         let previous = Accounting.totals(expenses: snapshots.expenses, incomes: snapshots.incomes,
                                          period: month.previous, usdToPen: rate)
-        let chart = chartColumns(snapshots.expenses, snapshots.incomes)
+        // Los seis meses se convierten sólo cuando el gráfico los pide.
+        let chart = chartMode == .months
+            ? chartColumns(allExpenses.map(\.accountingSnapshot), allIncomes.map(\.accountingSnapshot))
+            : chartColumns(snapshots.expenses, snapshots.incomes)
 
         ZStack(alignment: .top) {
             TrackableScrollView(scrollToTopTrigger: $scrollToTop) {
@@ -502,8 +517,9 @@ struct DashboardView: View {
                 eyeButton
             }
 
-            HStack(spacing: 10) {
+            FlowRow(spacing: 6) {
                 deltaChip(spent: spent, previous: previous.spent)
+                incomeChip(totals.income)
 
                 if !isCurrentMonth {
                     Button {
@@ -512,6 +528,8 @@ struct DashboardView: View {
                         Text("Volver a este mes")
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(palette.expenseText)
+                            .padding(.leading, 4)
+                            .padding(.vertical, 5)
                     }
                     .buttonStyle(.plain)
                 }
@@ -653,12 +671,36 @@ struct DashboardView: View {
         }
     }
 
+    /// «● Ingresaste S/ 10,000» junto al comparativo (`3b`): el ingreso del
+    /// mes sin sumar altura al titular. Sin ingresos no se dibuja.
+    @ViewBuilder
+    private func incomeChip(_ income: Double) -> some View {
+        if Money.cents(income) > 0 {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(palette.income)
+                    .frame(width: 6, height: 6)
+                Text(("Ingresaste " + Money.formatCompact(income)).masked(hidesAmounts))
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(palette.label)
+                    .amountVeil()
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(proTheme.map { $0.isLight ? palette.surface : $0.base.opacity(0.55) } ?? palette.surface,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(palette.hairline, lineWidth: 0.5))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Ingresos de " + monthName + ": " + Money.format(income).masked(hidesAmounts))
+        }
+    }
+
     // MARK: - Gráfico
 
     private struct ChartData {
         let columns: [SpendBarChart.Column]
         let title: String
-        let subtitle: String
         let defaultSelection: Int?
     }
 
@@ -677,55 +719,78 @@ struct DashboardView: View {
     private func chartColumns(_ expenses: [ExpenseSnapshot], _ incomes: [IncomeSnapshot]) -> ChartData {
         let calendar = Period.calendar
         let end = calendar.startOfDay(for: referenceDay)
-        let spanish = Locale(identifier: "es_ES")
+        let today = calendar.startOfDay(for: Date())
 
+        func totals(_ start: Date, _ end: Date) -> PeriodTotals {
+            let range = Period(granularity: .rango, reference: start, customStart: start, customEnd: end)
+            return Accounting.totals(expenses: expenses, incomes: incomes, period: range, usdToPen: rate)
+        }
+
+        let columns: [SpendBarChart.Column]
+        let title: String
         switch chartMode {
-        case .week:
+        case .days:
             // Los últimos siete días, terminando en `end`: no la semana de
             // lunes a domingo, que el lunes sería una sola barra.
             let start = calendar.date(byAdding: .day, value: -6, to: end) ?? end
             let range = Period(granularity: .rango, reference: end, customStart: start, customEnd: end)
-            let totals = Accounting.totals(expenses: expenses, incomes: incomes, period: range, usdToPen: rate)
-            // Miércoles es «X»: con dos «M» seguidas no se sabía cuál era cuál.
-            let letters = [1: "D", 2: "L", 3: "M", 4: "X", 5: "J", 6: "V", 7: "S"]
-            let columns = range.days.enumerated().map { index, day in
-                SpendBarChart.Column(
-                    id: index,
-                    label: letters[calendar.component(.weekday, from: day)] ?? "",
-                    accessibilityLabel: day.formatted(.dateTime.weekday(.wide).day().locale(spanish)),
-                    total: totals.dailySpent.first { calendar.isDate($0.date, inSameDayAs: day) }?.total ?? 0)
-            }
-            let count = totals.expenseCount
-            return ChartData(columns: columns,
-                             title: isCurrentMonth ? "Últimos 7 días" : "Últimos 7 días de " + shortMonthName,
-                             subtitle: Money.formatCompact(totals.spent) + " · "
-                                + (count == 1 ? "1 movimiento" : "\(count) movimientos"),
-                             defaultSelection: Self.defaultSelection(columns))
-
-        case .month:
-            // Sólo las semanas del mes, recortadas a él: la primera va del 1
-            // al domingo siguiente y la última, del lunes al fin de mes.
-            var spent = 0.0
-            var count = 0
-            let columns = Self.monthWeeks(month).enumerated().map { index, week in
-                let range = Period(granularity: .rango, reference: week.start,
-                                   customStart: week.start, customEnd: week.end)
-                let totals = Accounting.totals(expenses: expenses, incomes: incomes, period: range, usdToPen: rate)
-                spent = Money.add(spent, totals.spent)
-                count += totals.expenseCount
-                let isThisWeek = isCurrentMonth && range.contains(Date())
+            columns = range.days.enumerated().map { index, day in
+                let dayTotals = totals(day, day)
+                let isToday = calendar.isDate(day, inSameDayAs: today)
+                let weekday = Self.weekdays[calendar.component(.weekday, from: day) - 1]
+                let number = String(calendar.component(.day, from: day))
                 return SpendBarChart.Column(
                     id: index,
-                    label: isThisWeek ? "Esta" : dayMonth(week.start),
-                    accessibilityLabel: "Del " + dayMonth(week.start) + " al " + dayMonth(week.end),
-                    total: totals.spent)
+                    label: isToday ? "Hoy" : weekday,
+                    detail: isToday ? "Hoy, " + weekday.lowercased() + " " + number : weekday + " " + number,
+                    total: dayTotals.spent,
+                    income: dayTotals.income)
             }
-            return ChartData(columns: columns,
-                             title: isCurrentMonth ? "Este mes" : "Semanas de " + shortMonthName,
-                             subtitle: Money.formatCompact(spent) + " · "
-                                + (count == 1 ? "1 movimiento" : "\(count) movimientos"),
-                             defaultSelection: Self.defaultSelection(columns))
+            title = isCurrentMonth ? "Últimos 7 días" : "Últimos 7 días de " + shortMonthName
+
+        case .weeks:
+            // Sólo las semanas del mes, recortadas a él: la primera va del 1
+            // al domingo siguiente y la última, del lunes al fin de mes.
+            columns = Self.monthWeeks(month).enumerated().map { index, week in
+                let weekTotals = totals(week.start, week.end)
+                let first = calendar.component(.day, from: week.start)
+                let last = calendar.component(.day, from: week.end)
+                let days = first == last ? "\(first)" : "\(first)–\(last)"
+                let isThisWeek = isCurrentMonth && today >= week.start && today <= week.end
+                return SpendBarChart.Column(
+                    id: index,
+                    label: days,
+                    detail: days + " " + Self.shortMonth(week.start) + (isThisWeek ? " (esta semana)" : ""),
+                    total: weekTotals.spent,
+                    income: weekTotals.income)
+            }
+            title = isCurrentMonth ? "Este mes" : "Semanas de " + shortMonthName
+
+        case .months:
+            var months = [month]
+            for _ in 0..<5 { months.insert(months[0].previous, at: 0) }
+            columns = months.enumerated().map { index, period in
+                let monthTotals = Accounting.totals(expenses: expenses, incomes: incomes,
+                                                    period: period, usdToPen: rate)
+                let isThisMonth = isCurrentMonth && index == months.count - 1
+                return SpendBarChart.Column(
+                    id: index,
+                    label: Self.shortMonth(period.reference),
+                    detail: Period.spanishMonthName(for: period.reference) + (isThisMonth ? " (este mes)" : ""),
+                    total: monthTotals.spent,
+                    income: monthTotals.income)
+            }
+            title = isCurrentMonth ? "Últimos 6 meses" : "6 meses hasta " + shortMonthName
         }
+        return ChartData(columns: columns, title: title, defaultSelection: Self.defaultSelection(columns))
+    }
+
+    private static let weekdays = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
+
+    /// «set»: como se abrevia en Perú, no el «sept» de `es_ES`.
+    private static func shortMonth(_ date: Date) -> String {
+        ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"][
+            Period.calendar.component(.month, from: date) - 1]
     }
 
     /// Las semanas (lunes a domingo) del mes, recortadas a él: primer y
@@ -752,10 +817,10 @@ struct DashboardView: View {
         return weeks
     }
 
-    /// La última barra con gasto; si no hubo ninguna, la última. Un «S/ 0»
-    /// encima de la barra de hoy, a primera hora, no dice nada.
+    /// La última barra con gasto o ingreso; si no hubo ninguna, la última. Un
+    /// «S/ 0» encima de la barra de hoy, a primera hora, no dice nada.
     private static func defaultSelection(_ columns: [SpendBarChart.Column]) -> Int? {
-        columns.lastIndex { Money.cents($0.total) > 0 } ?? columns.indices.last
+        columns.lastIndex { Money.cents($0.total) > 0 || Money.cents($0.income) > 0 } ?? columns.indices.last
     }
 
     /// «15 set».
@@ -769,23 +834,16 @@ struct DashboardView: View {
 
     private func chartBlock(_ chart: ChartData) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(chart.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(palette.label)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                    Text(chart.subtitle.masked(hidesAmounts))
-                        .amountVeil()
-                        .font(.system(size: 12.5))
-                        .monospacedDigit()
-                        .foregroundStyle(palette.secondaryLabel)
-                }
+            HStack(alignment: .center, spacing: 12) {
+                Text(chart.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.label)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
 
                 Spacer(minLength: 8)
 
-                CompactSegment(items: SpendBarChart.Mode.allCases, selection: $chartMode) { $0.rawValue }
+                chartModeMenu
             }
 
             SpendBarChart(columns: chart.columns,
@@ -794,6 +852,40 @@ struct DashboardView: View {
                           isReady: catalog != nil)
         }
         .padding(.horizontal, 2)
+    }
+
+    /// «Días ⌄»: el menú de periodos del gráfico, con su explicación debajo.
+    private var chartModeMenu: some View {
+        Menu {
+            ForEach(SpendBarChart.Mode.allCases, id: \.self) { mode in
+                Button {
+                    guard mode != chartMode else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) { chartMode = mode }
+                } label: {
+                    Text(mode.rawValue)
+                    Text(mode.hint)
+                    if mode == chartMode { Image(systemName: "checkmark") }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(chartMode.rawValue)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(palette.label)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(palette.secondaryLabel)
+            }
+            .padding(.leading, 13)
+            .padding(.trailing, 11)
+            .padding(.vertical, 7)
+            .background(proTheme.map { $0.base.opacity(0.6) } ?? palette.surface, in: Capsule())
+            .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
+            .contentShape(Capsule())
+        }
+        .sensoryFeedback(.selection, trigger: chartMode)
+        .accessibilityLabel("Periodo del gráfico")
+        .accessibilityValue(chartMode.rawValue)
     }
 
     // MARK: - Stats
