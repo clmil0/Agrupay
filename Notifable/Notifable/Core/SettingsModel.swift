@@ -143,7 +143,7 @@ struct BankSource: Identifiable, Hashable {
                    storageKey: "syncYape",
                    logoAsset: "yape_icon"),
         BankSource(id: "interbank", name: "Interbank",
-                   detects: "Pagos con tarjeta y transferencias",
+                   detects: "Plin, transferencias y pagos automáticos",
                    caveat: nil,
                    storageKey: "syncInterbank",
                    logoAsset: "interbank_icon"),

@@ -66,6 +66,11 @@ enum EmailAccountDetails {
         if firstCapture("\\b(Cuenta)\\s+[A-Za-zÁÉÍÓÚáéíóú ]{0,20}?:?[\\s·•*]*\(digits)", in: text) != nil {
             return "Cuenta"
         }
+        // Interbank escribe el número entero: «Cuenta cargo Cuenta Simple
+        // Soles 898 1234567890».
+        if firstCapture("\\b(Cuenta)\\s+(?:a\\s+)?cargo[\\s*]*[^0-9]{0,40}?[0-9 ]*\(digits)\\b", in: text) != nil {
+            return "Cuenta"
+        }
         return nil
     }
 

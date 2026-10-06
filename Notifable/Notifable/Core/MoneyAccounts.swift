@@ -139,6 +139,7 @@ enum AccountResolver {
         if merchant.hasPrefix("PLIN - ") { return "BBVA" }
         if merchant.hasPrefix("BBVA - ") { return "BBVA" }
         if merchant.hasPrefix("BCP - ") { return "BCP" }
+        if merchant.hasPrefix("INTERBANK - ") { return "Interbank" }
         if merchant.lowercased().contains("apple") { return "Apple" }
         return nil
     }
@@ -159,7 +160,8 @@ enum AccountResolver {
 
     /// Los prefijos con los que los parsers escriben un envío a una persona.
     static let payeePrefixes: [(prefix: String, via: Institution)] = [
-        ("YAPE - ", .yape), ("PLIN - ", .plin), ("BBVA - ", .bbva), ("BCP - ", .bcp)
+        ("YAPE - ", .yape), ("PLIN - ", .plin), ("BBVA - ", .bbva), ("BCP - ", .bcp),
+        ("INTERBANK - ", .interbank)
     ]
 
     /// Los nombres de relleno que ponen los parsers cuando el correo no trae

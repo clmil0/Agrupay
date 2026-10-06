@@ -79,6 +79,7 @@ enum MovementStyle {
         if expense.merchant.hasPrefix("YAPE - ") { return "yape_icon" }
         if expense.merchant.hasPrefix("BBVA - ") { return "bbva_icon" }
         if expense.merchant.hasPrefix("BCP - ") { return "bcp_icon" }
+        if expense.merchant.hasPrefix("INTERBANK - ") { return "interbank_icon" }
         if expense.merchant.lowercased().contains("apple") { return "applelogo" }
         return CategoryStyle.icon(for: expense.category)
     }
@@ -102,6 +103,7 @@ enum MovementStyle {
         if expense.merchant.hasPrefix("YAPE - ") { return .yape }
         if expense.merchant.hasPrefix("BBVA - ") { return .bbva }
         if expense.merchant.hasPrefix("BCP - ") { return .bcp }
+        if expense.merchant.hasPrefix("INTERBANK - ") { return .interbank }
         return expense.sourceBank.flatMap { Institution(name: $0) }
     }
 
@@ -112,6 +114,7 @@ enum MovementStyle {
         if expense.merchant.hasPrefix("YAPE - ") { return Color(red: 0.5, green: 0, blue: 0.5) }
         if expense.merchant.hasPrefix("BBVA - ") { return Color(red: 0.0, green: 0.27, blue: 0.51) }
         if expense.merchant.hasPrefix("BCP - ") { return Color(red: 0.0, green: 0.2, blue: 0.63) }
+        if expense.merchant.hasPrefix("INTERBANK - ") { return Color(red: 0.02, green: 0.75, blue: 0.31) }
         if expense.merchant.lowercased().contains("apple") { return scheme == .dark ? .white : .black }
         return CategoryStyle.color(for: expense.category, accent: accent)
     }
@@ -125,6 +128,7 @@ enum MovementStyle {
         if expense.merchant.hasPrefix("YAPE - ") { return "Yape" }
         if expense.merchant.hasPrefix("BBVA - ") { return "BBVA" }
         if expense.merchant.hasPrefix("BCP - ") { return "BCP" }
+        if expense.merchant.hasPrefix("INTERBANK - ") { return "Interbank" }
         if let card = expense.cardLastDigits, !card.isEmpty { return "•••• " + card }
         return nil
     }
