@@ -5,8 +5,8 @@ import SwiftData
 ///
 /// Sustituye a las tres pestañas. Arriba, cuánto llevas gastado en el mes y
 /// contra el anterior; debajo, el gráfico de la semana contra la pasada; las
-/// tiras de stats; la cuadrícula de accesos —Historial, Categorías,
-/// Pendientes, Amigos—, y lo comprometido del mes. La lista de días ya no vive
+/// tiras de stats; los atajos —la tira «Por clasificar», Categorías y
+/// Social (`2b`)—, y lo comprometido del mes. La lista de días ya no vive
 /// aquí: está en Historial (Movimientos), a un toque.
 ///
 /// El chip «Todas las cuentas» filtra **todo** lo de esta pantalla, y el
@@ -22,8 +22,6 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
     @Environment(\.proTheme) private var proTheme
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Los seis meses que terminan en el mostrado: el gráfico de «Meses» los
     /// necesita. Lo demás del resumen usa sólo el mostrado y el anterior
@@ -34,12 +32,6 @@ struct DashboardView: View {
     /// que cuenta Pendientes, para que las cifras de la tarjeta y las de la
     /// pantalla coincidan. Son pocos (se van vaciando).
     @Query private var unclassified: [Expense]
-    /// Las claves de todos los movimientos, para el globo de nuevos de
-    /// «Historial». Antes eran dos `@Query` del historial entero: se
-    /// cargaban al dibujar la cuadrícula —unos 190 ms en el hilo principal,
-    /// justo en la entrada del gráfico—. Ahora salen de la lectura que ya
-    /// hace `loadCatalog`.
-    @State private var movementKeys: Set<String> = []
 
     @StateObject private var rates = ExchangeRateService.shared
     @StateObject private var accountBook = AccountBook.shared
@@ -175,9 +167,9 @@ struct DashboardView: View {
                 AnalyticsPerformance.screenReady("dashboard_catalog", since: started)
             }
         }
-        let keys = NewMovements.keys(expenses: all, incomes: allIncomes)
-        newMovements.baselineIfNeeded(keys)
-        if keys != movementKeys { movementKeys = keys }
+        // Lo que ya estaba al estrenar la función no cuenta como nuevo en
+        // Movimientos.
+        newMovements.baselineIfNeeded(NewMovements.keys(expenses: all, incomes: allIncomes))
         loadMonthExtras(all)
         if let key = filter.selection, !accounts.contains(where: { $0.key == key }) {
             filter.selection = nil
@@ -236,7 +228,7 @@ struct DashboardView: View {
                     statsBlock(totals: totals, expenses: expenses, incomes: snapshots.incomes)
 
                     ShellSectionHeader(title: "Atajos")
-                    grid(totals: totals, expenses: expenses, incomes: incomes)
+                    shortcuts(totals: totals)
                         .padding(.bottom, 28)
 
                     if isCurrentMonth {
@@ -1288,90 +1280,98 @@ struct DashboardView: View {
             .flatMap { Money.cents(Accounting.netCostInPEN($0, fallbackRate: rate)) > 0 ? $0 : nil }
     }
 
-    // MARK: - Cuadrícula
+    // MARK: - Atajos
 
-    private func grid(totals: PeriodTotals, expenses: [Expense], incomes: [Income]) -> some View {
-        let range = month.interval
-        let movementCount = expenses.filter { !$0.isTransfer && !$0.isSplit && $0.date >= range.start && $0.date < range.end }.count
-            + incomes.filter { !$0.isTransfer && $0.date >= range.start && $0.date < range.end }.count
-        let hasPending = !unclassified.isEmpty
-
-        // El globo se cuenta dentro de la tarjeta, no aquí: marcar algo como
-        // visto sólo vuelve a dibujar esa tarjeta, no el dashboard entero.
-        let keys = movementKeys
-        let historial = tile(title: "Historial", badge: { NewMovements.shared.unseen(in: keys).count },
-                             action: { onOpen(.movements) }) {
-            bigNumber("\(movementCount)", caption: movementCount == 1 ? "movimiento este mes" : "movimientos este mes")
-        }
-        // Las categorías que pasaron su límite, con el mismo globo que
-        // Historial.
-        let overLimits = limitStatuses.filter(\.isOver).count
-        let categorias = tile(title: "Categorías", badge: { overLimits },
+    /// Atajos (`2b`): la tira de lo que falta clasificar —sólo mientras haya
+    /// algo— y, debajo, Categorías y Social lado a lado. Historial salió
+    /// porque Movimientos ya es pestaña, y Etiquetas con él.
+    private func shortcuts(totals: PeriodTotals) -> some View {
+        // Las categorías que pasaron su límite: el globo de la tarjeta y el
+        // punto ámbar de sus filas.
+        let over = Set(limitStatuses.filter(\.isOver).map(\.category))
+        let categorias = tile(title: "Categorías", badge: { over.count },
                               badgeLabel: { $0 == 1 ? "1 categoría pasó su límite" : "\($0) categorías pasaron su límite" },
                               action: { onOpen(.categories) }) {
-            topCategories(totals)
+            topCategories(totals, over: over)
         }
-        let amigos = tile(title: "Amigos", action: { onOpen(.social) }) {
+        // Las solicitudes van junto al título, como en Categorías: el globo
+        // se pide dentro de la tarjeta, que es la que se vuelve a dibujar.
+        let social = tile(title: "Social",
+                          badge: { FriendsManager.shared.incomingRequests.count + PaymentReminders.shared.inbox.count },
+                          badgeLabel: { $0 == 1 ? "1 solicitud" : "\($0) solicitudes" },
+                          action: { onOpen(.social) }) {
             FriendsSummary()
         }
 
-        // Dos columnas en vertical; en horizontal (o en iPad) caben las
-        // cuatro en una fila.
-        return Grid(horizontalSpacing: Self.gridSpacing, verticalSpacing: Self.gridSpacing) {
-            if isWide {
-                GridRow {
-                    thirdTile(totals: totals, expenses: expenses, hasPending: hasPending)
-                    historial
-                    categorias
-                    amigos
-                }
-            } else {
-                GridRow {
-                    thirdTile(totals: totals, expenses: expenses, hasPending: hasPending)
-                    historial
-                }
+        return VStack(spacing: Self.gridSpacing) {
+            if !unclassified.isEmpty {
+                pendingStrip
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            Grid(horizontalSpacing: Self.gridSpacing, verticalSpacing: Self.gridSpacing) {
                 GridRow {
                     categorias
-                    amigos
+                    social
                 }
             }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: unclassified.isEmpty)
     }
 
-    private var isWide: Bool {
-        verticalSizeClass == .compact || horizontalSizeClass == .regular
-    }
-
-    /// Pendientes mientras haya algo por clasificar; si no, Etiquetas.
-    @ViewBuilder
-    private func thirdTile(totals: PeriodTotals, expenses: [Expense], hasPending: Bool) -> some View {
+    /// Lo que falta clasificar: deja de ser tarjeta y es una tira que
+    /// desaparece cuando no queda nada. Cuenta movimientos, no comercios: lo
+    /// mismo que la bandeja de Pendientes.
+    private var pendingStrip: some View {
         let range = month.interval
-        if hasPending {
-            tile(title: "Pendientes", action: { onOpen(.pending) }) {
-                // Movimientos, no comercios: es lo que cuenta Pendientes
-                // («Todo el historial (N)»), y las dos cifras suman eso.
-                let count = unclassified.filter { $0.date >= range.start && $0.date < range.end }.count
-                let earlierPending = unclassified.filter { $0.date < range.start }.count
-                VStack(alignment: .leading, spacing: 4) {
-                    bigNumber("\(count)",
-                              caption: isCurrentMonth ? "de este mes" : "de " + monthName.lowercased(),
-                              tint: count > 0 ? (proTheme?.accentText ?? accent.secondaryOnSurface(scheme)) : nil)
-                    if earlierPending > 0 {
-                        Text("\(earlierPending) de meses anteriores")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(palette.tertiaryLabel)
+        let count = unclassified.filter { $0.date >= range.start && $0.date < range.end }.count
+        let earlier = unclassified.filter { $0.date < range.start }.count
+        let shown = count > 0 ? count : earlier
+        var parts: [String] = []
+        if count > 0 { parts.append(isCurrentMonth ? "\(count) de este mes" : "\(count) de " + monthName.lowercased()) }
+        if earlier > 0 { parts.append(count > 0 ? "\(earlier) anteriores" : "\(earlier) de meses anteriores") }
+        let detail = parts.joined(separator: " · ")
+
+        return Button { onOpen(.pending) } label: {
+            HStack(spacing: 12) {
+                Text(shown > 99 ? "99+" : "\(shown)")
+                    .font(.system(size: shown > 99 ? 13 : 16, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(accent.buttonText)
+                    .frame(width: 38, height: 38)
+                    .background(accent.buttonFill, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Por clasificar")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(palette.label)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(palette.secondaryLabel)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
                 }
+                Spacer(minLength: 4)
+                Text("Clasificar")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accent.buttonText)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
+                    .background(accent.buttonFill, in: Capsule())
             }
-        } else {
-            tile(title: "Etiquetas", action: { onOpen(.tags) }) {
-                let used = Set(expenses.filter { $0.date >= range.start && $0.date < range.end }
-                    .flatMap(\.tags)).count
-                bigNumber("\(used)", caption: used == 1 ? "usada este mes" : "usadas este mes")
-            }
+            .padding(.vertical, 12)
+            .padding(.leading, 14)
+            .padding(.trailing, 12)
+            .background(accent.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(accent.color.opacity(0.18), lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Por clasificar")
+        .accessibilityValue(detail)
+        .accessibilityHint("Abre Pendientes para clasificarlos")
     }
 
     /// Entre las tiras de stats y entre las tarjetas de la cuadrícula: el
@@ -1379,30 +1379,19 @@ struct DashboardView: View {
     private static let gridSpacing: CGFloat = 14
 
     private func tile<Content: View>(title: String, badge: @escaping () -> Int = { 0 },
-                                     badgeLabel: @escaping (Int) -> String = {
-                                         $0 == 1 ? "1 movimiento nuevo" : "\($0) movimientos nuevos"
-                                     },
+                                     badgeLabel: @escaping (Int) -> String,
                                      action: @escaping () -> Void,
                                      @ViewBuilder content: @escaping () -> Content) -> some View {
         DashboardTile(title: title, badge: badge, badgeLabel: badgeLabel, action: action, content: content)
     }
 
-    private func bigNumber(_ value: String, caption: String, tint: Color? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 30, weight: proTheme?.numberWeight ?? .bold,
-                              design: proTheme?.numberDesign ?? .default))
-                .monospacedDigit()
-                .foregroundStyle(tint ?? palette.label)
-            Text(caption)
-                .font(.system(size: 13))
-                .foregroundStyle(palette.secondaryLabel)
-        }
-    }
-
+    /// Las dos categorías con más gasto. La que pasó su límite lleva un punto
+    /// ámbar y su monto en ámbar; si las que se pasaron no están entre las
+    /// dos que se ven, abajo dice cuántas más.
     @ViewBuilder
-    private func topCategories(_ totals: PeriodTotals) -> some View {
-        let top = totals.byCategory.filter { $0.category != Accounting.unclassified }.prefix(2)
+    private func topCategories(_ totals: PeriodTotals, over: Set<String>) -> some View {
+        let top = Array(totals.byCategory.filter { $0.category != Accounting.unclassified }.prefix(2))
+        let hiddenOver = over.subtracting(top.map(\.category)).count
 
         if top.isEmpty {
             Text(Money.cents(totals.spent) > 0 ? "Todo sin categoría" : "Sin gastos aún")
@@ -1410,11 +1399,21 @@ struct DashboardView: View {
                 .foregroundStyle(palette.secondaryLabel)
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(top)) { category in
+                ForEach(top) { category in
+                    let isOver = over.contains(category.category)
                     HStack(spacing: 9) {
                         MovementIcon(icon: CategoryStyle.icon(for: category.category),
                                      color: CategoryStyle.color(for: category.category, accent: accent.color),
                                      size: 30)
+                            .overlay(alignment: .topTrailing) {
+                                if isOver {
+                                    Circle()
+                                        .fill(palette.warning)
+                                        .frame(width: 11, height: 11)
+                                        .overlay(Circle().stroke(palette.surface, lineWidth: 2))
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
                         VStack(alignment: .leading, spacing: 1) {
                             Text(category.category)
                                 .font(.system(size: 13.5))
@@ -1422,12 +1421,21 @@ struct DashboardView: View {
                                 .lineLimit(1)
                             Text(Money.format(category.total).masked(hidesAmounts))
                                 .amountVeil()
-                                .font(.system(size: 12))
+                                .font(.system(size: 12, weight: isOver ? .semibold : .regular))
                                 .monospacedDigit()
-                                .foregroundStyle(palette.secondaryLabel)
+                                .foregroundStyle(isOver ? palette.warning : palette.secondaryLabel)
                                 .lineLimit(1)
                         }
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityValue(isOver ? "pasó su límite" : "")
+                }
+                if hiddenOver > 0 {
+                    Text("+\(hiddenOver) " + (hiddenOver == 1 ? "pasó su límite" : "pasaron su límite"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.warning)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
             }
         }
@@ -1487,8 +1495,7 @@ private struct DashboardTile<Content: View>: View {
                     Text(title)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(palette.label)
-                    // Movimientos que aún no viste en Historial: el mismo
-                    // globo que las solicitudes de Social.
+                    // Límites pasados en Categorías, solicitudes en Social.
                     if badge > 0 {
                         Text(badge > 99 ? "99+" : "\(badge)")
                             .font(.system(size: 11, weight: .bold))
@@ -1511,9 +1518,9 @@ private struct DashboardTile<Content: View>: View {
             }
             .padding(15)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .frame(minHeight: 128)
+            .frame(minHeight: 150)
             .background(palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            // Lo que asoma por el borde (el personaje de Amigos) se corta ahí.
+            // Lo que asoma por el borde (el personaje de Social) se corta ahí.
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(palette.hairline, lineWidth: 0.5))
@@ -1548,12 +1555,11 @@ private struct FriendsSummary: View {
     private var palette: Palette { Palette(scheme).themed(proTheme) }
 
     /// Lo que asoma el personaje por debajo del borde de la tarjeta.
-    static let characterHeight: CGFloat = 82
+    static let characterHeight: CGFloat = 104
 
     var body: some View {
         let open = debtExpenses.filter { Money.cents(Accounting.outstanding(of: $0)) > 0 }
         let owed = Money.sum(open.map { Accounting.outstanding(of: $0) })
-        let requests = FriendsManager.shared.incomingRequests.count + PaymentReminders.shared.inbox.count
         let friends = FriendsManager.shared.friends.count
 
         HStack(alignment: .top, spacing: 0) {
@@ -1578,9 +1584,6 @@ private struct FriendsSummary: View {
                     Text("te deben")
                         .font(.system(size: 13))
                         .foregroundStyle(palette.secondaryLabel)
-                    Text(open.count == 1 ? "1 cobro" : "\(open.count) cobros")
-                        .font(.system(size: 13))
-                        .foregroundStyle(palette.secondaryLabel)
                 }
             }
             .layoutPriority(1)
@@ -1593,20 +1596,10 @@ private struct FriendsSummary: View {
         .background(alignment: .bottomTrailing) {
             PenguinView(look: SocialProfileStore.shared.penguin)
                 .frame(height: Self.characterHeight)
-                .overlay(alignment: .topTrailing) {
-                    if requests > 0 {
-                        Text(requests > 99 ? "99+" : "\(requests)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.white)
-                            .padding(.horizontal, 4)
-                            .frame(minWidth: 16, minHeight: 16)
-                            .background(palette.expense, in: Capsule())
-                            .offset(x: -4, y: 4)
-                    }
-                }
-                // Hasta el borde de la tarjeta (su relleno es de 15): la
-                // panza queda cortada, como asomándose.
-                .offset(x: 6, y: 15 + 16)
+                // Pasando el borde de la tarjeta (su relleno es de 15): la
+                // panza y un poco del costado quedan cortados, como
+                // asomándose.
+                .offset(x: 15 + 2, y: 15 + 22)
                 .accessibilityHidden(true)
         }
     }
