@@ -12,6 +12,8 @@ struct BBVAParser: BankEmailParser {
     
     func parse(cleanText: String) -> Expense? {
         if let expense = parseReversal(cleanText) { return expense }
+        if let expense = parseInternationalTransfer(cleanText) { return expense }
+        if let expense = parseFeeReceipt(cleanText) { return expense }
         if let expense = parseATMWithdrawal(cleanText) { return expense }
         if let expense = parseCardlessWithdrawal(cleanText) { return expense }
         if let expense = parsePlinSent(cleanText) { return expense }
@@ -423,6 +425,96 @@ struct BBVAParser: BankEmailParser {
               let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)),
               let range = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[range])
+    }
+
+    // MARK: - Transferencia al exterior
+
+    /// «¡Tu transferencia internacional ha llegado a su destino!»: «Tu
+    /// transferencia al exterior a <nombre> fue completada con éxito»,
+    /// Importe transferido, Importe abonado, Fecha de llegada (sólo el día),
+    /// Gastos adicionales y «Cuenta de origen Cuenta Ahorro •1234». En texto
+    /// plano cada valor viene entre asteriscos.
+    ///
+    /// Como las transferencias a terceros, el comercio es «BBVA - <nombre>».
+    /// La comisión de BBVA por enviarla no viene aquí: llega aparte, en la
+    /// boleta electrónica (`parseFeeReceipt`).
+    private func parseInternationalTransfer(_ cleanText: String) -> Expense? {
+        guard cleanText.range(of: "transferencia al exterior", options: .caseInsensitive) != nil,
+              let (currency, amount) = Self.starredMoney(after: "Importe transferido:?", in: cleanText) else { return nil }
+
+        let name = Self.capture("transferencia al exterior a\\s+(.+?)\\s+fue completada", in: cleanText)?
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*"))) ?? ""
+        let account = Self.capture("Cuenta de origen[\\s*]*[^0-9]{0,30}?([0-9]{4})", in: cleanText)
+
+        var date = Date()
+        if let day = Self.capture2("Fecha de llegada[\\s*]*([0-9]{1,2}\\s+de\\s+[a-zA-Z]+)\\s+de\\s+([0-9]{4})", in: cleanText) {
+            date = Self.noon(dayAndMonth: day.0, year: day.1) ?? date
+        }
+
+        return Expense(amount: amount,
+                       merchant: "BBVA - " + (name.isEmpty ? "Transferencia al exterior" : name),
+                       date: date, category: "Sin Clasificar", currency: currency,
+                       cardLastDigits: account)
+    }
+
+    // MARK: - Boleta de comisiones e intereses
+
+    /// «Envío de Comprobante de Documento Electrónico»: la boleta que BBVA
+    /// manda por SUNAT cuando te cobra intereses o comisiones (por ejemplo, la
+    /// de una transferencia al exterior). Tipo de comprobante, Número,
+    /// «Monto: USD 72.00» y «Fecha de Emisión: 2026-10-05». No dice de qué
+    /// cuenta salió.
+    ///
+    /// El correo aclara que «no representa ningún pago adicional al que ya
+    /// realizaste», pero ese cobro no llega en ningún otro aviso: sin esta
+    /// boleta, la comisión no aparecería.
+    private func parseFeeReceipt(_ cleanText: String) -> Expense? {
+        guard cleanText.range(of: "comprobante\\s+electr[oó]nico\\s+por\\s+el\\s+pago\\s+de\\s+intereses", options: [.regularExpression, .caseInsensitive]) != nil,
+              let money = Self.capture2("Monto:?[\\s*]*(USD|PEN|US\\$|S/\\.?|\\$)\\s*([0-9][0-9.,]*)", in: cleanText),
+              let amount = Money.parse(money.1) else { return nil }
+        let currency = (money.0 == "USD" || money.0.contains("$")) ? "USD" : "PEN"
+
+        var date = Date()
+        if let day = Self.capture("Fecha de Emisi[oó]n:?[\\s*]*([0-9]{4}-[0-9]{2}-[0-9]{2})", in: cleanText) {
+            let formatter = DateFormatter()
+            formatter.timeZone = BankEmailTime.zone
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            date = formatter.date(from: day + " 12:00") ?? date
+        }
+
+        return Expense(amount: amount, merchant: "Comisiones e intereses BBVA", date: date,
+                       category: "Sin Clasificar", currency: currency)
+    }
+
+    /// «Importe transferido: *$139.60*»: como `money(after:)`, pero el valor
+    /// puede venir entre asteriscos.
+    private static func starredMoney(after label: String, in text: String) -> (currency: String, amount: Double)? {
+        guard let money = capture2(label + "[\\s*]*(S/\\.?|US\\$|\\$)\\s*([0-9][0-9.,]*)", in: text),
+              let amount = Money.parse(money.1) else { return nil }
+        return (money.0.contains("$") ? "USD" : "PEN", amount)
+    }
+
+    /// «5 de octubre» + «2026» → ese día a mediodía en Lima: sin hora en el
+    /// correo, el mediodía evita que el día cambie al verlo desde otra zona.
+    private static func noon(dayAndMonth: String, year: String) -> Date? {
+        var text = dayAndMonth.lowercased()
+        let months = ["enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05", "junio": "06", "julio": "07", "agosto": "08", "septiembre": "09", "setiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12"]
+        for (name, num) in months { text = text.replacingOccurrences(of: name, with: num) }
+        text = text.replacingOccurrences(of: " de ", with: " ")
+        let formatter = DateFormatter()
+        formatter.timeZone = BankEmailTime.zone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MM yyyy HH:mm"
+        return formatter.date(from: "\(text) \(year) 12:00")
+    }
+
+    private static func capture2(_ pattern: String, in text: String) -> (String, String)? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)),
+              let first = Range(match.range(at: 1), in: text),
+              let second = Range(match.range(at: 2), in: text) else { return nil }
+        return (String(text[first]), String(text[second]))
     }
 
     // MARK: - Anulaciones

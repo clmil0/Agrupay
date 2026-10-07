@@ -17,6 +17,9 @@ enum EmailAccountDetails {
     /// billeteras conocidos: lo que venga detrás de "Destino" en otra
     /// plantilla no se toma por una cuenta.
     static func destinationWallet(in text: String) -> String? {
+        // Una transferencia al exterior no llega a una cuenta de aquí, aunque
+        // el banco de destino se llame igual («Bbva Mexico S.A.»).
+        guard text.range(of: "al exterior", options: .caseInsensitive) == nil else { return nil }
         let pattern = "Destino\\s*:?\\s*(Yape|Plin|BBVA|BCP|Interbank|Scotiabank|Banco de Cr[eé]dito)"
         guard let value = firstCapture(pattern, in: text),
               let institution = Institution(name: value) else { return nil }

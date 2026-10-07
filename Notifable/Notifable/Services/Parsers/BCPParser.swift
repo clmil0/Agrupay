@@ -105,6 +105,7 @@ struct BCPParser: BankEmailParser {
     /// "Constancia de recepción de Yapeo a celular BCP": dinero que **entra**,
     /// no un gasto. Es el único correo de BCP que representa un ingreso.
     func parseIncome(cleanText: String) -> Income? {
+        if let income = parsePointsRedemption(cleanText) { return income }
         guard cleanText.contains("Monto recibido") else {
             return nil
         }
@@ -153,6 +154,32 @@ struct BCPParser: BankEmailParser {
         }
 
         return Income(amount: amount, currency: "PEN", source: "Yape", title: sender, date: incomeDate)
+    }
+
+    // MARK: - Canje de puntos
+
+    /// «Pagaste tu tarjeta Qore con puntos»: «Has canjeado 1,500 puntos para
+    /// pagar S/ 37.50 de tu tarjeta», «hecha el *05/10/2026* a las *12:43 p.
+    /// m.*» y el número de tarjeta enmascarado. El banco paga esa parte de la
+    /// deuda por ti: entra como ingreso a BCP por el monto en soles.
+    private func parsePointsRedemption(_ cleanText: String) -> Income? {
+        guard let money = Self.capture2("Has canjeado[\\s*]*[0-9.,]+[\\s*]*puntos para pagar[\\s*]*(S/\\.?|US\\$|\\$)\\s*([0-9][0-9.,]*)", in: cleanText),
+              let amount = Money.parse(money.1) else { return nil }
+        let currency = money.0.contains("$") ? "USD" : "PEN"
+
+        var date = Date()
+        if let day = Self.capture2("hecha el[\\s*]*([0-9]{2}/[0-9]{2}/[0-9]{4})[\\s*]*a las[\\s*]*([0-9]{1,2}:[0-9]{2}\\s*[ap])", in: cleanText) {
+            let meridiem = day.1.replacingOccurrences(of: " ", with: "").uppercased() + "M"
+            let formatter = DateFormatter()
+            formatter.timeZone = BankEmailTime.zone
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "dd/MM/yyyy h:mma"
+            date = formatter.date(from: day.0 + " " + meridiem) ?? date
+        }
+
+        let card = Self.capture("N[uú]mero de tarjeta[\\s*]*(?:\\*{4}\\s*){3}([0-9]{4})", in: cleanText)
+        return Income(amount: amount, currency: currency, source: "BCP", title: "Canje de puntos Qore", date: date,
+                      notes: card.map { "Pago de la tarjeta ****\($0) con puntos" })
     }
 
     // MARK: - Devoluciones
