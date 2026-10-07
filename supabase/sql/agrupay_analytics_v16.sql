@@ -293,29 +293,48 @@ where e.channel <> 'debug';
 -- ── Uso general ────────────────────────────────────────────────────────
 
 -- Usuarios activos por día (DAU), sesiones y aperturas.
+-- `active_pro`: Pro según su **último** evento del periodo. Quien apaga Pro a
+-- media tarde ya cuenta como Gratis ese día, no como Pro por la mañana.
 create or replace view public.analytics_daily_active
 with (security_invoker = true) as
+with per_install as (
+  select day, install_id,
+         (array_agg(is_pro order by occurred_at desc))[1]  as pro_now,
+         count(distinct session_id)                        as sessions,
+         count(*) filter (where event = 'app_open')        as opens,
+         count(*)                                          as events
+  from public.analytics_ev
+  group by day, install_id
+)
 select day,
-       count(distinct install_id)                                   as active_installs,
-       count(distinct install_id) filter (where is_pro)             as active_pro,
-       count(distinct session_id)                                   as sessions,
-       count(*) filter (where event = 'app_open')                   as opens,
-       count(*)                                                     as events
-from public.analytics_ev
+       count(*)                         as active_installs,
+       count(*) filter (where pro_now)  as active_pro,
+       sum(sessions)::bigint            as sessions,
+       sum(opens)::bigint               as opens,
+       sum(events)::bigint              as events
+from per_install
 group by day;
 
--- WAU y MAU.
+-- WAU y MAU, con el mismo criterio de Pro.
 create or replace view public.analytics_weekly_active
 with (security_invoker = true) as
-select week, count(distinct install_id) as active_installs,
-       count(distinct install_id) filter (where is_pro) as active_pro
-from public.analytics_ev group by week;
+with per_install as (
+  select week, install_id, (array_agg(is_pro order by occurred_at desc))[1] as pro_now
+  from public.analytics_ev group by week, install_id
+)
+select week, count(*) as active_installs,
+       count(*) filter (where pro_now) as active_pro
+from per_install group by week;
 
 create or replace view public.analytics_monthly_active
 with (security_invoker = true) as
-select month, count(distinct install_id) as active_installs,
-       count(distinct install_id) filter (where is_pro) as active_pro
-from public.analytics_ev group by month;
+with per_install as (
+  select month, install_id, (array_agg(is_pro order by occurred_at desc))[1] as pro_now
+  from public.analytics_ev group by month, install_id
+)
+select month, count(*) as active_installs,
+       count(*) filter (where pro_now) as active_pro
+from per_install group by month;
 
 -- Instalaciones nuevas por día.
 create or replace view public.analytics_new_installs_daily
@@ -814,8 +833,11 @@ group by 1, 2;
 create or replace view public.analytics_pro_engagement_30d
 with (security_invoker = true) as
 with pro as (
-  select distinct install_id from public.analytics_ev
-  where is_pro and occurred_at > now() - interval '30 days'
+  -- Pro hoy: su último evento de los 30 días fue Pro.
+  select install_id from public.analytics_ev
+  where occurred_at > now() - interval '30 days'
+  group by install_id
+  having (array_agg(is_pro order by occurred_at desc))[1]
 ), using_pro as (
   select install_id, count(distinct props ->> 'feature') as features
   from public.analytics_ev
