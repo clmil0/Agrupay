@@ -283,7 +283,7 @@ struct SpendBarChart: View {
     /// El color de la elegida: el del gasto, el acento del tema Pro, o con Pro
     /// en un tema básico, el acento de la app.
     private var selectedColor: Color {
-        if let proTheme { return proTheme.accent }
+        if let proTheme { return proTheme.barAccent }
         if ProTouches.isActive(isPro: isPro, theme: proTheme) { return AppThemeColor.current.color }
         return palette.expense
     }

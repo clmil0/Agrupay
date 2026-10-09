@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Los temas Pro de Resumen: fondos animados que se eligen en Apariencia ›
-/// Temas › Premium. Los de noche (`3b`–`3e` y Abismo) fuerzan el modo
-/// oscuro; los de día (Perla, Alba, Glaciar, Marfil y Salvia) son su
-/// contraparte clara y fuerzan el claro.
+/// Temas › Premium. Los de noche (`3b`–`3e`, Abismo y Orquídea) fuerzan el
+/// modo oscuro; los de día (Perla, Alba, Glaciar, Marfil, Salvia y Peonía)
+/// son su contraparte clara y fuerzan el claro.
 enum ProTheme: String, CaseIterable, Identifiable {
     case nebula = "Nebulosa"
     case obsidian = "Obsidiana"
@@ -15,14 +15,16 @@ enum ProTheme: String, CaseIterable, Identifiable {
     case glacier = "Glaciar"
     case ivory = "Marfil"
     case sage = "Salvia"
+    case peony = "Peonía"
+    case orchid = "Orquídea"
 
     var id: String { rawValue }
 
     static let storageKey = "proTheme"
 
     /// En el orden de Apariencia.
-    static let day: [ProTheme] = [.pearl, .dawn, .glacier, .ivory, .sage]
-    static let night: [ProTheme] = [.nebula, .obsidian, .aurora, .sunset, .abyss]
+    static let day: [ProTheme] = [.pearl, .dawn, .glacier, .ivory, .sage, .peony]
+    static let night: [ProTheme] = [.nebula, .obsidian, .aurora, .sunset, .abyss, .orchid]
 
     /// Los de día: van en claro mientras se usan.
     var isLight: Bool { Self.day.contains(self) }
@@ -56,6 +58,8 @@ enum ProTheme: String, CaseIterable, Identifiable {
         case .glacier:  return "Facetas de hielo, un destello y nieve que cae."
         case .ivory:    return "Papel crema con grano y brillo de oro."
         case .sage:     return "Luz que se filtra entre hojas."
+        case .peony:    return "Cielo rubor con pétalos que caen."
+        case .orchid:   return "Una luna rosada que late y pétalos de luz."
         }
     }
 
@@ -73,6 +77,8 @@ enum ProTheme: String, CaseIterable, Identifiable {
             case .glacier:  return ([0xFFFFFF, 0xBFDDF7, 0x6FA9E8, 0x1F6FD1], UnitPoint(x: 0.3, y: 0.3))
             case .ivory:    return ([0xFFFFFF, 0xF6E7B8, 0xD4AF61, 0xB8892F], UnitPoint(x: 0.3, y: 0.3))
             case .sage:     return ([0xFFF6D6, 0xCFE6C8, 0x7FBF95, 0x3E9A6E], UnitPoint(x: 0.35, y: 0.3))
+            case .peony:    return ([0xFFFFFF, 0xFFD0E1, 0xF28DB5, 0xE0608F], UnitPoint(x: 0.3, y: 0.3))
+            case .orchid:   return ([0xFFF4FA, 0xF472B6, 0xA21D5E, 0x170A12], UnitPoint(x: 0.3, y: 0.3))
             }
         }()
         return RadialGradient(colors: stops.map { tone($0) }, center: center, startRadius: 0, endRadius: 34)
@@ -97,6 +103,8 @@ extension ProTheme {
         case .glacier:  return tone(0xF2F7FC)
         case .ivory:    return tone(0xFAF6EC)
         case .sage:     return tone(0xF5F8F3)
+        case .peony:    return tone(0xFFF5F8)
+        case .orchid:   return tone(0x170A12)
         }
     }
 
@@ -115,6 +123,8 @@ extension ProTheme {
         case .glacier:  return Color.white.opacity(0.86)
         case .ivory:    return Color(hex: 0xFFFDF7, opacity: 0.9)
         case .sage:     return Color.white.opacity(0.82)
+        case .peony:    return Color.white.opacity(0.82)
+        case .orchid:   return tone(0x2A0F22, opacity: 0.86)
         }
     }
 
@@ -127,8 +137,9 @@ extension ProTheme {
         case .aurora:   return tone(0x0B2522)
         case .sunset:   return tone(0x2E1424)
         case .abyss:    return tone(0x092A33)
+        case .orchid:   return tone(0x30122A)
         case .ivory:    return Color(hex: 0xFFFDF7)
-        case .pearl, .dawn, .glacier, .sage: return .white
+        case .pearl, .dawn, .glacier, .sage, .peony: return .white
         }
     }
 
@@ -144,6 +155,8 @@ extension ProTheme {
         case .glacier:  return tone(0x145096, opacity: 0.16)
         case .ivory:    return tone(0xB8892F, opacity: 0.30)
         case .sage:     return tone(0x1E6B50, opacity: 0.14)
+        case .peony:    return tone(0xA82E62, opacity: 0.14)
+        case .orchid:   return tone(0xF9A8D4, opacity: 0.16)
         }
     }
 
@@ -156,6 +169,7 @@ extension ProTheme {
         case .glacier: return tone(0xCCDBEB)
         case .ivory:   return tone(0xEEE6D3)
         case .sage:    return tone(0xE2EBDF)
+        case .peony:   return tone(0xEDCDDB)
         default:       return hairline
         }
     }
@@ -172,6 +186,8 @@ extension ProTheme {
         case .glacier:  return tone(0x0B1A2E)
         case .ivory:    return tone(0x1F1A10)
         case .sage:     return tone(0x13241A)
+        case .peony:    return tone(0x2A1420)
+        case .orchid:   return tone(0xFFEEF6)
         }
     }
 
@@ -187,6 +203,8 @@ extension ProTheme {
         case .glacier:  return tone(0x4E5F73)
         case .ivory:    return tone(0x6B604A)
         case .sage:     return tone(0x56675C)
+        case .peony:    return tone(0x775A67)
+        case .orchid:   return tone(0xD3A9BD)
         }
     }
 
@@ -202,6 +220,8 @@ extension ProTheme {
         case .glacier:  return tone(0x75849A)
         case .ivory:    return tone(0x8C826C)
         case .sage:     return tone(0x7B8A80)
+        case .peony:    return tone(0x9A7E8A)
+        case .orchid:   return tone(0xA9879A)
         }
     }
 
@@ -220,6 +240,8 @@ extension ProTheme {
         case .glacier:  return 0x1F6FD1
         case .ivory:    return 0xB8892F
         case .sage:     return 0x3E9A6E
+        case .peony:    return 0xE0608F
+        case .orchid:   return 0xF472B6
         }
     }
 
@@ -236,6 +258,8 @@ extension ProTheme {
         case .glacier:  return tone(0x14569F)
         case .ivory:    return tone(0x8A5514)
         case .sage:     return tone(0x1E6B50)
+        case .peony:    return tone(0xA82E62)
+        case .orchid:   return tone(0xF9A8D4)
         }
     }
 
@@ -257,6 +281,8 @@ extension ProTheme {
         case .ivory:    return Color(hex: 0x5E7A2A)
         // Azul: el verde se confundiría con el acento.
         case .sage:     return Color(hex: 0x2A6FA8)
+        case .peony:    return Color(hex: 0x1F7A5A)
+        case .orchid:   return Color(hex: 0x99E6C8)
         }
     }
 
@@ -274,7 +300,15 @@ extension ProTheme {
         case .glacier:  return .lightBlue
         case .ivory:    return .sand
         case .sage:     return .mint
+        case .peony:    return .peony
+        case .orchid:   return .peony
         }
+    }
+
+    /// La barra elegida del gráfico. Peonía la lleva entre el acento y su
+    /// texto, para que se despegue del cielo rubor.
+    var barAccent: Color {
+        self == .peony ? tone(0xC44778) : accent
     }
 
     /// Obsidiana y Marfil escriben las cifras con serifa (New York).
@@ -327,6 +361,12 @@ extension ProTheme {
         case .sage:
             return LinearGradient(stops: stops([(0x13241A, 0.4), (0x1E6B50, 1)]),
                                   startPoint: .top, endPoint: .bottom)
+        case .peony:
+            return LinearGradient(stops: stops([(0x3A1426, 0), (0xA82E62, 0.55), (0xD4568C, 1)]),
+                                  startPoint: .leading, endPoint: .trailing)
+        case .orchid:
+            return LinearGradient(stops: stops([(0xFFEEF6, 0.35), (0xF9A8D4, 1)]),
+                                  startPoint: .top, endPoint: .bottom)
         case .nebula, .aurora:
             return nil
         }
@@ -376,6 +416,12 @@ extension ProTheme {
         case .sage:
             return [.init(name: "Salvia", degrees: 0), .init(name: "Eucalipto", degrees: 25),
                     .init(name: "Oliva", degrees: -30), .init(name: "Musgo", degrees: -15)]
+        case .peony:
+            return [.init(name: "Peonía", degrees: 0), .init(name: "Cereza", degrees: -14),
+                    .init(name: "Malva", degrees: 28), .init(name: "Coral", degrees: -32)]
+        case .orchid:
+            return [.init(name: "Orquídea", degrees: 0), .init(name: "Cereza", degrees: -14),
+                    .init(name: "Malva", degrees: 28), .init(name: "Coral", degrees: -32)]
         }
     }
 

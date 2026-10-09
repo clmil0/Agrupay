@@ -18,6 +18,8 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
     case lightBlue = "Celeste"
     case pink = "Rosado"
     case sand = "Arena"
+    /// El rosa de los temas Pro Peonía y Orquídea, sin el cielo.
+    case peony = "Peonía"
     // Temas pastel de dos colores: un segundo acento con roles fijos
     // (ingresos, hoy en el scrubber, badge de Pendientes, suscripciones,
     // deltas a la baja) — ver `secondaryColor` y compañía más abajo.
@@ -89,6 +91,7 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
         case .lightBlue: return Color(red: 0.549, green: 0.745, blue: 0.949)  // #8CBEF2
         case .pink:      return Color(red: 0.941, green: 0.651, blue: 0.745)  // #F0A6BE
         case .sand:      return Color(red: 0.929, green: 0.780, blue: 0.608)  // #EDC79B
+        case .peony:     return Color(red: 0.894, green: 0.416, blue: 0.604)  // #E46A9A
         }
     }
 }

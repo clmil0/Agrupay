@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// El fondo animado de los temas Pro del Resumen: los de noche (`3b`–`3e`
-/// y Abismo) y los de día (Perla, Alba, Glaciar, Marfil y Salvia).
+/// El fondo animado de los temas Pro del Resumen: los de noche (`3b`–`3e`,
+/// Abismo y Orquídea) y los de día (Perla, Alba, Glaciar, Marfil, Salvia y
+/// Peonía).
 ///
 /// Va fijo detrás del dashboard: el cielo ocupa la parte de arriba —donde
 /// están el monto y el gráfico— y se funde con el color base hacia abajo,
@@ -86,6 +87,8 @@ private struct ProThemeSkyLayer: View {
                         case .glacier:  GlacierSky(t: t, size: size, calm: calm)
                         case .ivory:    IvorySky(t: t, size: size)
                         case .sage:     SageSky(t: t, size: size)
+                        case .peony:    PeonySky(t: t, size: size, calm: calm)
+                        case .orchid:   OrchidSky(t: t, size: size, calm: calm)
                         }
                     }
                     // La variante gira el tono del cielo igual que el de
@@ -903,5 +906,156 @@ private struct SageSky: View {
             .offset(x: -60, y: -60)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+}
+
+// MARK: - Peonía
+
+/// Cielo rubor: tres nubes rosadas que respiran, un destello que cruza,
+/// pétalos que caen y destellos blancos.
+private struct PeonySky: View {
+    let t: Double
+    let size: CGSize
+    var calm = false
+
+    var body: some View {
+        let w = size.width, k = w / 393
+        ZStack(alignment: .topLeading) {
+            LinearGradient(stops: [.init(color: Color(hex: 0xFFD0E1), location: 0),
+                                   .init(color: Color(hex: 0xFFE3ED), location: 0.42),
+                                   .init(color: Color(hex: 0xFFF5F8).opacity(0), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: w, height: 440)
+
+            breathingGlow(t, 0xFFA9C9, opacity: 0.75, diameter: 420, at: CGPoint(x: 50 * k, y: 70), period: 9, phase: 0)
+            breathingGlow(t, 0xF4BDE6, opacity: 0.8, diameter: 380, at: CGPoint(x: 360 * k, y: 160), period: 11, phase: 0.27)
+            breathingGlow(t, 0xFFD1C0, opacity: 0.6, diameter: 320, at: CGPoint(x: 120 * k, y: 270), period: 13, phase: 0.46)
+
+            if !calm {
+                sheen(t: t, period: 7, width: 190, height: 540,
+                      colors: [.white.opacity(0), Color(hex: 0xFFECF6).opacity(0.75), .white.opacity(0)])
+                    .offset(y: -60)
+            }
+
+            Petals(t: t, size: size, seed: 7, count: calm ? 7 : 14,
+                   colors: [0xF7A1C4, 0xFBC4D9, 0xFFFFFF, 0xF28DB5], light: 0xFFF3F8,
+                   periods: 9...17, glow: false)
+
+            StarField(t: t, size: size, count: 26, depth: 0.36, tint: .white, drift: 260)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+}
+
+// MARK: - Orquídea
+
+/// Ciruela profundo: nubes fucsia y violeta, estrellas, una luna rosada que
+/// late a la derecha —sin pisar el monto— y pétalos de luz que caen.
+private struct OrchidSky: View {
+    let t: Double
+    let size: CGSize
+    var calm = false
+
+    var body: some View {
+        let w = size.width, k = w / 393
+        let pulse = ProThemeBackdrop.wave(t, period: 6, phase: 0.75)
+        ZStack(alignment: .topLeading) {
+            LinearGradient(stops: [.init(color: Color(hex: 0x3B0F30), location: 0),
+                                   .init(color: Color(hex: 0x2A0B24), location: 0.34),
+                                   .init(color: Color(hex: 0x1E0A19), location: 0.66),
+                                   .init(color: Color(hex: 0x170A12).opacity(0), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: w, height: 560)
+
+            breathingGlow(t, 0xDB2777, opacity: 0.5, diameter: 420, at: CGPoint(x: 70 * k, y: 90), period: 14, phase: 0)
+            breathingGlow(t, 0xA855F7, opacity: 0.32, diameter: 340, at: CGPoint(x: 370 * k, y: 210), period: 17, phase: 0.3)
+            breathingGlow(t, 0xFB7185, opacity: 0.26, diameter: 360, at: CGPoint(x: 180 * k, y: 380), period: 20, phase: 0.45)
+
+            StarField(t: t, size: size, count: calm ? 34 : 60, depth: 0.38, tint: Color(hex: 0xFFE4F1))
+
+            ZStack {
+                glow(Color(hex: 0xF9A8D4), opacity: 0.45, diameter: 212 * 0.65)
+                Circle()
+                    .fill(RadialGradient(stops: [.init(color: Color(hex: 0xFFF4FA), location: 0),
+                                                 .init(color: Color(hex: 0xFBCFE8), location: 0.45),
+                                                 .init(color: Color(hex: 0xF472B6), location: 1)],
+                                         center: UnitPoint(x: 0.38, y: 0.34), startRadius: 0, endRadius: 46))
+                    .frame(width: 72, height: 72)
+                    .shadow(color: Color(hex: 0xF472B6).opacity(0.5), radius: 15)
+            }
+            .scaleEffect(1 + 0.08 * pulse)
+            .opacity(0.85 + 0.15 * pulse)
+            .position(x: 320 * k, y: 164)
+
+            if !calm {
+                Petals(t: t, size: size, seed: 19, count: 14,
+                       colors: [0xF472B6, 0xF9A8D4, 0xDB2777, 0xFBCFE8], light: 0xFFE4F1,
+                       periods: 10...18, glow: true)
+                    .opacity(0.9)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+}
+
+/// Una nube que respira: crece y se corre un poco arriba a la derecha y
+/// vuelve (`ap-breathe` del diseño).
+private func breathingGlow(_ t: Double, _ hex: UInt32, opacity: Double, diameter: CGFloat,
+                           at point: CGPoint, period: Double, phase: Double) -> some View {
+    let breathe = ProThemeBackdrop.wave(t, period: period, phase: phase - 0.25)
+    return glow(Color(hex: hex), opacity: opacity, diameter: diameter)
+        .scaleEffect(1 + 0.18 * breathe)
+        .position(x: point.x + 22 * breathe, y: point.y - 10 * breathe)
+}
+
+/// Pétalos que caen en diagonal girando y se apagan antes de las tarjetas.
+/// En Orquídea llevan un halo de luz.
+private struct Petals: View {
+    let t: Double
+    let size: CGSize
+    let seed: UInt64
+    let count: Int
+    let colors: [UInt32]
+    let light: UInt32
+    let periods: ClosedRange<Double>
+    let glow: Bool
+
+    var body: some View {
+        Canvas { context, canvas in
+            var rng = SeededRandom(seed: seed)
+            let k = Double(canvas.width) / 393
+            for index in 0..<count {
+                let width = 9 + rng.next() * 9
+                let height = width * 0.72
+                let x = rng.next() * 380 * k
+                let y = rng.next() * 60 - 10
+                let period = periods.lowerBound + rng.next() * (periods.upperBound - periods.lowerBound)
+                let progress = ProThemeBackdrop.cycle(t, period: period, phase: rng.next())
+                let alpha: Double
+                switch progress {
+                case ..<0.12: alpha = progress / 0.12
+                case ..<0.75: alpha = 1 - 0.15 * (progress - 0.12) / 0.63
+                default:      alpha = 0.85 * (1 - (progress - 0.75) / 0.25)
+                }
+                let tint = Color(hex: colors[index % colors.count])
+
+                var petal = context
+                petal.opacity = alpha
+                petal.translateBy(x: x + 46 * progress + width / 2, y: y - 30 + 390 * progress + height / 2)
+                petal.rotate(by: .degrees(280 * progress))
+                if glow {
+                    petal.addFilter(.shadow(color: Color(hex: 0xF472B6).opacity(0.45), radius: 4))
+                }
+                // Dos esquinas en punta y dos redondas: una hoja.
+                var path = Path()
+                path.move(to: CGPoint(x: width / 2, y: -height / 2))
+                path.addQuadCurve(to: CGPoint(x: -width / 2, y: height / 2), control: CGPoint(x: width / 2, y: height / 2))
+                path.addQuadCurve(to: CGPoint(x: width / 2, y: -height / 2), control: CGPoint(x: -width / 2, y: -height / 2))
+                petal.fill(path, with: .linearGradient(Gradient(colors: [Color(hex: light), tint]),
+                                                        startPoint: CGPoint(x: -width / 2, y: -height / 2),
+                                                        endPoint: CGPoint(x: width / 2, y: height / 2)))
+            }
+        }
+        .frame(width: size.width, height: size.height)
     }
 }

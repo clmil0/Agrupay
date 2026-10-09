@@ -287,6 +287,7 @@ extension AppThemeColor {
         case .lightBlue: return Color(red: 0.106, green: 0.353, blue: 0.612) // #1B5A9C
         case .pink:      return Color(red: 0.631, green: 0.192, blue: 0.353) // #A1315A
         case .sand:      return Color(red: 0.541, green: 0.333, blue: 0.078) // #8A5514
+        case .peony:     return Color(red: 0.659, green: 0.196, blue: 0.373) // #A8325F
         }
     }
 
@@ -309,6 +310,7 @@ extension AppThemeColor {
         case .lightBlue: return Color(red: 0.722, green: 0.847, blue: 0.973) // #B8D8F8
         case .pink:      return Color(red: 0.973, green: 0.776, blue: 0.839) // #F8C6D6
         case .sand:      return Color(red: 0.949, green: 0.827, blue: 0.675) // #F2D3AC
+        case .peony:     return Color(red: 0.969, green: 0.702, blue: 0.800) // #F7B3CC
         }
     }
 
@@ -331,6 +333,7 @@ extension AppThemeColor {
         case .lightBlue: return Color(red: 0.914, green: 0.949, blue: 0.988) // #E9F2FC
         case .pink:      return Color(red: 0.984, green: 0.922, blue: 0.945) // #FBEBF1
         case .sand:      return Color(red: 0.984, green: 0.945, blue: 0.894) // #FBF1E4
+        case .peony:     return Color(red: 0.988, green: 0.910, blue: 0.941) // #FCE8F0
         default:        return color.opacity(0.14)
         }
     }

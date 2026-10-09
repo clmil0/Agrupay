@@ -20,7 +20,7 @@ struct AppearanceSettingsView: View {
     }
 
     static let singleThemes: [AppThemeColor] = [.blue, .purple, .green, .orange, .red, .charcoal,
-                                                .lilac, .mint, .salmon, .lightBlue, .pink, .sand]
+                                                .lilac, .mint, .salmon, .lightBlue, .pink, .sand, .peony]
     static let duoThemes: [AppThemeColor] = AppThemeColor.allCases.filter(\.isDuotone)
 
     @Environment(\.colorScheme) private var scheme
