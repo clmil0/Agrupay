@@ -403,6 +403,12 @@ struct ContentView: View {
                 guard let request = ActivityFocus.request(from: note) else { return }
                 Task { await focus(on: request) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: SectionRequest.notification)) { note in
+                guard let section = SectionRequest.section(from: note) else { return }
+                focusedExpense = nil
+                focusedIncome = nil
+                open(section)
+            }
             .sheet(item: $focusedExpense) { ExpenseDetailsView(expense: $0) }
             .sheet(item: $focusedIncome) { IncomeDetailsView(income: $0) }
             .onChange(of: showSplash) { _, _ in

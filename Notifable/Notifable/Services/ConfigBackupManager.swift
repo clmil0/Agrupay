@@ -1048,6 +1048,7 @@ final class ConfigBackupManager {
     static func applyExpenseEdits(_ payload: ConfigBackupPayload, modelContext: ModelContext) {
         ExpenseEditStore.merge(payload.expenseEdits ?? [])
         ExpenseEditStore.apply(in: modelContext)
+        ExpenseShareStore.apply(in: modelContext)
         IncomeLinkStore.apply(in: modelContext)
         ExpenseSplit.reconcile(in: modelContext)
     }
@@ -1058,6 +1059,7 @@ final class ConfigBackupManager {
     nonisolated static func reapplyPendingDecisions(modelContext: ModelContext) {
         ExpenseEditStore.captureFxRates(in: modelContext)
         ExpenseEditStore.apply(in: modelContext)
+        ExpenseShareStore.apply(in: modelContext)
         IncomeLinkStore.apply(in: modelContext)
         // Después de `apply`: una edición puede haber cambiado la llave de
         // un pago, y las partes lo buscan por ella.
@@ -1078,6 +1080,8 @@ final class ConfigBackupManager {
     private enum ExtraKeys {
         static let incomeLinks = "backup.incomeDebtLinks"
         static let deletedEmails = "backup.deletedEmailIDs"
+        static let expenseShares = "backup.expenseShares"
+        static let offlineDebts = "backup.offlineDebts"
     }
 
     private static func decisionExtras() -> [String: AnyCodableValue] {
@@ -1089,6 +1093,15 @@ final class ConfigBackupManager {
         let deleted = (UserDefaults.standard.stringArray(forKey: "pendingRecoveryIDs") ?? []).sorted()
         if !deleted.isEmpty, let data = try? JSONEncoder().encode(deleted), let text = String(data: data, encoding: .utf8) {
             result[ExtraKeys.deletedEmails] = .string(text)
+        }
+        // Tu parte de cada gasto compartido y quién sin la app te debe: no
+        // están en ningún correo ni en el servidor.
+        let shares = ExpenseShareStore.list()
+        if !shares.isEmpty, let data = try? JSONEncoder().encode(shares), let text = String(data: data, encoding: .utf8) {
+            result[ExtraKeys.expenseShares] = .string(text)
+        }
+        if let text = OfflineDebts.exportJSON() {
+            result[ExtraKeys.offlineDebts] = .string(text)
         }
         return result
     }
@@ -1103,6 +1116,13 @@ final class ConfigBackupManager {
             let defaults = UserDefaults.standard
             let local = defaults.stringArray(forKey: "pendingRecoveryIDs") ?? []
             defaults.set(Array(Set(local).union(incoming)).sorted(), forKey: "pendingRecoveryIDs")
+        }
+        if case .string(let text)? = preferences[ExtraKeys.expenseShares],
+           let entries = try? JSONDecoder().decode([ExpenseShareStore.Entry].self, from: Data(text.utf8)) {
+            ExpenseShareStore.merge(entries)
+        }
+        if case .string(let text)? = preferences[ExtraKeys.offlineDebts] {
+            OfflineDebts.mergeJSON(text)
         }
     }
 

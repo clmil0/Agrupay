@@ -19,9 +19,15 @@ struct OwedShare: Identifiable, Equatable {
     /// `isPaid` también va en `true`, así que nada intenta pagarla.
     var isForgiven: Bool = false
     var closedAt: Date? = nil
+    /// «Ya le pagué» a mano que quien cobra todavía no acepta (v17). No baja
+    /// la deuda hasta que lo confirme.
+    var pendingAmount: Double = 0
+    /// Quien cobra dijo «No me llegó».
+    var rejectedAt: Date? = nil
 
     var remaining: Double { Money.clampedToZero(Money.subtract(amount, paidAmount)) }
     var isOpen: Bool { !isPaid && Money.cents(remaining) > 0 }
+    var awaitsConfirmation: Bool { isOpen && Money.cents(pendingAmount) > 0 }
 }
 
 /// Un Yape, Plin o transferencia que **yo** mandé: lo único que puede ser el

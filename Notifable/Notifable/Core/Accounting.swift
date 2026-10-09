@@ -29,6 +29,11 @@ struct ExpenseSnapshot {
     /// Compra anulada por el banco, o el propio aviso de anulación: no es un
     /// gasto. Cuenta cero igual que un traslado.
     var isVoided: Bool
+    /// «Compartir gasto»: lo que pusiste tú. Con valor, el gasto cuenta sólo
+    /// esto más lo perdonado; lo demás es de tus amigos (`netCost`).
+    var ownShare: Double?
+    /// Lo perdonado de las partes de los demás: es gasto tuyo.
+    var forgivenAmount: Double
 
     init(amount: Double,
          currency: String = "PEN",
@@ -41,7 +46,9 @@ struct ExpenseSnapshot {
          paymentsInOwnCurrency: Double = 0,
          hasForeignPayments: Bool = false,
          isTransfer: Bool = false,
-         isVoided: Bool = false) {
+         isVoided: Bool = false,
+         ownShare: Double? = nil,
+         forgivenAmount: Double = 0) {
         self.amount = amount
         self.currency = currency
         self.date = date
@@ -54,6 +61,8 @@ struct ExpenseSnapshot {
         self.hasForeignPayments = hasForeignPayments
         self.isTransfer = isTransfer
         self.isVoided = isVoided
+        self.ownShare = ownShare
+        self.forgivenAmount = forgivenAmount
     }
 }
 
@@ -381,13 +390,26 @@ enum Accounting {
     /// Un traslado cuesta cero: el dinero sigue siendo tuyo. Así lo excluye
     /// cualquier suma que pase por aquí —límites, etiquetas, detalle de
     /// categoría—, no sólo `totals`.
+    ///
+    /// Compartido («Soluciones de cobro»): cuenta tu parte más lo que
+    /// perdonaste, nunca más que el importe. Los pagos de tus amigos no lo
+    /// bajan: ya no eran gasto tuyo.
     static func netCost(of expense: ExpenseSnapshot) -> Double {
         guard !expense.isTransfer, !expense.isVoided else { return 0 }
+        if let own = expense.ownShare {
+            return min(Money.normalized(expense.amount),
+                       Money.clampedToZero(Money.normalized(own + expense.forgivenAmount)))
+        }
         return Money.clampedToZero(Money.subtract(expense.amount, expense.paymentsInOwnCurrency))
     }
 
+    /// Compartido: lo de los demás que falta, sin lo perdonado.
     static func outstanding(of expense: ExpenseSnapshot) -> Double {
-        Money.clampedToZero(Money.subtract(expense.amount, expense.paymentsInOwnCurrency))
+        if let own = expense.ownShare {
+            let others = Money.subtract(expense.amount, Money.normalized(own + expense.forgivenAmount))
+            return Money.clampedToZero(Money.subtract(others, expense.paymentsInOwnCurrency))
+        }
+        return Money.clampedToZero(Money.subtract(expense.amount, expense.paymentsInOwnCurrency))
     }
 
     static func paid(of expense: ExpenseSnapshot) -> Double {

@@ -314,7 +314,7 @@ struct DashboardView: View {
                     }
             }
         }
-        .sheet(item: $reminderDebt) { ReminderComposerSheet(initialDebt: $0) }
+        .sheet(item: $reminderDebt) { ShareExpenseSheet(expense: $0) }
     }
 
     // MARK: - Asistente
@@ -1303,9 +1303,14 @@ struct DashboardView: View {
             FriendsSummary()
         }
 
+        // Sólo lo del mes que se ve: lo de meses anteriores espera en la
+        // bandeja de Pendientes, no en el Resumen.
+        let range = month.interval
+        let monthCount = unclassified.filter { $0.date >= range.start && $0.date < range.end }.count
+
         return VStack(spacing: Self.gridSpacing) {
-            if !unclassified.isEmpty {
-                pendingStrip
+            if monthCount > 0 {
+                pendingStrip(count: monthCount)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
             Grid(horizontalSpacing: Self.gridSpacing, verticalSpacing: Self.gridSpacing) {
@@ -1315,21 +1320,15 @@ struct DashboardView: View {
                 }
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: unclassified.isEmpty)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: monthCount == 0)
     }
 
     /// Lo que falta clasificar: deja de ser tarjeta y es una tira que
     /// desaparece cuando no queda nada. Cuenta movimientos, no comercios: lo
     /// mismo que la bandeja de Pendientes.
-    private var pendingStrip: some View {
-        let range = month.interval
-        let count = unclassified.filter { $0.date >= range.start && $0.date < range.end }.count
-        let earlier = unclassified.filter { $0.date < range.start }.count
-        let shown = count > 0 ? count : earlier
-        var parts: [String] = []
-        if count > 0 { parts.append(isCurrentMonth ? "\(count) de este mes" : "\(count) de " + monthName.lowercased()) }
-        if earlier > 0 { parts.append(count > 0 ? "\(earlier) anteriores" : "\(earlier) de meses anteriores") }
-        let detail = parts.joined(separator: " · ")
+    private func pendingStrip(count: Int) -> some View {
+        let shown = count
+        let detail = isCurrentMonth ? "\(count) de este mes" : "\(count) de " + monthName.lowercased()
 
         return Button { onOpen(.pending) } label: {
             HStack(spacing: 12) {

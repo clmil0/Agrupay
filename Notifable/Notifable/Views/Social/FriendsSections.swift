@@ -20,7 +20,15 @@ struct FriendsActionsSection: View {
     @State private var reminders = PaymentReminders.shared
 
     @State private var showInviteSheet = false
-    @State private var showsComposer = false
+    @State private var pickingExpense = false
+    @State private var sharing: Expense?
+    @State private var debts = FriendDebts.shared
+    @State private var receivables = FriendReceivables.shared
+    @Query(filter: #Predicate<Expense> { $0.isDebt == true }, sort: \Expense.date, order: .reverse)
+    private var markedDebts: [Expense]
+    /// Avisos de «Falta repartir» que tocaste la «x»: sólo se ocultan aquí,
+    /// el gasto sigue en Cobros.
+    @AppStorage("cobros.hiddenSplitCallouts") private var hiddenCalloutsRaw = ""
     @State private var showGmailSettings = false
     @State private var invitedCode: String?
 
@@ -40,6 +48,7 @@ struct FriendsActionsSection: View {
             if hidesForGoogle {
                 needsGoogle
             } else {
+                callouts
                 actions
                 remindersSection
                 requestsSection
@@ -51,12 +60,8 @@ struct FriendsActionsSection: View {
         }
         .onChange(of: inviteRouter.pendingCode) { _, _ in presentPendingInvite() }
         .task { await reminders.refresh() }
-        .sheet(isPresented: $showsComposer) {
-            // Lo enviado aparece en Cobros al cambiar de pestaña.
-            ReminderComposerSheet(request: ReminderComposerRequest()) { _ in
-                Task { await FriendReceivables.shared.refresh() }
-            }
-        }
+        // Cobrar es compartir un gasto: lo anotado aparece en Cobros.
+        .shareFlow(isPicking: $pickingExpense, sharing: $sharing)
         .sheet(isPresented: $showInviteSheet, onDismiss: { invitedCode = nil }) {
             AddFriendSheet(invitedCode: invitedCode, startsOnRedeem: invitedCode != nil)
         }
@@ -81,15 +86,76 @@ struct FriendsActionsSection: View {
             // «Usar una invitación» ya no compite aquí: vive al pie de la
             // hoja de invitar, plegada, que es donde se busca cuando alguien
             // te pasó un código.
-            // Cobrar desde aquí: la deuda se elige dentro. También está en
-            // Cobros, junto a lo que te deben.
+            // Cobrar desde aquí: se elige el gasto y se comparte. También
+            // está en Cobros, junto a lo que te deben.
             Button {
-                showsComposer = true
+                pickingExpense = true
             } label: {
                 actionLabel(icon: "bell.badge", title: "Cobrar", filled: false)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    // MARK: - Avisos («Soluciones de cobro», 03 y 09)
+
+    private var hiddenCallouts: Set<String> {
+        Set(hiddenCalloutsRaw.split(separator: "\n").map(String.init))
+    }
+
+    /// Lo marcado para repartir que no ocultaste, lo más nuevo primero.
+    private var visibleToSplit: [Expense] {
+        let hidden = hiddenCallouts
+        return markedDebts.filter { $0.needsSplitting && !hidden.contains(TransactionKey.key(for: $0)) }
+    }
+
+    /// Lo que hay que repartir o responder, con texto, donde ya estás: no
+    /// sólo un número sobre un ícono.
+    @ViewBuilder
+    private var callouts: some View {
+        if let question = debts.suggestions.first {
+            let friend = friendsManager.friend(with: question.friendID)
+            let verb = question.candidate.via == .plin ? "plineaste" : question.candidate.via == .yape ? "yapeaste" : "pagaste"
+            CobroCallout(icon: "questionmark.circle.fill", tint: accent.color,
+                         title: "¿Le \(verb) a \(friend.name)?",
+                         detail: Money.format(question.candidate.amount, currency: question.candidate.currency)
+                            + " a " + question.candidate.payeeName + " · "
+                            + ReceivablesView.dayShort(question.candidate.date),
+                         action: "Revisar") { SectionRequest.open(.receivables) }
+        }
+        if let pending = receivables.pending.first {
+            let friend = friendsManager.friend(with: pending.debtor)
+            CobroCallout(icon: "checkmark.circle.fill", tint: accent.color,
+                         title: friend.name + " dice que ya te pagó " + Money.format(pending.amount, currency: pending.currency),
+                         detail: pending.merchant,
+                         action: "Revisar") { SectionRequest.open(.receivables) }
+        }
+        if let expense = visibleToSplit.first {
+            let more = visibleToSplit.count - 1
+            CobroCallout(icon: "clock.fill", tint: palette.warning,
+                         title: "Falta repartir " + Money.format(Accounting.outstanding(of: expense), currency: expense.currency),
+                         detail: Accounting.displayName(expense.merchant) + " · " + Self.weekday(expense.date)
+                            + (more > 0 ? " · y \(more) más" : ""),
+                         action: "Repartir",
+                         onClose: { hide(expense) }) { sharing = expense }
+        }
+    }
+
+    private func hide(_ expense: Expense) {
+        var hidden = hiddenCallouts
+        hidden.insert(TransactionKey.key(for: expense))
+        withAnimation(.easeInOut(duration: 0.2)) { hiddenCalloutsRaw = hidden.sorted().joined(separator: "\n") }
+    }
+
+    /// «viernes», «hoy», «ayer».
+    private static func weekday(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "hoy" }
+        if calendar.isDateInYesterday(date) { return "ayer" }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
+                                           to: calendar.startOfDay(for: Date())).day ?? 0
+        return days < 7 ? date.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: "es_ES")))
+                        : ReceivablesView.dayShort(date)
     }
 
     private func actionLabel(icon: String, title: String, filled: Bool) -> some View {
@@ -604,5 +670,77 @@ private struct ReminderRow: View {
     private var detail: String {
         guard let day = reminder.occurredOn else { return reminder.merchant }
         return reminder.merchant + " · " + day.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es_ES")))
+    }
+}
+
+/// Un aviso con texto en Amigos: «Falta repartir S/ 120», «¿Le yapeaste a
+/// Dani?». Con «x» sólo si se puede descartar.
+struct CobroCallout: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let detail: String
+    let action: String
+    var onClose: (() -> Void)? = nil
+    let onAction: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+    private var palette: Palette { Palette(scheme) }
+    private var accent: AppThemeColor { .current }
+
+    init(icon: String, tint: Color, title: String, detail: String, action: String,
+         onClose: (() -> Void)? = nil, onAction: @escaping () -> Void) {
+        self.icon = icon
+        self.tint = tint
+        self.title = title
+        self.detail = detail
+        self.action = action
+        self.onClose = onClose
+        self.onAction = onAction
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(palette.label)
+                    .lineLimit(2)
+                Text(detail)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(palette.secondaryLabel)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Button(action: onAction) {
+                Text(action)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accent.buttonText)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(accent.buttonFill, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(palette.secondaryLabel)
+                        .frame(width: 26, height: 26)
+                        .background(palette.neutralSurface, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Ocultar aviso")
+            }
+        }
+        .padding(12)
+        .background(tint.opacity(scheme == .dark ? 0.12 : 0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(tint.opacity(0.35), lineWidth: 0.5))
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }

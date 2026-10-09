@@ -32,7 +32,9 @@ extension Expense {
             isTransfer: isTransfer,
             // Un pago dividido cuenta cero, como una anulación: lo que suma
             // son sus partes, que son gastos propios.
-            isVoided: isVoided || isReversal || isSplit
+            isVoided: isVoided || isReversal || isSplit,
+            ownShare: ownShare,
+            forgivenAmount: forgivenAmount
         )
     }
 

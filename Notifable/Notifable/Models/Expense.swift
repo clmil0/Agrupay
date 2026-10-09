@@ -70,6 +70,14 @@ final class Expense {
     /// Orden de la parte dentro de su pago («Parte 1», «Parte 2»…).
     var splitIndex: Int = 0
 
+    /// «Compartir gasto»: lo que pusiste tú. `nil` si no se compartió. Con
+    /// valor, el gasto suma sólo esto (más lo perdonado) y el resto es lo que
+    /// te deben, por persona (`FriendReceivables`). Sobrevive a releer el
+    /// correo vía `ExpenseShareStore`.
+    var ownShare: Double?
+    /// Lo que perdonaste de las partes de los demás: pasa a ser gasto tuyo.
+    var forgivenAmount: Double = 0
+
     /// Soles por 1 USD el día del movimiento.
     ///
     /// Sin esto, `ExchangeRateService.usdToPenRate` —un valor vivo— se aplicaba a
@@ -117,6 +125,19 @@ final class Expense {
 }
 
 extension Expense {
+
+    /// Se compartió con amigos: tiene tu parte aparte y deudas por persona.
+    var isShared: Bool { ownShare != nil }
+
+    /// «Falta repartir»: marcado para cobrar, todavía sin personas ni montos.
+    /// Es lo que antes se llamaba «Por cobrar».
+    var needsSplitting: Bool { isDebt && ownShare == nil && !isSplit }
+
+    /// Se puede compartir: un gasto real y no el pago entero de uno separado
+    /// por categoría (ésos se comparten parte por parte).
+    var canBeShared: Bool {
+        !isSplit && !isTransfer && !isVoided && !isReversal && Money.cents(amount) > 0
+    }
 
     /// `true` si lleva esta etiqueta. Recibe la clave ya normalizada
     /// (`TagCatalog.normalized`) porque quien filtra una lista larga la
@@ -177,16 +198,27 @@ extension Expense {
             }
         }
         let wasDebt = isDebt
+        // Borrarlo a mano es decir que no existió (una prueba, algo mal
+        // anotado): las deudas que se crearon al compartirlo —o sus partes—
+        // se borran también, en el servidor y para el amigo. La relectura del
+        // correo borra por otro camino y no pasa por aquí.
+        var debtKeys = TransactionKey.lookupKeys(for: self)
         // Sin su pago, las partes quedarían sumando solas.
         if isSplit {
-            for part in ExpenseSplit.parts(of: self, in: modelContext) { modelContext.delete(part) }
+            for part in ExpenseSplit.parts(of: self, in: modelContext) {
+                debtKeys += TransactionKey.lookupKeys(for: part)
+                modelContext.delete(part)
+            }
+        }
+        Task { @MainActor in
+            for key in debtKeys { await FriendReceivables.shared.deleteDebts(debtKey: key) }
         }
         modelContext.delete(self)
         try? modelContext.save()
         if wasDebt { Self.refreshDebtNotification(in: modelContext) }
     }
 
-    private static func refreshDebtNotification(in modelContext: ModelContext) {
+    static func refreshDebtNotification(in modelContext: ModelContext) {
         // Fuera del fotograma en el que la fila empieza a crecer: contar las
         // deudas y reprogramar el aviso es trabajo síncrono que, hecho aquí
         // mismo, se come el primer paso de la animación de alto.

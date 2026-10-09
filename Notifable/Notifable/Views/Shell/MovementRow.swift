@@ -166,8 +166,20 @@ struct MovementRow: View {
     @State private var confirmsDelete = false
     @State private var categorizing = false
     @State private var tagging = false
+    @State private var sharing = false
+    /// Deslizar a la izquierda muestra «Compartir» («Soluciones de cobro», 01).
+    @State private var swipeOffset: CGFloat = 0
+    @State private var swipeIsHorizontal: Bool?
+    /// Dónde estaba la fila al empezar a arrastrar (abierta o cerrada).
+    @State private var swipeBase: CGFloat = 0
+    @State private var receivables = FriendReceivables.shared
     private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
+
+    private static let revealWidth: CGFloat = 92
+    private var swipeIsOpen: Bool { swipeOffset <= -Self.revealWidth + 1 }
+    /// Sólo fuera del modo selección y en un gasto que se pueda compartir.
+    private var allowsSwipe: Bool { selection == nil && expense.canBeShared }
 
     private func assignCategory() {
         if let onAssignCategory { onAssignCategory() } else { categorizing = true }
@@ -178,16 +190,74 @@ struct MovementRow: View {
         expense.category == Accounting.unclassified && expense.countsAsSpending
     }
 
-    /// Un gasto marcado «por cobrar», o con abonos ya recibidos. La fila no
-    /// cambia de color por eso —eso volvía la lista un semáforo—, sólo añade
-    /// una línea que dice cuánto falta.
-    private var debtNote: String? {
-        let paid = Accounting.paid(of: expense)
+    /// La línea de cobro bajo el gasto. La fila no cambia de color por eso
+    /// —eso volvía la lista un semáforo—, sólo añade una línea:
+    /// - compartido: «Te deben S/ 90 · 3 personas» (lo mismo que Cobros, sin
+    ///   tu parte), que lleva a Cobros;
+    /// - marcado para después: «Falta repartir · S/ 120»;
+    /// - una deuda de antes, saldada o con abonos, como siempre.
+    private enum DebtLine {
+        /// El texto entero y uno corto por si no cabe en la fila.
+        case owed(String, short: String), toSplit(String), settled(String)
+    }
+
+    private var debtLine: DebtLine? {
         let outstanding = Accounting.outstanding(of: expense)
+        if expense.isShared {
+            guard expense.isDebt, Money.cents(outstanding) > 0 else { return .settled("Compartido · cobrado") }
+            let keys = Set(TransactionKey.lookupKeys(for: expense))
+            let people = Set(receivables.open.filter { keys.contains($0.debtKey) }.map(\.debtor)).count
+            let who = people == 0 ? "" : people == 1 ? " · 1 persona" : " · \(people) personas"
+            let amount = "Te deben " + Money.format(outstanding, currency: expense.currency)
+            return .owed(amount + who, short: amount)
+        }
+        if expense.needsSplitting {
+            return .toSplit("Falta repartir · " + Money.format(outstanding, currency: expense.currency))
+        }
+        let paid = Accounting.paid(of: expense)
         guard expense.isDebt || expense.debtSettled || Money.cents(paid) > 0 else { return nil }
-        if expense.debtSettled && !expense.isDebt { return "Deuda saldada" }
-        if Money.isZero(outstanding) { return "Cobrado" }
-        return "Por cobrar · falta " + Money.format(outstanding, currency: expense.currency)
+        if expense.debtSettled && !expense.isDebt { return .settled("Deuda saldada") }
+        if Money.isZero(outstanding) { return .settled("Cobrado") }
+        return .toSplit("Falta repartir · " + Money.format(outstanding, currency: expense.currency))
+    }
+
+    private func owedLabel(_ text: String) -> some View {
+        HStack(spacing: 3) {
+            Text(text).lineLimit(1)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+        }
+    }
+
+    @ViewBuilder
+    private func debtLineView(_ line: DebtLine) -> some View {
+        switch line {
+        case .owed(let text, let short):
+            Button { SectionRequest.open(.receivables) } label: {
+                // Sin puntos suspensivos: si no entra «· 3 personas», va sólo
+                // el monto.
+                ViewThatFits(in: .horizontal) {
+                    owedLabel(text)
+                    owedLabel(short)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(accent.onSurface(scheme))
+                .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            .disabled(selection != nil)
+        case .toSplit(let text):
+            Text(text)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(palette.warning)
+                .lineLimit(1)
+        case .settled(let text):
+            Text(text)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(palette.positive)
+                .lineLimit(1)
+        }
     }
 
     /// Un gasto recién borrado —el aviso de anulación al elegir la compra—
@@ -202,7 +272,72 @@ struct MovementRow: View {
         }
     }
 
+    /// La fila con «Compartir» detrás. Deslizar es un gesto aparte del
+    /// desplazamiento vertical: sólo se toma si el dedo va más de lado que
+    /// hacia abajo. Deslizar hasta el fondo comparte de una.
     private var content: some View {
+        ZStack(alignment: .trailing) {
+            if swipeOffset < 0 {
+                Button {
+                    closeSwipe()
+                    sharing = true
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("Compartir")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(accent.buttonText)
+                    .frame(width: max(Self.revealWidth, -swipeOffset))
+                    .frame(maxHeight: .infinity)
+                    .background(accent.buttonFill)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Compartir con amigos")
+            }
+            rowContent
+                .background(palette.surface.opacity(swipeOffset < 0 ? 1 : 0))
+                .offset(x: swipeOffset)
+        }
+        .clipped()
+        .simultaneousGesture(swipeGesture, including: allowsSwipe ? .all : .subviews)
+        .sheet(isPresented: $sharing) { ShareExpenseSheet(expense: expense) }
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 14, coordinateSpace: .local)
+            .onChanged { value in
+                if swipeIsHorizontal == nil {
+                    swipeIsHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.4
+                    swipeBase = swipeIsOpen ? -Self.revealWidth : 0
+                }
+                guard swipeIsHorizontal == true else { return }
+                swipeOffset = min(0, max(-Self.revealWidth * 2.2, swipeBase + value.translation.width))
+            }
+            .onEnded { value in
+                defer { swipeIsHorizontal = nil }
+                guard swipeIsHorizontal == true else { return }
+                // Compartir de una sólo si el dedo de verdad llegó al fondo;
+                // la inercia decide únicamente si queda abierta o cerrada.
+                let final = swipeOffset + (value.predictedEndTranslation.width - value.translation.width) * 0.2
+                if swipeOffset < -Self.revealWidth * 1.9 {
+                    // Hasta el fondo: comparte sin otro toque.
+                    closeSwipe()
+                    sharing = true
+                } else {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        swipeOffset = final < -Self.revealWidth * 0.5 ? -Self.revealWidth : 0
+                    }
+                }
+            }
+    }
+
+    private func closeSwipe() {
+        withAnimation(.snappy(duration: 0.25)) { swipeOffset = 0 }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 12) {
             if let selection {
                 SelectionCheck(state: selection ? .on : .off, size: 22)
@@ -266,12 +401,8 @@ struct MovementRow: View {
                     }
                 }
 
-                if let debtNote {
-                    Text(debtNote)
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(expense.debtSettled && !expense.isDebt ? palette.positive : palette.warning)
-                        .lineLimit(1)
-                }
+                // Cede espacio: el nombre del comercio manda.
+                if let debtLine { debtLineView(debtLine).layoutPriority(-1) }
             }
 
             Spacer(minLength: 8)
@@ -286,21 +417,35 @@ struct MovementRow: View {
         .padding(.vertical, 13)
         .background(accent.color.opacity(selection == true ? 0.07 : 0))
         .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
+        // Abierta, el toque la cierra en vez de abrir el detalle.
+        .onTapGesture { if swipeOffset < 0 { closeSwipe() } else { onTap() } }
         .contextMenu {
-            Button {
-                // El menú se cierra con su propia animación y con la fila
-                // levantada en un overlay aparte: mutar aquí hace crecer la
-                // fila real por debajo de ese overlay y lo que se ve al
-                // aterrizar es un salto ya consumado.
-                let expense = expense
-                let context = modelContext
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                    expense.toggleDebt(in: context)
+            // «Compartir…» y «Repartir después» primero: el atajo rápido
+            // sigue, pero su nombre dice que falta repartir.
+            if expense.canBeShared {
+                Button {
+                    sharing = true
+                } label: {
+                    Label(expense.isShared ? "Editar reparto" : expense.needsSplitting ? "Repartir…" : "Compartir…",
+                          systemImage: "person.2")
                 }
-            } label: {
-                Label(expense.isDebt ? "Ya no es por cobrar" : "Por cobrar",
-                      systemImage: "exclamationmark.circle")
+
+                if !expense.isShared {
+                    Button {
+                        // El menú se cierra con su propia animación y con la
+                        // fila levantada en un overlay aparte: mutar aquí hace
+                        // crecer la fila real por debajo de ese overlay y lo
+                        // que se ve al aterrizar es un salto ya consumado.
+                        let expense = expense
+                        let context = modelContext
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            expense.toggleDebt(in: context)
+                        }
+                    } label: {
+                        Label(expense.needsSplitting ? "Ya no lo cobro" : "Repartir después",
+                              systemImage: expense.needsSplitting ? "xmark.circle" : "clock")
+                    }
+                }
             }
 
             Button {
@@ -453,7 +598,9 @@ struct MovementRow: View {
     private var amountText: String {
         let paid = Accounting.paid(of: expense)
         let outstanding = Accounting.outstanding(of: expense)
-        let displayed = (expense.isDebt || Money.cents(paid) > 0) ? outstanding : expense.amount
+        // Compartido, la fila dice lo que pagaste; lo que te deben va debajo.
+        let displayed = expense.isShared ? expense.amount
+            : (expense.isDebt || Money.cents(paid) > 0) ? outstanding : expense.amount
         // Un traslado no resta: el dinero sigue siendo tuyo. Un aviso de
         // anulación tampoco: no es un gasto.
         return (expense.isTransfer || expense.isReversal ? "" : "–") + Money.format(displayed, currency: expense.currency)
@@ -470,6 +617,7 @@ struct IncomeRow: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.proTheme) private var proTheme
     @State private var showsDestino = false
+    @State private var showsWhoPaid = false
     @State private var confirmsDelete = false
     private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
@@ -508,10 +656,19 @@ struct IncomeRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .contextMenu {
-            Button {
-                showsDestino = true
-            } label: {
-                Label("Asignar a deuda", systemImage: "scope")
+            // Un pago siempre es de una persona («Soluciones de cobro», 06).
+            if income.debtReference == nil, !income.isTransfer {
+                Button {
+                    showsWhoPaid = true
+                } label: {
+                    Label("Es un pago de alguien", systemImage: "person.crop.circle.badge.checkmark")
+                }
+            } else if income.debtReference != nil {
+                Button {
+                    showsDestino = true
+                } label: {
+                    Label("Ver a qué deuda abona", systemImage: "scope")
+                }
             }
 
             Button(role: .destructive) {
@@ -528,6 +685,9 @@ struct IncomeRow: View {
         // La misma hoja que «¿A dónde va?» en el detalle del ingreso.
         .sheet(isPresented: $showsDestino) {
             IncomeDestinoSheet(income: income)
+        }
+        .sheet(isPresented: $showsWhoPaid) {
+            WhoPaidSheet(income: income)
         }
         .confirmationDialog("¿Eliminar este ingreso?", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("Eliminar", role: .destructive) {

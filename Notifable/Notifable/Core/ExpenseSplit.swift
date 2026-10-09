@@ -29,6 +29,9 @@ enum ExpenseSplit {
     static func canSplit(_ expense: Expense) -> Bool {
         guard expense.splitOf == nil else { return false }
         guard expense.isSplit || expense.countsAsSpending else { return false }
+        // Primero se separa y luego se comparte cada parte: uno ya compartido
+        // no se separa.
+        guard !expense.isShared else { return false }
         return !expense.isDebt && !expense.debtSettled
             && (expense.payments ?? []).isEmpty
             && Money.cents(expense.amount) >= 2

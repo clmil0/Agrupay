@@ -67,6 +67,7 @@ final class FriendDebts {
     func start(container: ModelContainer) {
         guard self.container == nil else { return }
         self.container = container
+        ExpenseSharing.shared.start(container: container)
         let center = NotificationCenter.default
         // Entró un gasto (un Yape nuevo del correo): ¿paga alguna deuda?
         observers.append(center.addObserver(forName: ModelContext.didSave, object: nil, queue: .main) { [weak self] note in
@@ -106,6 +107,10 @@ final class FriendDebts {
         listenForChanges()
         await processIncoming()
         await rematch()
+        // Lo que te deben también, al volver a la app: así se ven los «Ya le
+        // pagué» por confirmar y se limpian las deudas de gastos borrados
+        // sin tener que entrar a Cobros.
+        await FriendReceivables.shared.refresh()
     }
 
     private func listenForChanges() {
@@ -168,7 +173,8 @@ final class FriendDebts {
         suggestions.removeAll { $0.id == suggestion.id }
     }
 
-    /// «Ya le pagué» sin correo detrás (efectivo, otra cuenta).
+    /// «Ya le pagué» sin correo detrás (efectivo, otra cuenta). Queda «Por
+    /// confirmar» hasta que quien cobra lo acepte (v17): no se cierra solo.
     func payManually(_ share: OwedShare) async {
         await pay(share, amount: share.remaining, sourceKey: "manual:" + UUID().uuidString,
                   paidAt: Date(), via: "manual", automatic: false, candidateKey: nil)
@@ -231,6 +237,12 @@ final class FriendDebts {
         }
 
         if let candidateKey { markHandled(candidateKey, as: share.id) }
+        // A mano: espera que quien cobra lo acepte.
+        if via == "manual", let index = owed.firstIndex(where: { $0.id == share.id }) {
+            owed[index].pendingAmount = applied
+            owed[index].rejectedAt = nil
+            return
+        }
         if let index = owed.firstIndex(where: { $0.id == share.id }) {
             owed[index].paidAmount = Money.normalized(owed[index].paidAmount + applied)
             if Money.cents(owed[index].remaining) == 0 {
@@ -337,15 +349,19 @@ final class FriendDebts {
     /// por fuera —efectivo, un Yape cuyo correo no llegó— entra igual que un
     /// pago que declaró el amigo: ingreso abonado a la deuda, y la deuda
     /// saldada si ya no queda nada por cobrar.
+    ///
+    /// - Parameter income: el ingreso que ya es este pago (se registró desde
+    ///   un ingreso): se abona al gasto en vez de crear otro.
     func recordCreditorPayment(debtor: String, debtKey: String, merchant: String,
-                               amount: Double, currency: String, allPaid: Bool) {
+                               amount: Double, currency: String, via: String = "manual",
+                               allPaid: Bool, income: Income? = nil) {
         guard let context = container?.mainContext else { return }
         let payment = IncomingPayment(id: "creditor:" + UUID().uuidString, debtor: debtor, debtKey: debtKey,
                                       merchant: merchant, amount: amount, currency: currency,
-                                      paidAt: Date(), via: "manual", allPaid: allPaid)
+                                      paidAt: income?.date ?? Date(), via: via, allPaid: allPaid)
         let expenses = (try? context.fetch(FetchDescriptor<Expense>())) ?? []
         record(payment, debt: TransactionKey.expensesByLookupKey(expenses)[debtKey], in: context,
-               notifies: false, note: "Su parte de " + merchant + " · registrado a mano")
+               notifies: false, note: "Su parte de " + merchant + " · registrado a mano", existing: income)
         try? context.save()
     }
 
@@ -359,11 +375,12 @@ final class FriendDebts {
     }
 
     private func record(_ payment: IncomingPayment, debt: Expense?, in context: ModelContext,
-                        notifies: Bool = true, note: String? = nil) {
+                        notifies: Bool = true, note: String? = nil, existing: Income? = nil) {
         let name = FriendsManager.shared.friend(with: payment.debtor).name
-        let source = ["Yape", "Plin"].contains(payment.via) ? payment.via : "Transferencia"
+        let source = ["Yape", "Plin", "Efectivo"].contains(payment.via) ? payment.via : "Transferencia"
 
         guard let debt, debt.currency == payment.currency else {
+            if existing != nil { return }
             // El gasto ya no está (se borró) o está en otra moneda: igual es
             // plata que te llegó.
             let income = Income(amount: payment.amount, currency: payment.currency, source: source,
@@ -380,8 +397,8 @@ final class FriendDebts {
             let cancels = Money.isZero(Money.subtract(outstanding, amount))
             // Si sí te llegó el correo del Yape recibido, ése es el ingreso:
             // se abona a la deuda en vez de crear otro.
-            let income = Self.matchingEmailIncome(amount: amount, currency: payment.currency,
-                                                  date: payment.paidAt, sender: name, in: context)
+            let income = existing ?? Self.matchingEmailIncome(amount: amount, currency: payment.currency,
+                                                              date: payment.paidAt, sender: name, in: context)
                 ?? {
                     let created = Income(amount: amount, currency: payment.currency, source: source,
                                          title: name, date: payment.paidAt,
@@ -459,14 +476,7 @@ final class FriendDebts {
     // MARK: - Avisos
 
     private func notify(id: String, title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error { Diagnostics.shared.log("Deudas: aviso no salió (\(error.localizedDescription))") }
-        }
+        LocalNotice.post(id: id, title: title, body: body)
     }
 
     // MARK: - Red
@@ -537,7 +547,9 @@ final class FriendDebts {
                          createdAt: timestamp(row["created_at"]) ?? Date(),
                          paidAt: timestamp(row["paid_at"]),
                          isForgiven: row["status"] as? String == "forgiven",
-                         closedAt: timestamp(row["closed_at"]))
+                         closedAt: timestamp(row["closed_at"]),
+                         pendingAmount: number(row["pending_amount"]) ?? 0,
+                         rejectedAt: timestamp(row["rejected_at"]))
     }
 
     private static func incoming(from row: [String: Any]) -> IncomingPayment? {

@@ -2,9 +2,11 @@ import SwiftUI
 import SwiftData
 
 /// Detalle de un movimiento (`4e`): cabecera con el monto grande y el resto
-/// como una lista de una fila por dato. Editar vive en la barra; «Por cobrar»
-/// es una fila más; borrar, al pie. El estado del cobro sólo existe si el
-/// gasto está marcado como deuda.
+/// como una lista de una fila por dato. Editar vive en la barra; borrar, al pie.
+///
+/// Cobrar («Soluciones de cobro», 02): «Compartir con amigos» va justo debajo
+/// del monto. Ya compartido, se ven las mismas personas, estados y botones que
+/// en Cobros. «Separar por categoría» (antes «Dividir gasto») baja al final.
 struct ExpenseDetailsView: View {
 
     @Environment(\.modelContext) private var modelContext
@@ -25,8 +27,11 @@ struct ExpenseDetailsView: View {
 
     @State private var showingCategoryPicker = false
     @State private var showingEditor = false
-    @State private var showingCollect = false
-    @State private var showingReminder = false
+    @State private var showingShare = false
+    @State private var reminding: ReceivableShare?
+    @State private var paying: ReceivableShare?
+    @State private var receivables = FriendReceivables.shared
+    @State private var friendsManager = FriendsManager.shared
     @State private var showingDeleteConfirmation = false
     @State private var showingTagPicker = false
     @State private var showingRecurrence = false
@@ -42,10 +47,20 @@ struct ExpenseDetailsView: View {
     private var themeColor: Color { accent.color }
     private var palette: Palette { Palette(colorScheme) }
 
-    /// Por cobrar, con abonos, o dada por saldada: hay estado de cobro que
-    /// mostrar.
+    /// Devoluciones o una deuda de antes de compartir (saldada o con abonos):
+    /// hay estado que mostrar. Lo compartido tiene su propia sección.
     private var showsPayments: Bool {
-        expense.isDebt || expense.debtSettled || !(expense.payments ?? []).isEmpty
+        !expense.isShared && !expense.needsSplitting
+            && (expense.debtSettled || !(expense.payments ?? []).isEmpty)
+    }
+
+    private var debtKey: String { TransactionKey.key(for: expense) }
+
+    /// Las personas con las que se compartió, de quien más debe a quien menos.
+    private var shares: [ReceivableShare] {
+        let keys = Set(TransactionKey.lookupKeys(for: expense))
+        return receivables.shares.filter { keys.contains($0.debtKey) && $0.status != .archived }
+            .sorted { $0.remaining > $1.remaining }
     }
 
     /// Un aviso de anulación no tiene ficha: tocarlo es elegir qué compra se
@@ -73,6 +88,11 @@ struct ExpenseDetailsView: View {
                     header
                     if expense.isVoided { voidedBanner }
                     foreignPaymentsWarning
+                    if expense.isShared {
+                        sharedSection
+                    } else if expense.canBeShared {
+                        shareEntryRow
+                    }
                     if let split = splitContext { splitCard(split) }
                     properties
 
@@ -85,8 +105,18 @@ struct ExpenseDetailsView: View {
                         splitEntryRow
                     }
 
-                    if splitContext != nil {
-                        undoSplitButton
+                    // Con una parte compartida, deshacer borraría deudas: hay
+                    // que dejar de compartirla primero.
+                    if let split = splitContext {
+                        if split.parts.contains(where: \.isShared) {
+                            Text("Una parte está compartida. Para deshacer la separación, quita primero el reparto.")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(palette.secondaryLabel)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                        } else {
+                            undoSplitButton
+                        }
                     }
                     // Una parte no se borra suelta: las demás dejarían de
                     // cuadrar con el pago.
@@ -143,11 +173,12 @@ struct ExpenseDetailsView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
             }
-            .sheet(isPresented: $showingCollect) {
-                AddTransactionSheet(collecting: expense)
+            .sheet(isPresented: $showingShare) {
+                ShareExpenseSheet(expense: expense)
             }
-            .sheet(isPresented: $showingReminder) {
-                ReminderComposerSheet(initialDebt: expense)
+            .sheet(item: $reminding) { ReminderComposerSheet(share: $0) }
+            .sheet(item: $paying) { share in
+                RecordDebtPaymentSheet(share: share, friend: friendsManager.friend(with: share.debtor)) { _ in }
             }
             .sheet(item: $splitEditorParent) { SplitExpenseSheet(parent: $0) }
             .sheet(item: $focusedPart) { ExpenseDetailsView(expense: $0) }
@@ -377,25 +408,6 @@ struct ExpenseDetailsView: View {
                 .buttonStyle(.plain)
             }
 
-            if !expense.isSplit {
-                divider
-
-                // «Por cobrar» baja de la fila de botones a una fila más: sigue a
-                // un toque, pero ya no compite en tamaño con los datos.
-                Toggle(isOn: Binding(get: { expense.isDebt }, set: { _ in toggleDebt() })) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.circle")
-                            .font(.system(size: 15))
-                            .foregroundStyle(palette.secondaryLabel)
-                            .frame(width: 20)
-                        Text("Por cobrar")
-                            .foregroundStyle(palette.label)
-                    }
-                }
-                .tint(palette.warning)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-            }
         }
         .background(palette.surface)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -425,22 +437,23 @@ struct ExpenseDetailsView: View {
         return SplitContext(parent: ExpenseSplit.parent(of: expense, among: allExpenses), parts: siblings)
     }
 
-    /// `2a`: la entrada, debajo de los datos y antes de borrar.
+    /// `2a`: la entrada, al final, antes de borrar. Gris: es la acción menos
+    /// buscada y no debe atraer a quien quiere repartir con amigos.
     private var splitEntryRow: some View {
         Button { splitEditorParent = expense } label: {
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(themeColor.opacity(0.12))
+                    .fill(palette.secondaryLabel.opacity(0.12))
                     .frame(width: 32, height: 32)
                     .overlay(
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(themeColor)
+                            .foregroundStyle(palette.secondaryLabel)
                     )
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Dividir gasto")
+                    Text("Separar por categoría")
                         .foregroundStyle(palette.label)
-                    Text("Sepáralo en lo que realmente fue")
+                    Text("Ej.: una parte comida, otra bebidas")
                         .font(.system(size: 13))
                         .foregroundStyle(palette.secondaryLabel)
                 }
@@ -709,6 +722,221 @@ struct ExpenseDetailsView: View {
         .contentShape(Rectangle())
     }
 
+    // MARK: - Compartir
+
+    /// «Compartir con amigos», o «Falta repartir» si se marcó para después.
+    private var shareEntryRow: some View {
+        let pending = expense.needsSplitting
+        let tint = pending ? palette.warning : themeColor
+        return Button { showingShare = true } label: {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(tint.opacity(0.14))
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Image(systemName: pending ? "clock" : "person.2.badge.plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(tint)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pending ? "Falta repartir" : "Compartir con amigos")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(palette.label)
+                    Text(pending ? "Elige con quién y cuánto pone cada uno" : "Di quién te debe y cuánto")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.secondaryLabel)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(palette.secondaryLabel)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .surfaceCard(radius: 22, padding: 0)
+        .padding(.horizontal, 16)
+    }
+
+    /// Ya compartido: cada persona con lo que debe y su estado, tu parte, y
+    /// los mismos botones que en Cobros. Lo que se registra en un lado
+    /// aparece en el otro.
+    private var sharedSection: some View {
+        let open = shares.filter(\.isOpen)
+        let currency = expense.currency
+        let owed = Money.sum(open) { $0.remaining }
+        let closed = open.isEmpty && !shares.isEmpty
+        let recovered = Money.sum(shares) { $0.paidAmount }
+        let mine = Money.normalized((expense.ownShare ?? 0) + expense.forgivenAmount)
+
+        return VStack(spacing: 8) {
+            ShellSectionHeader(title: closed ? "Cómo quedó" : "Te deben",
+                               trailing: closed ? "Cerrado" : Money.format(owed, currency: currency),
+                               trailingTint: closed ? palette.positive : palette.label)
+                .padding(.horizontal, 16)
+
+            VStack(spacing: 0) {
+                if closed {
+                    sharePersonRow(friend: nil, name: "Tú",
+                                   detail: Money.cents(expense.forgivenAmount) > 0 ? "Tu parte, con lo perdonado" : "Tu parte",
+                                   value: Money.format(mine, currency: currency), tag: nil)
+                    shareDivider
+                }
+                ForEach(Array(shares.enumerated()), id: \.element.id) { index, share in
+                    if index > 0 { shareDivider }
+                    let friend = friendsManager.friend(with: share.debtor)
+                    sharePersonRow(friend: friend, name: friend.name, detail: shareDetail(share),
+                                   value: share.isOpen ? Money.format(share.remaining, currency: share.currency) : nil,
+                                   tag: shareTag(share))
+                }
+                if shares.isEmpty {
+                    Text(receivables.hasLoaded ? "No se encontraron las personas de este gasto." : "Cargando…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.secondaryLabel)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                }
+                HStack {
+                    Text(closed ? "Recuperaste " + Money.format(recovered, currency: currency)
+                                : "Tu parte: " + Money.format(mine, currency: currency))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.secondaryLabel)
+                    Spacer()
+                    Button("Ver en Cobros ›") {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { SectionRequest.open(.receivables) }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accent.onSurface(colorScheme))
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .overlay(alignment: .top) { Rectangle().fill(palette.separator).frame(height: 0.5) }
+            }
+            .surfaceCard(radius: 22, padding: 0)
+            .padding(.horizontal, 16)
+
+            if !open.isEmpty {
+                HStack(spacing: 10) {
+                    shareActionMenu(title: "Recordar", icon: "bell.badge", people: open) { share in
+                        if share.isContact { receivables.remindByWhatsApp(share) } else { reminding = share }
+                    }
+                    shareActionMenu(title: "Registrar pago", icon: "plus", people: open) { paying = $0 }
+                }
+                .padding(.horizontal, 16)
+            }
+            Button("Editar reparto") { showingShare = true }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(accent.onSurface(colorScheme))
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+        }
+        .task { await receivables.refresh() }
+    }
+
+    private var shareDivider: some View {
+        Rectangle().fill(palette.separator).frame(height: 0.5).padding(.leading, 64)
+    }
+
+    private func sharePersonRow(friend: Friend?, name: String, detail: String, value: String?,
+                                tag: (String, Color)?) -> some View {
+        HStack(spacing: 12) {
+            if let friend {
+                FriendAvatar(friend: friend, size: 36)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(accent.buttonText)
+                    .frame(width: 36, height: 36)
+                    .background(accent.buttonFill, in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.label)
+                Text(detail)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(palette.secondaryLabel)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if let tag {
+                Text(tag.0)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(tag.1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(tag.1.opacity(0.12), in: Capsule())
+            }
+            if let value {
+                Text(value)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.label)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+    }
+
+    private func shareDetail(_ share: ReceivableShare) -> String {
+        let day = { (date: Date) in ReceivablesView.dayShort(date) }
+        switch share.status {
+        case .paid:
+            return [share.via.map(FriendReceivables.viaLabel), share.closedOn.map(day)]
+                .compactMap { $0 }.joined(separator: " · ")
+        case .forgiven:
+            return Money.cents(share.paidAmount) > 0
+                ? "Pagó " + Money.format(share.paidAmount, currency: share.currency) + " · perdonaste "
+                    + Money.format(share.remaining, currency: share.currency)
+                : "Perdonaste " + Money.format(share.remaining, currency: share.currency)
+        default:
+            if Money.cents(share.paidAmount) > 0 {
+                return "Pagó " + Money.format(share.paidAmount, currency: share.currency)
+                    + " de " + Money.format(share.amount, currency: share.currency)
+            }
+            if share.isContact {
+                return share.reminders.isEmpty ? "Sin la app" : "Sin la app · por WhatsApp"
+            }
+            if share.sentToday { return "Avisado hoy" }
+            if let last = share.reminders.last { return "Avisado · " + day(last) }
+            return "Sin avisar"
+        }
+    }
+
+    private func shareTag(_ share: ReceivableShare) -> (String, Color)? {
+        switch share.status {
+        case .paid: return ("Pagó", palette.positive)
+        case .forgiven, .archived: return ("Cerrada", palette.secondaryLabel)
+        default: return nil
+        }
+    }
+
+    /// Un botón si sólo queda una persona; un menú para elegir si hay varias.
+    @ViewBuilder
+    private func shareActionMenu(title: String, icon: String, people: [ReceivableShare],
+                                 action: @escaping (ReceivableShare) -> Void) -> some View {
+        let label = Label(title, systemImage: icon)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(accent.onSurface(colorScheme))
+            .frame(maxWidth: .infinity)
+            .frame(height: 42)
+            .background(themeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        if people.count == 1, let only = people.first {
+            Button { action(only) } label: { label }
+                .buttonStyle(.plain)
+        } else {
+            Menu {
+                ForEach(people) { share in
+                    Button(friendsManager.friend(with: share.debtor).name + " · "
+                           + Money.format(share.remaining, currency: share.currency)) { action(share) }
+                }
+            } label: { label }
+        }
+    }
+
     // MARK: - Deuda
 
     @ViewBuilder
@@ -783,48 +1011,6 @@ struct ExpenseDetailsView: View {
                 }
             }
 
-            // Sólo mientras sigue por cobrar: saldada, no hay nada que
-            // registrar. Abre el alta de ingreso ya en modo abono.
-            if expense.isDebt {
-                Button { showingCollect = true } label: {
-                    Label("Registrar cobro", systemImage: "plus")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(accent.onSurface(colorScheme))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(themeColor.opacity(0.12),
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-
-                // Cobrar por dentro de la app: un recado al amigo, que no
-                // mueve ni un sol de ninguna de las dos contabilidades.
-                Button { showingReminder = true } label: {
-                    Label("Recordar a un amigo", systemImage: "bell.badge")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(accent.onSurface(colorScheme))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(themeColor.opacity(0.12),
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-
-                // Cerrar la deuda con saldo: nadie va a devolver el resto.
-                Button { settleDebt() } label: {
-                    Label("Deuda saldada", systemImage: "checkmark.seal")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(palette.positive)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(palette.positive.opacity(0.12),
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .surfaceCard(radius: 22)
@@ -850,25 +1036,6 @@ struct ExpenseDetailsView: View {
 
     // MARK: - Acciones
 
-    /// Este botón dice "Saldada" cuando el gasto sigue marcado por cobrar.
-    /// Declararla saldada con un saldo pendiente no lo pone en cero: ese saldo
-    /// es lo que nunca te devolvieron, y sigue apareciendo así en la fila. Lo
-    /// que sí cambia es `isDebt` — deja de ofrecerse como destino al abonar un
-    /// ingreso (`IncomeDestinoSheet`) y deja de sumar al total "por cobrar"
-    /// del mes, porque ya no se está esperando que se salde solo.
-    private func toggleDebt() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            expense.toggleDebt(in: modelContext)
-        }
-    }
-
-    private func settleDebt() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            expense.settleDebt(in: modelContext)
-        }
-        ProHaptics.play(.settled)
-    }
-
     private func delete() {
         expense.deleteRecordingRecovery(in: modelContext)
         dismiss()
@@ -889,6 +1056,9 @@ struct EditExpenseSheet: View {
     @State private var notesText = ""
 
     private var isInSplit: Bool { expense.isSplit || expense.splitOf != nil }
+    /// Compartido, el monto está repartido entre personas: cambiarlo dejaría
+    /// de cuadrar.
+    private var amountLocked: Bool { isInSplit || expense.isShared }
 
     var body: some View {
         NavigationStack {
@@ -899,8 +1069,8 @@ struct EditExpenseSheet: View {
                             .foregroundStyle(.secondary)
                         TextField("0.00", text: $amountText)
                             .keyboardType(.decimalPad)
-                            .disabled(isInSplit)
-                            .foregroundStyle(isInSplit ? .secondary : .primary)
+                            .disabled(amountLocked)
+                            .foregroundStyle(amountLocked ? .secondary : .primary)
                     }
                 } header: {
                     Text("Monto")
@@ -908,7 +1078,9 @@ struct EditExpenseSheet: View {
                     // Las partes suman el pago al céntimo: cambiar un monto
                     // suelto rompería la cuenta.
                     if isInSplit {
-                        Text("Está dividido. Cambia los montos desde «Editar división».")
+                        Text("Está separado por categoría. Cambia los montos desde «Editar división».")
+                    } else if expense.isShared {
+                        Text("Está compartido: el monto ya está repartido entre personas.")
                     }
                 }
                 Section("Comercio") {
@@ -961,7 +1133,7 @@ struct EditExpenseSheet: View {
         let originalKey = TransactionKey.key(for: expense)
 
         let cleaned = amountText.replacingOccurrences(of: ",", with: ".")
-        if !isInSplit, let value = Double(cleaned), value > 0 {
+        if !amountLocked, let value = Double(cleaned), value > 0 {
             // Céntimos enteros, igual que en el init del modelo.
             expense.amount = Money.normalized(value)
         }
@@ -979,8 +1151,15 @@ struct EditExpenseSheet: View {
                                 // necesita un valor no-nulo para registrarse.
                                 notes: expense.notes != originalNotes ? (expense.notes ?? "") : nil)
         try? modelContext.save()
+        let newKey = TransactionKey.key(for: expense)
         if expense.isSplit {
-            ExpenseSplit.rekey(from: originalKey, to: TransactionKey.key(for: expense), in: modelContext)
+            ExpenseSplit.rekey(from: originalKey, to: newKey, in: modelContext)
+        }
+        // Un gasto anotado a mano cambia de llave al cambiarle el comercio o
+        // la fecha: sus deudas tienen que seguir encontrándolo.
+        if newKey != originalKey {
+            ExpenseShareStore.rekey(from: originalKey, to: newKey)
+            Task { await FriendReceivables.shared.rekey(from: originalKey, to: newKey) }
         }
         dismiss()
     }

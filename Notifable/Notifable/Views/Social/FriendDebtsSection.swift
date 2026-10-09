@@ -7,7 +7,8 @@ import SwiftUI
 /// 1. El aviso del pago que se marcó solo, con «Deshacer».
 /// 2. Las preguntas: «¿Esto fue para lo que le debes a Joseph?».
 /// 3. «Lo que debes»: abierto, con «Ya le pagué» para lo que no pasó por
-///    un correo (efectivo, otra cuenta).
+///    un correo (efectivo, otra cuenta). Eso queda «Por confirmar» hasta que
+///    quien cobra lo acepta: nunca se confirma solo.
 struct FriendDebtsSection: View {
 
     @Environment(\.colorScheme) private var scheme
@@ -46,8 +47,14 @@ struct FriendDebtsSection: View {
                 Task { await debts.payManually(share) }
             }
         } message: {
-            Text("Se le avisa que ya le pagaste. Úsalo si no fue por Yape o Plin, o si el correo no llegó.")
+            Text(manualMessage)
         }
+    }
+
+    private var manualMessage: String {
+        guard let share = confirmingManual else { return "" }
+        let name = friendsManager.friend(with: share.creditor).name
+        return name + " tiene que confirmarlo. Mientras, figura como «Por confirmar»."
     }
 
     private var manualTitle: String {
@@ -133,7 +140,8 @@ struct FriendDebtsSection: View {
         return HStack(spacing: 12) {
             FriendAvatar(friend: friend, size: 38)
             VStack(alignment: .leading, spacing: 2) {
-                Text(share.isOpen ? "Le debes a " + friend.name
+                Text(share.awaitsConfirmation ? "Le pagaste a " + friend.name
+                     : share.isOpen ? "Le debes a " + friend.name
                      : share.isForgiven ? friend.name + " te la perdonó" : "Le pagaste a " + friend.name)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(palette.label)
@@ -149,8 +157,12 @@ struct FriendDebtsSection: View {
                     .font(.system(size: 15.5, weight: .bold))
                     .foregroundStyle(share.isOpen ? palette.label : palette.secondaryLabel)
                     .strikethrough(!share.isOpen)
-                if share.isOpen {
-                    Button("Ya le pagué") { confirmingManual = share }
+                if share.awaitsConfirmation {
+                    Text("Por confirmar")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.warning)
+                } else if share.isOpen {
+                    Button(share.rejectedAt != nil ? "No le llegó · Ya le pagué" : "Ya le pagué") { confirmingManual = share }
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(accent.onSurface(scheme))
                         .buttonStyle(.plain)
@@ -174,7 +186,9 @@ struct FriendDebtsSection: View {
         if let day = share.occurredOn {
             text += " · " + day.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es_ES")))
         }
-        if share.isOpen, Money.cents(share.paidAmount) > 0 {
+        if share.awaitsConfirmation {
+            text += " · esperando que lo confirme"
+        } else if share.isOpen, Money.cents(share.paidAmount) > 0 {
             text += " · abonaste " + Money.format(share.paidAmount, currency: share.currency)
         }
         return text

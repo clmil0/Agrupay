@@ -470,7 +470,11 @@ final class FriendsManager {
     func penguin(for id: String) -> PenguinLook? { profilePenguins[id] }
 
     func friend(with id: String) -> Friend {
-        friends.first { $0.id == id }
+        // Alguien sin la app (`OfflineDebts`): su nombre y el color de su id.
+        if OfflineDebts.isContact(id) {
+            return Friend(id: id, displayName: OfflineDebts.shared.contact(personID: id)?.name ?? "Sin la app")
+        }
+        return friends.first { $0.id == id }
             ?? Friend(id: id, displayName: name(for: id), status: status(for: id), penguin: penguin(for: id),
                       style: profileStyles[id])
     }

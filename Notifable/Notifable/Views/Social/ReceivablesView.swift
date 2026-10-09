@@ -1,15 +1,16 @@
 import SwiftData
 import SwiftUI
 
-/// Social › Cobros («Social Cobros.dc.html»): lo que te deben y lo que debes.
+/// Social › Cobros: la única lista de deudas («Soluciones de cobro»).
 ///
-/// «Te deben» va agrupado por amigo, de quien más debe a quien menos, con
-/// cuántas veces y cuándo le cobraste cada deuda. Lo cerrado (pagado,
-/// perdonado, archivado) se pliega al pie. Debajo, «Lo que debes»
-/// (`FriendDebtsSection`), que antes vivía en Amigos.
+/// Arriba lo que espera una decisión tuya: los «Ya le pagué» por confirmar y
+/// los gastos marcados que falta repartir. Luego «Te deben», agrupado por
+/// persona —con o sin la app—, de quien más debe a quien menos, con cuántas
+/// veces y cuándo le cobraste cada deuda. Lo cerrado se pliega al pie. Debajo,
+/// «Lo que debes» (`FriendDebtsSection`).
 ///
-/// Cobrar algo nuevo va en la cifra «Cobrar» del resumen o, sin deudas
-/// abiertas, en el botón de debajo del vacío.
+/// Cobrar algo nuevo es compartir un gasto: la cifra «Cobrar» del resumen o,
+/// sin deudas abiertas, el botón de debajo del vacío.
 struct ReceivablesView: View {
     @Binding var scrollToTopTrigger: Bool
     let progress: ScrollProgress
@@ -17,6 +18,8 @@ struct ReceivablesView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.proTheme) private var proTheme
     @Environment(\.modelContext) private var modelContext
+    @Query(filter: #Predicate<Expense> { $0.isDebt == true }, sort: \Expense.date, order: .reverse)
+    private var markedDebts: [Expense]
 
     @State private var receivables = FriendReceivables.shared
     @State private var friendsManager = FriendsManager.shared
@@ -25,9 +28,13 @@ struct ReceivablesView: View {
     @State private var expandedFriendID: String?
     @State private var didAutoExpand = false
     @State private var showsClosed = false
-    @State private var composer: ReminderComposerRequest?
+    @State private var reminding: ReceivableShare?
     @State private var paying: ReceivableShare?
-    @State private var managing: ReceivableShare?
+    @State private var closing: ReceivableShare?
+    @State private var pickingExpense = false
+    @State private var sharing: Expense?
+    @State private var inviting = false
+    @State private var deletingOrphan: ReceivableShare?
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
 
@@ -49,6 +56,8 @@ struct ReceivablesView: View {
                                     title: "Cobros necesita tu cuenta de Google",
                                     message: "Conéctala desde Amigos para cobrarle a tus amigos y ver lo que te deben.")
                 } else {
+                    if !receivables.pending.isEmpty { pendingSection }
+                    if !toSplit.isEmpty { toSplitSection }
                     owedToMe
                     FriendDebtsSection()
                     if let error = receivables.lastErrorMessage {
@@ -75,10 +84,11 @@ struct ReceivablesView: View {
             expandedFriendID = first
         }
         .animation(.easeInOut(duration: 0.22), value: receivables.shares)
-        .sheet(item: $composer) { request in
-            ReminderComposerSheet(request: request) { names in
-                if let friendID = request.friendID { expandedFriendID = friendID }
-                flash(names.count == 1 ? "Recordatorio enviado a " + names[0] : "Recordatorios enviados")
+        .animation(.easeInOut(duration: 0.22), value: receivables.pending)
+        .sheet(item: $reminding) { share in
+            ReminderComposerSheet(share: share) { name in
+                expandedFriendID = share.debtor
+                flash("Recordatorio enviado a " + name)
                 Task { await receivables.refresh() }
             }
         }
@@ -87,30 +97,33 @@ struct ReceivablesView: View {
                 flash(message)
             }
         }
-        .confirmationDialog(managing.map { $0.merchant + " · " + Money.format($0.remaining, currency: $0.currency) } ?? "",
-                            isPresented: Binding(get: { managing != nil }, set: { if !$0 { managing = nil } }),
-                            titleVisibility: .visible,
-                            presenting: managing) { share in
-            let name = friendsManager.friend(with: share.debtor).name
-            Button("Perdonar deuda", role: .destructive) {
-                Task {
-                    if await receivables.close(share, as: .forgiven) {
-                        flash("Le perdonaste la deuda a " + name)
-                    }
-                }
-            }
-            Button("Archivar sin avisar") {
-                Task {
-                    if await receivables.close(share, as: .archived) { flash("Deuda archivada") }
-                }
-            }
+        .sheet(item: $closing) { share in
+            CloseDebtSheet(share: share) { message in flash(message) }
+        }
+        .sheet(isPresented: $inviting) {
+            AddFriendSheet(invitedCode: nil, startsOnRedeem: false)
+        }
+        .shareFlow(isPicking: $pickingExpense, sharing: $sharing) { message in flash(message) }
+        .alert("¿Eliminar esta deuda?",
+               isPresented: Binding(get: { deletingOrphan != nil }, set: { if !$0 { deletingOrphan = nil } }),
+               presenting: deletingOrphan) { share in
             Button("Cancelar", role: .cancel) {}
+            Button("Eliminar", role: .destructive) {
+                Task {
+                    if await receivables.deleteDebts(debtKey: share.debtKey) { flash("Deuda eliminada") }
+                }
+            }
         } message: { share in
-            Text("Perdonar la cierra y le avisa a \(friendsManager.friend(with: share.debtor).name). Archivar solo la quita de tu lista.")
+            Text("El gasto «" + share.merchant + "» ya no está en tu historial. Se borra la deuda y lo que se le avisó a "
+                 + friendsManager.friend(with: share.debtor).name + ".")
         }
     }
 
     // MARK: - Datos
+
+    /// «Falta repartir»: marcado para cobrar, sin personas todavía (lo que
+    /// antes era «Por cobrar»).
+    private var toSplit: [Expense] { markedDebts.filter(\.needsSplitting) }
 
     private struct FriendGroup: Identifiable {
         let friendID: String
@@ -143,6 +156,147 @@ struct ReceivablesView: View {
         receivables.open.filter { $0.currency == summaryCurrency }
     }
 
+    // MARK: - Por confirmar
+
+    /// «Joseph dice que te pagó S/ 30 en efectivo. ¿Te llegó?» La deuda se
+    /// cierra sólo cuando aceptas; «No me llegó» la devuelve a pendiente.
+    private var pendingSection: some View {
+        VStack(spacing: 8) {
+            ShellSectionHeader(title: "Por confirmar")
+            ForEach(receivables.pending) { item in
+                pendingCard(item)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            }
+        }
+    }
+
+    private func pendingCard(_ item: PendingConfirmation) -> some View {
+        let friend = friendsManager.friend(with: item.debtor)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                FriendAvatar(friend: friend, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pendingSentence(item, name: friend.name))
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.secondaryLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("¿Te llegó?")
+                        .font(.system(size: 15.5, weight: .semibold))
+                        .foregroundStyle(palette.label)
+                }
+                Spacer(minLength: 0)
+            }
+            Text("Si confirmas, se cierra su parte de " + item.merchant + ".")
+                .font(.system(size: 12.5))
+                .foregroundStyle(palette.secondaryLabel)
+            HStack(spacing: 10) {
+                Button {
+                    Task {
+                        if await receivables.confirm(item, accept: false) {
+                            flash("Le avisamos a " + friend.name + " que no te llegó")
+                        }
+                    }
+                } label: {
+                    Text("No me llegó")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(palette.label)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(palette.neutralSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Button {
+                    Task {
+                        if await receivables.confirm(item, accept: true) {
+                            flash("Pago de " + friend.name + " confirmado")
+                        }
+                    }
+                } label: {
+                    Text("Sí, me pagó")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(accent.buttonText)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(accent.buttonFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(accent.color.opacity(0.35), lineWidth: 1))
+    }
+
+    /// «Joseph dice que te pagó S/ 30.00 · efectivo · 11 oct».
+    private func pendingSentence(_ item: PendingConfirmation, name: String) -> String {
+        var parts = [name + " dice que te pagó " + Money.format(item.amount, currency: item.currency)]
+        if item.via != "manual" { parts.append(FriendReceivables.viaLabel(item.via).lowercased()) }
+        parts.append(Self.dayShort(item.paidAt))
+        return parts.joined(separator: " · ")
+    }
+
+    /// «Sin la app · Cevichería El Muelle» o «2 deudas · hace 3 días».
+    private func groupSubtitle(_ group: FriendGroup, oldest: Int) -> String {
+        let isContact = OfflineDebts.isContact(group.friendID)
+        let what = group.shares.count == 1 ? group.shares[0].merchant : "\(group.shares.count) deudas"
+        if isContact { return "Sin la app · " + what }
+        let age: String
+        switch oldest {
+        case 0: age = "hoy"
+        case 1: age = "hace 1 día"
+        default: age = "hace \(oldest) días"
+        }
+        return what + " · " + age
+    }
+
+    /// «Avisado 2 veces · ayer» o «Cobrado 1 vez por WhatsApp · hoy».
+    private func reminderLine(_ group: FriendGroup, count: Int, last: Date) -> String {
+        let times = Self.times(count)
+        let head = OfflineDebts.isContact(group.friendID) ? "Cobrado " + times + " por WhatsApp" : "Avisado " + times
+        return head + " · " + Self.relative(last)
+    }
+
+    // MARK: - Falta repartir
+
+    private var toSplitSection: some View {
+        VStack(spacing: 8) {
+            ShellSectionHeader(title: "Falta repartir",
+                               trailing: toSplit.count == 1 ? nil : "\(toSplit.count) gastos")
+            MovementCard {
+                ForEach(Array(toSplit.enumerated()), id: \.element.id) { index, expense in
+                    if index > 0 { MovementSeparator() }
+                    HStack(spacing: 12) {
+                        MovementIcon(icon: MovementStyle.icon(for: expense),
+                                     color: MovementStyle.color(for: expense, accent: accent.color, scheme: scheme),
+                                     size: 38)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(Accounting.displayName(expense.merchant))
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(palette.label)
+                                .lineLimit(1)
+                            Text(Self.dayShort(expense.date) + " · "
+                                 + Money.format(Accounting.outstanding(of: expense), currency: expense.currency))
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(palette.warning)
+                        }
+                        Spacer(minLength: 8)
+                        pill("Repartir", style: .filled) { sharing = expense }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .contextMenu {
+                        Button {
+                            expense.toggleDebt(in: modelContext)
+                        } label: {
+                            Label("No cobrarlo", systemImage: "xmark.circle")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Te deben
 
     @ViewBuilder
@@ -165,7 +319,7 @@ struct ReceivablesView: View {
                     Text("Nadie te debe")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(palette.label)
-                    Text("Cuando le cobres a un amigo con monto, su deuda aparece aquí con cada vez que le recordaste.")
+                    Text("Cuando compartas un gasto, lo que te deben aparece aquí.")
                         .font(.system(size: 13))
                         .foregroundStyle(palette.secondaryLabel)
                         .fixedSize(horizontal: false, vertical: true)
@@ -200,9 +354,7 @@ struct ReceivablesView: View {
         let total = Money.sum(shares) { $0.remaining }
         let original = Money.sum(shares) { $0.amount }
         let paid = Money.sum(shares) { $0.paidAmount }
-        let calendar = Calendar.current
-        let thisMonth = receivables.shares.flatMap(\.reminders)
-            .filter { calendar.isDate($0, equalTo: Date(), toGranularity: .month) }.count
+        let sharedExpenses = Set(receivables.open.map(\.debtKey)).count
         let oldest = receivables.open.map { Self.days(since: $0.date) }.max() ?? 0
         let debts = receivables.open.count
 
@@ -239,12 +391,12 @@ struct ReceivablesView: View {
             }
 
             HStack(spacing: 6) {
-                summaryTile(value: "\(thisMonth)",
-                            label: "cobros en " + Self.monthShort(Date()))
+                summaryTile(value: "\(sharedExpenses)",
+                            label: sharedExpenses == 1 ? "gasto compartido" : "gastos compartidos")
                 summaryTile(value: oldest == 1 ? "1 día" : "\(oldest) días",
                             label: "la más antigua",
                             tint: oldest > 14 ? palette.warning : nil)
-                Button { remindNext() } label: {
+                Button { pickingExpense = true } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Image(systemName: "bell.badge")
@@ -312,8 +464,7 @@ struct ReceivablesView: View {
                             .font(.system(size: 16.5, weight: .semibold))
                             .foregroundStyle(palette.label)
                             .lineLimit(1)
-                        Text((group.shares.count == 1 ? group.shares[0].merchant : "\(group.shares.count) deudas")
-                             + " · hace " + (oldest == 1 ? "1 día" : "\(oldest) días"))
+                        Text(groupSubtitle(group, oldest: oldest))
                             .font(.system(size: 12.5))
                             .foregroundStyle(palette.secondaryLabel)
                             .lineLimit(1)
@@ -322,10 +473,10 @@ struct ReceivablesView: View {
                                 Text("Hoy ya le cobraste · van \(reminders.count)")
                                     .foregroundStyle(palette.positive)
                             } else if let last = reminders.last {
-                                Text("Cobrado " + Self.times(reminders.count) + " · último " + Self.relative(last))
+                                Text(reminderLine(group, count: reminders.count, last: last))
                                     .foregroundStyle(accent.onSurface(scheme))
                             } else {
-                                Text("Nunca le cobraste")
+                                Text(OfflineDebts.isContact(group.friendID) ? "Todavía no le cobras por WhatsApp" : "Sin avisar")
                                     .foregroundStyle(accent.onSurface(scheme))
                             }
                         }
@@ -372,10 +523,34 @@ struct ReceivablesView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(share.merchant)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(palette.label)
-                    .lineLimit(1)
+                // Tocar el nombre lleva a Movimientos con el gasto abierto.
+                // Si el gasto ya no está, sólo el texto.
+                if let expense = ExpenseSharing.shared.expense(forKey: share.debtKey) {
+                    Button {
+                        SectionRequest.open(.movements)
+                        ActivityFocus.request(transactionID: expense.id, date: expense.date)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(share.merchant)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(palette.label)
+                                .lineLimit(1)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(accent.onSurface(scheme))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Ver el gasto")
+                } else {
+                    Text(share.merchant)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(palette.label)
+                        .lineLimit(1)
+                    Text("gasto borrado")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(palette.warning)
+                }
                 Spacer(minLength: 8)
                 Text(Money.format(share.remaining, currency: share.currency))
                     .font(.system(size: 15.5, weight: .bold))
@@ -400,7 +575,9 @@ struct ReceivablesView: View {
             .lineLimit(1)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(share.reminders.isEmpty ? "Todavía no le cobras" : "Le cobraste " + Self.times(share.reminders.count))
+                Text(share.reminders.isEmpty ? "Todavía no le cobras"
+                     : share.isContact ? "Le cobraste " + Self.times(share.reminders.count) + " por WhatsApp"
+                     : "Le avisaste " + Self.times(share.reminders.count))
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(palette.secondaryLabel)
                 if !share.reminders.isEmpty {
@@ -421,15 +598,39 @@ struct ReceivablesView: View {
             .background(palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             HStack(spacing: 6) {
-                if share.sentToday {
-                    pill("Enviado hoy", style: .done) {}
-                        .disabled(true)
+                if share.isContact {
+                    pill("Cobrar por WhatsApp", style: .filled) {
+                        receivables.remindByWhatsApp(share)
+                        flash("Se abrió WhatsApp con lo que le toca")
+                    }
+                    pill("Invitar", style: .outline) { inviting = true }
                 } else {
-                    pill("Recordar", style: .filled) { remind(share) }
+                    if share.sentToday {
+                        pill("Avisado hoy", style: .done) {}
+                            .disabled(true)
+                    } else {
+                        pill("Recordar", style: .filled) { reminding = share }
+                    }
+                    if isPartial {
+                        pill("Cerrar deuda", style: .outline) { closing = share }
+                    } else {
+                        pill("Registrar pago", style: .outline) { paying = share }
+                    }
                 }
-                pill("Registrar pago", style: .outline) { paying = share }
                 Spacer(minLength: 0)
-                Button { managing = share } label: {
+                Menu {
+                    Button { paying = share } label: { Label("Registrar pago", systemImage: "plus") }
+                    Button { closing = share } label: { Label("Cerrar deuda", systemImage: "checkmark.seal") }
+                    if let expense = ExpenseSharing.shared.expense(forKey: share.debtKey) {
+                        Button { sharing = expense } label: { Label("Editar reparto", systemImage: "person.2") }
+                    } else {
+                        // El gasto ya no está (se borró antes de que borrar
+                        // limpiara sus deudas): la deuda quedó huérfana.
+                        Button(role: .destructive) { deletingOrphan = share } label: {
+                            Label("Eliminar deuda", systemImage: "trash")
+                        }
+                    }
+                } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(palette.secondaryLabel)
@@ -437,7 +638,6 @@ struct ReceivablesView: View {
                         .background(palette.background, in: Circle())
                         .overlay(Circle().stroke(palette.hairline, lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
                 .accessibilityLabel("Más opciones")
             }
         }
@@ -492,12 +692,12 @@ struct ReceivablesView: View {
         let friend = friendsManager.friend(with: share.debtor)
         let (title, label, tint): (String, String, Color) = switch share.status {
         case .forgiven: ("Perdonaste a " + friend.name, "Perdonada", palette.secondaryLabel)
-        case .archived: ("Archivada · " + friend.name, "Archivada", palette.tertiaryLabel)
+        case .archived: ("Cerrada · " + friend.name, "Cerrada", palette.tertiaryLabel)
         default:        (friend.name + " te pagó", "Pagada", palette.positive)
         }
         var detail = share.merchant
         if let closedOn = share.closedOn { detail += " · " + Self.dayShort(closedOn) }
-        if let via = share.via, ["Yape", "Plin"].contains(via) { detail += " · " + via }
+        if let via = share.via, ["Yape", "Plin", "Efectivo"].contains(via) { detail += " · " + via }
         detail += " · " + (share.reminders.isEmpty ? "sin cobros" : Self.times(share.reminders.count))
 
         return HStack(spacing: 12) {
@@ -533,7 +733,7 @@ struct ReceivablesView: View {
     /// Sin deudas abiertas no hay resumen ni su cifra «Cobrar»: el cobro
     /// nuevo entra por aquí.
     private var newChargeButton: some View {
-        Button { remindNext() } label: {
+        Button { pickingExpense = true } label: {
             HStack(spacing: 6) {
                 Image(systemName: "bell.badge")
                     .font(.system(size: 13, weight: .semibold))
@@ -564,11 +764,11 @@ struct ReceivablesView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(style == .filled ? Color.white
+                .foregroundStyle(style == .filled ? accent.buttonText
                                  : style == .done ? palette.secondaryLabel : accent.onSurface(scheme))
                 .padding(.horizontal, style == .filled ? 14 : 12)
                 .frame(height: 32)
-                .background(style == .filled ? AnyShapeStyle(accent.color)
+                .background(style == .filled ? AnyShapeStyle(accent.buttonFill)
                             : style == .done ? AnyShapeStyle(palette.track) : AnyShapeStyle(palette.background),
                             in: Capsule())
                 .overlay(Capsule().stroke(style == .outline ? palette.hairline : .clear, lineWidth: 0.5))
@@ -593,22 +793,6 @@ struct ReceivablesView: View {
     }
 
     // MARK: - Acciones
-
-    private func remind(_ share: ReceivableShare) {
-        guard let request = ReminderComposerRequest.forShare(share, in: modelContext) else {
-            flash("Ese gasto ya no está en tu historial")
-            return
-        }
-        composer = request
-    }
-
-    /// «Cobrar a un amigo»: la deuda más antigua sin cobrar hoy, o el
-    /// compositor vacío para cobrar algo nuevo.
-    private func remindNext() {
-        let next = receivables.open.filter { !$0.sentToday }.min { $0.date < $1.date }
-        composer = next.flatMap { ReminderComposerRequest.forShare($0, in: modelContext) }
-            ?? ReminderComposerRequest()
-    }
 
     private func flash(_ text: String) {
         toastTask?.cancel()
@@ -648,35 +832,5 @@ struct ReceivablesView: View {
 
     private static func times(_ count: Int) -> String {
         count == 1 ? "1 vez" : "\(count) veces"
-    }
-}
-
-// MARK: - Abrir el compositor
-
-/// Con qué se abre «Recordar un pago»: la deuda, el amigo y su monto.
-struct ReminderComposerRequest: Identifiable {
-    let id = UUID()
-    var debt: Expense?
-    var friendID: String?
-    var amount: Double?
-
-    /// Para volver a cobrarle una deuda de Cobros. `nil` si el gasto ya no
-    /// está en este teléfono (se borró): sin él no hay `debt_key` que renovar.
-    @MainActor
-    static func forShare(_ share: ReceivableShare, in context: ModelContext) -> ReminderComposerRequest? {
-        // Sólo los días alrededor del gasto: la llave sale del propio gasto, y
-        // recorrer el historial entero para una deuda es trabajo tirado.
-        var descriptor = FetchDescriptor<Expense>()
-        if let day = share.occurredOn {
-            let start = day.addingTimeInterval(-2 * 86_400)
-            let end = day.addingTimeInterval(3 * 86_400)
-            descriptor.predicate = #Predicate { $0.date >= start && $0.date < end }
-        }
-        let expenses = (try? context.fetch(descriptor)) ?? []
-        guard let debt = TransactionKey.expensesByLookupKey(expenses)[share.debtKey] else { return nil }
-        // El monto sólo si no abonó nada: renovarlo con lo que falta
-        // achicaría la deuda en el servidor (`debt_share_from_reminder`).
-        let amount = Money.cents(share.paidAmount) == 0 ? share.amount : nil
-        return ReminderComposerRequest(debt: debt, friendID: share.debtor, amount: amount)
     }
 }
