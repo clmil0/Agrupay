@@ -66,6 +66,14 @@ struct DashboardView: View {
     @State private var chartMode: SpendBarChart.Mode = .days
     @State private var selectedColumn: Int?
     @State private var openStat: StatDetail?
+    /// Lo que pidió el botón de una hoja de stats; se hace al cerrarse.
+    @State private var statTarget: StatButton.Target?
+    /// La hoja del periodo: una barra del gráfico o «Día de más gasto».
+    @State private var openPeriod: PeriodDetail?
+    /// «Ver en Movimientos» de esa hoja; se abre la pestaña al cerrarse.
+    @State private var periodShowAll: MovementsPeriodFilter.Selection?
+    /// El menú del título (`06`): todo el historial con el gasto de cada mes.
+    @State private var monthOptions: [MonthOption] = []
     @State private var scrollToTop = false
 
     // Asistente (`1f`)
@@ -171,6 +179,7 @@ struct DashboardView: View {
         // Movimientos.
         newMovements.baselineIfNeeded(NewMovements.keys(expenses: all, incomes: allIncomes))
         loadMonthExtras(all)
+        loadMonthOptions(all)
         if let key = filter.selection, !accounts.contains(where: { $0.key == key }) {
             filter.selection = nil
         }
@@ -212,7 +221,8 @@ struct DashboardView: View {
             : chartColumns(snapshots.expenses, snapshots.incomes)
 
         ZStack(alignment: .top) {
-            TrackableScrollView(scrollToTopTrigger: $scrollToTop) {
+            TrackableScrollView(scrollToTopTrigger: $scrollToTop,
+                                    onRefresh: { await GmailSyncService.shared.refreshManually() }) {
                 VStack(alignment: .leading, spacing: 0) {
                     hero(totals: totals, previous: previous)
                         .padding(.bottom, 20)
@@ -225,7 +235,8 @@ struct DashboardView: View {
                     chartBlock(chart)
                         .padding(.bottom, 30)
 
-                    statsBlock(totals: totals, expenses: expenses, incomes: snapshots.incomes)
+                    statsBlock(totals: totals, expenses: expenses, incomes: snapshots.incomes,
+                               allSpent: allAccountsSpent(recentStart: recentStart))
 
                     ShellSectionHeader(title: "Atajos")
                     shortcuts(totals: totals)
@@ -285,6 +296,7 @@ struct DashboardView: View {
             selectedColumn = nil
             Analytics.track(.chartMode, ["mode": mode.rawValue])
         }
+        .onChange(of: filter.selection) { _, _ in loadMonthOptions() }
         .onChange(of: monthOffset) { _, offset in
             selectedColumn = nil
             loadMonthExtras()
@@ -297,7 +309,17 @@ struct DashboardView: View {
             // los usa, así que se vuelve a armar al regresar.
             loaded.brief = -1
         }
-        .sheet(item: $openStat) { StatSheet(stat: $0).environment(\.hidesAmounts, hidesAmounts) }
+        .sheet(item: $openStat, onDismiss: runStatTarget) { stat in
+            StatSheet(stat: stat) { target in
+                statTarget = target
+                openStat = nil
+            }
+            .environment(\.hidesAmounts, hidesAmounts)
+        }
+        .sheet(item: $openPeriod, onDismiss: runPeriodShowAll) { period in
+            PeriodSheet(period: period) { periodShowAll = period.filter }
+                .environment(\.hidesAmounts, hidesAmounts)
+        }
         .sheet(item: $assistant, onDismiss: runPendingAction) { presentation in
             AssistantSheet(cards: presentation.cards, inputs: presentation.inputs,
                            categories: presentation.categories) { pendingAction = $0 }
@@ -480,18 +502,22 @@ struct DashboardView: View {
         let split = formatted.lastIndex(of: ".").map { (formatted[..<$0], formatted[$0...]) }
 
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("Gastos en " + heroMonthTitle)
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(palette.secondaryLabel)
+            HStack(spacing: 0) {
+                monthMenu
 
                 Spacer(minLength: 8)
 
-                // El pasado se navega desde aquí, un mes por toque.
-                monthArrow("chevron.left", label: "Mes anterior") { monthOffset += 1 }
-                monthArrow("chevron.right", label: "Mes siguiente", disabled: isCurrentMonth) {
-                    monthOffset = max(0, monthOffset - 1)
+                // El mes de al lado, un toque; cualquier otro, desde el menú
+                // del título.
+                // Encimadas en el área de toque: los círculos quedan a 6 pt,
+                // como antes, y el de la derecha pegado al borde.
+                HStack(spacing: -10) {
+                    monthArrow("chevron.left", label: "Mes anterior") { monthOffset += 1 }
+                    monthArrow("chevron.right", label: "Mes siguiente", disabled: isCurrentMonth) {
+                        monthOffset = max(0, monthOffset - 1)
+                    }
                 }
+                .padding(.trailing, -8)
             }
 
             HStack(alignment: .center, spacing: 12) {
@@ -638,6 +664,42 @@ struct DashboardView: View {
         }
     }
 
+    /// «Gastos en Setiembre 2026 ⌄» (`06`): abre el menú con todo el
+    /// historial, como «Días ⌄» en el gráfico. Cada mes lleva su gasto para
+    /// reconocerlo sin abrirlo; con el ojito cerrado, tapado.
+    private var monthMenu: some View {
+        Menu {
+            ForEach(monthOptions) { option in
+                Button {
+                    guard option.offset != monthOffset else { return }
+                    Analytics.tap("summary.month_menu", ["offset": option.offset])
+                    withAnimation(.easeInOut(duration: 0.25)) { monthOffset = option.offset }
+                } label: {
+                    Text(option.title)
+                    Text(Money.formatCompact(option.spent).masked(hidesAmounts))
+                    if option.offset == monthOffset { Image(systemName: "checkmark") }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("Gastos en " + heroMonthTitle)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(palette.secondaryLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(palette.secondaryLabel)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .padding(.vertical, -8)
+        }
+        .sensoryFeedback(.selection, trigger: monthOffset)
+        .accessibilityLabel("Mes: " + heroMonthTitle)
+        .accessibilityHint("Elige otro mes")
+    }
+
     private func monthArrow(_ icon: String, label: String, disabled: Bool = false,
                             action: @escaping () -> Void) -> some View {
         Button {
@@ -649,6 +711,10 @@ struct DashboardView: View {
                 .frame(width: 28, height: 28)
                 .background(palette.surface, in: Circle())
                 .overlay(Circle().stroke(palette.hairline, lineWidth: 0.5))
+                // Se ve de 28 y se toca en 44: la fila no crece.
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .padding(.vertical, -8)
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -713,6 +779,20 @@ struct DashboardView: View {
         let columns: [SpendBarChart.Column]
         let title: String
         let defaultSelection: Int?
+        /// El primer y el último día de cada barra, y cómo se llama en su
+        /// hoja: lo que abre la barra elegida (`03`).
+        var periods: [ChartPeriod] = []
+    }
+
+    struct ChartPeriod {
+        let start: Date
+        let end: Date
+        /// «Sábado 12», «12–18 set», «Agosto 2026».
+        let title: String
+        /// Lo que dice Movimientos arriba de la lista filtrada.
+        let label: String
+        /// En «Meses» la parte se mide contra el año, no contra el mes.
+        let ofYear: Bool
     }
 
     /// Hasta dónde llega el gráfico: hoy en el mes en curso; en un mes pasado,
@@ -738,6 +818,7 @@ struct DashboardView: View {
         }
 
         let columns: [SpendBarChart.Column]
+        var periods: [ChartPeriod] = []
         let title: String
         switch chartMode {
         case .days:
@@ -745,6 +826,10 @@ struct DashboardView: View {
             // lunes a domingo, que el lunes sería una sola barra.
             let start = calendar.date(byAdding: .day, value: -6, to: end) ?? end
             let range = Period(granularity: .rango, reference: end, customStart: start, customEnd: end)
+            periods = range.days.map { day in
+                ChartPeriod(start: day, end: day, title: Self.dayTitle(day),
+                            label: Self.dayTitle(day).lowercased() + " " + Self.shortMonth(day), ofYear: false)
+            }
             columns = range.days.enumerated().map { index, day in
                 let dayTotals = totals(day, day)
                 let isToday = calendar.isDate(day, inSameDayAs: today)
@@ -762,6 +847,12 @@ struct DashboardView: View {
         case .weeks:
             // Sólo las semanas del mes, recortadas a él: la primera va del 1
             // al domingo siguiente y la última, del lunes al fin de mes.
+            periods = Self.monthWeeks(month).map { week in
+                let first = calendar.component(.day, from: week.start)
+                let last = calendar.component(.day, from: week.end)
+                let name = (first == last ? "\(first)" : "\(first)–\(last)") + " " + Self.shortMonth(week.start)
+                return ChartPeriod(start: week.start, end: week.end, title: name, label: name, ofYear: false)
+            }
             columns = Self.monthWeeks(month).enumerated().map { index, week in
                 let weekTotals = totals(week.start, week.end)
                 let first = calendar.component(.day, from: week.start)
@@ -780,6 +871,13 @@ struct DashboardView: View {
         case .months:
             var months = [month]
             for _ in 0..<5 { months.insert(months[0].previous, at: 0) }
+            periods = months.map { period in
+                let interval = period.interval
+                let last = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? interval.start
+                let name = Period.spanishMonthName(for: period.reference) + " "
+                    + String(calendar.component(.year, from: period.reference))
+                return ChartPeriod(start: interval.start, end: last, title: name, label: name.lowercased(), ofYear: true)
+            }
             columns = months.enumerated().map { index, period in
                 let monthTotals = Accounting.totals(expenses: expenses, incomes: incomes,
                                                     period: period, usdToPen: rate)
@@ -793,10 +891,19 @@ struct DashboardView: View {
             }
             title = isCurrentMonth ? "Últimos 6 meses" : "6 meses hasta " + shortMonthName
         }
-        return ChartData(columns: columns, title: title, defaultSelection: Self.defaultSelection(columns))
+        return ChartData(columns: columns, title: title, defaultSelection: Self.defaultSelection(columns),
+                         periods: periods)
     }
 
     private static let weekdays = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
+    private static let longWeekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
+
+    /// «Sábado 12».
+    static func dayTitle(_ day: Date) -> String {
+        let calendar = Period.calendar
+        return longWeekdays[calendar.component(.weekday, from: day) - 1] + " "
+            + String(calendar.component(.day, from: day))
+    }
 
     /// «set»: como se abrevia en Perú, no el «sept» de `es_ES`.
     private static func shortMonth(_ date: Date) -> String {
@@ -860,7 +967,13 @@ struct DashboardView: View {
             SpendBarChart(columns: chart.columns,
                           selected: Binding(get: { selectedColumn ?? chart.defaultSelection },
                                             set: { selectedColumn = $0 }),
-                          isReady: catalog != nil)
+                          isReady: catalog != nil,
+                          onOpen: { index in
+                              guard chart.periods.indices.contains(index) else { return }
+                              let period = chart.periods[index]
+                              Analytics.tap("summary.chart_period", ["mode": chartMode.rawValue])
+                              openPeriod = periodDetail(period)
+                          })
         }
         .padding(.horizontal, 2)
     }
@@ -901,14 +1014,23 @@ struct DashboardView: View {
 
     // MARK: - Stats
 
+    /// Con una cuenta elegida, lo gastado entre todas: la hoja de Ritmo dice
+    /// cómo va el total (`02`). Sin cuenta elegida no hace falta.
+    private func allAccountsSpent(recentStart: Date) -> Double? {
+        guard filter.selection != nil else { return nil }
+        let snapshots = expenses.prefix { $0.date >= recentStart }.map(\.accountingSnapshot)
+        return Accounting.totals(expenses: snapshots, incomes: [], period: month, usdToPen: rate).spent
+    }
+
     /// Las tiras elegidas en Ajustes › Estadísticas, en su orden.
     ///
     /// Cuántas quedan decide el dibujo: una sola va en grande con su gráfico
     /// y su frase; dos se reparten la fila y enseñan una segunda línea; tres
     /// llenan la fila, y con más la fila se desliza como carrusel.
     @ViewBuilder
-    private func statsBlock(totals: PeriodTotals, expenses: [Expense], incomes: [IncomeSnapshot]) -> some View {
-        let stats = self.stats(totals: totals, expenses: expenses, incomes: incomes)
+    private func statsBlock(totals: PeriodTotals, expenses: [Expense], incomes: [IncomeSnapshot],
+                            allSpent: Double?) -> some View {
+        let stats = self.stats(totals: totals, expenses: expenses, incomes: incomes, allSpent: allSpent)
 
         if !stats.isEmpty {
             ShellSectionHeader(title: monthName + " · Estadísticas")
@@ -928,14 +1050,17 @@ struct DashboardView: View {
                 .padding(.bottom, 20)
 
             default:
-                // Tres tiras del mismo ancho que llenan la fila, alineadas con
-                // Historial y Categorías de abajo (mismo espacio entre ellas).
-                // Si hay más de tres, las demás siguen al deslizar.
+                // Tres tiras del mismo ancho que llenan la fila. Con más de
+                // tres (`04`), las tres se angostan y la cuarta asoma por el
+                // borde: lo cortado dice que la fila sigue.
+                let peek: CGFloat = stats.count > 3 ? Self.stripPeek : 0
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Self.gridSpacing) {
                         ForEach(stats) { stat in
                             strip(stat, roomy: false)
-                                .containerRelativeFrame(.horizontal, count: 3, spacing: Self.gridSpacing)
+                                .containerRelativeFrame(.horizontal) { length, _ in
+                                    (length - 2 * Self.gridSpacing - peek) / 3
+                                }
                         }
                     }
                     .scrollTargetLayout()
@@ -949,6 +1074,10 @@ struct DashboardView: View {
             }
         }
     }
+
+    /// Lo que se le quita a la fila para que asome la cuarta tira: con el
+    /// espacio entre tiras, quedan unos 20 pt a la vista.
+    private static let stripPeek: CGFloat = 34
 
     /// Una tira: etiqueta y cifra; con sitio (dos tiras), también su segunda
     /// línea.
@@ -1019,7 +1148,8 @@ struct DashboardView: View {
         return values.map { sum = Money.add(sum, $0); return sum }
     }
 
-    private func stats(totals: PeriodTotals, expenses: [Expense], incomes: [IncomeSnapshot]) -> [StatDetail] {
+    private func stats(totals: PeriodTotals, expenses: [Expense], incomes: [IncomeSnapshot],
+                       allSpent: Double?) -> [StatDetail] {
         let chosen = DashboardStatsSettings.decode(statsRaw)
         guard !chosen.isEmpty else { return [] }
         let series = monthSeries(totals)
@@ -1027,7 +1157,7 @@ struct DashboardView: View {
         return chosen.compactMap { kind in
             switch kind {
             case .net:           return netStat(totals, series, incomes: incomes)
-            case .pace:          return paceStat(totals, series)
+            case .pace:          return paceStat(totals, series, allSpent: allSpent)
             case .perDay:        return perDayStat(totals, series)
             case .biggest:       return biggestStat(totals, series, expenses: expenses)
             case .topDay:        return topDayStat(series, expenses: expenses)
@@ -1082,21 +1212,37 @@ struct DashboardView: View {
                 yMax: max(totals.income, totals.spent) * 1.08)))
     }
 
-    /// Sólo con presupuesto, y sin una cuenta elegida: el presupuesto es del
-    /// mes entero, no de una tarjeta.
-    private func paceStat(_ totals: PeriodTotals, _ s: MonthSeries) -> StatDetail? {
-        guard filter.selection == nil,
-              let pace = BudgetStore.pace(monthlyBudget: monthlyBudget, enabled: budgetEnabled,
+    /// Sólo con presupuesto. Con una cuenta elegida (`02`) no desaparece:
+    /// mide lo que esa cuenta lleva del presupuesto del mes, lo dice en su
+    /// título («Ritmo · BBVA») y la hoja cuenta en una línea cómo va el total.
+    private func paceStat(_ totals: PeriodTotals, _ s: MonthSeries, allSpent: Double?) -> StatDetail? {
+        guard let pace = BudgetStore.pace(monthlyBudget: monthlyBudget, enabled: budgetEnabled,
                                           for: month, spent: totals.spent) else { return nil }
         let n = s.days.count
         let ideal = (0..<n).map { Money.multiply(pace.target, by: Double($0 + 1) / Double(n)) }
+
+        var title: String?
+        var detail = pace.message
+        var spentLabel = "Gastado"
+        if filter.selection != nil, let allSpent,
+           let all = BudgetStore.pace(monthlyBudget: monthlyBudget, enabled: budgetEnabled,
+                                      for: month, spent: allSpent) {
+            let account = selectedAccountName
+            title = DashboardStat.pace.title + " · " + account
+            spentLabel = "Gastado con " + account
+            detail = "Con " + account + (isCurrentMonth ? " llevas " : " gastaste ")
+                + Money.formatCompact(pace.spent) + " de tu presupuesto de " + Money.formatCompact(pace.target) + ". "
+                + (isCurrentMonth
+                    ? "Entre todas tus cuentas vas en \(all.usedPercent)%; lo esperado a estas alturas es \(all.expectedPercent)%."
+                    : "Entre todas tus cuentas llegaste a \(all.usedPercent)%.")
+        }
 
         return StatDetail(
             kind: .pace,
             amount: "\(pace.usedPercent)%",
             amountColor: pace.status == .over ? palette.expenseText : nil,
-            detail: pace.message,
-            tiles: [StatFigure(label: "Gastado", value: Money.formatCompact(pace.spent)),
+            detail: detail,
+            tiles: [StatFigure(label: spentLabel, value: Money.formatCompact(pace.spent)),
                     StatFigure(label: "Presupuesto", value: Money.formatCompact(pace.target))],
             strip: "\(pace.usedPercent)%",
             caption: "Lo esperado: \(pace.expectedPercent)%",
@@ -1108,7 +1254,8 @@ struct DashboardView: View {
                     s.labels[k] + " · " + Money.formatCompact(k < s.elapsed ? s.cumulative[k] : ideal[k])
                 },
                 defaultIndex: s.lastIndex,
-                yMax: max(pace.target, totals.spent) * 1.04)))
+                yMax: max(pace.target, totals.spent) * 1.04)),
+            customTitle: title)
     }
 
     private func perDayStat(_ totals: PeriodTotals, _ s: MonthSeries) -> StatDetail? {
@@ -1160,7 +1307,8 @@ struct DashboardView: View {
                     StatFigure(label: "Del mes", value: Money.formatPercent(cost, of: totals.spent))],
             strip: Money.formatCompact(cost),
             caption: name,
-            visual: dailyChart(s, defaultIndex: index))
+            visual: dailyChart(s, defaultIndex: index),
+            button: StatButton(title: "Ver movimiento", target: .expense(biggest.id)))
     }
 
     /// El día del mes con más gasto. La tira dice sólo la fecha; el monto y
@@ -1184,7 +1332,9 @@ struct DashboardView: View {
                     StatFigure(label: "Lo principal", value: main.map { Accounting.displayName($0.merchant) } ?? "—")],
             strip: s.labels[index],
             caption: Money.formatCompact(total) + " · " + count,
-            visual: dailyChart(s, defaultIndex: index))
+            visual: dailyChart(s, defaultIndex: index),
+            button: StatButton(title: ofDay.count == 1 ? "Ver el movimiento" : "Ver los \(ofDay.count) movimientos",
+                               target: .day(day)))
     }
 
     /// Días del mes sin gastar: hasta hoy en el mes en curso, el mes entero en
@@ -1227,10 +1377,11 @@ struct DashboardView: View {
                           start: s.labels.first ?? "", end: s.labels.last ?? ""))
     }
 
-    /// Las categorías que pasaron su límite en el ciclo del mes mostrado. Como
-    /// Ritmo, sin una cuenta elegida: el límite es de la categoría entera.
+    /// Las categorías que pasaron su límite en el ciclo del mes mostrado. Con
+    /// una cuenta elegida sigue a la vista y no cambia: el límite es de la
+    /// categoría entera, así que suma todas las cuentas, y la hoja lo dice.
     private func limitsStat() -> StatDetail? {
-        guard filter.selection == nil, !limitStatuses.isEmpty else { return nil }
+        guard !limitStatuses.isEmpty else { return nil }
         let over = limitStatuses.filter(\.isOver).sorted { Money.cents($0.overBy) > Money.cents($1.overBy) }
         let near = limitStatuses.filter { $0.level == .cerca }.count
         let total = limitStatuses.count
@@ -1239,9 +1390,10 @@ struct DashboardView: View {
             kind: .limitsOver,
             amount: "\(over.count) de \(total)",
             amountColor: over.isEmpty ? nil : palette.negative,
-            detail: over.isEmpty
+            detail: (over.isEmpty
                 ? "Ninguna categoría con límite se pasó en su ciclo actual."
-                : "Categorías que ya gastaron más que su límite en su ciclo actual.",
+                : "Categorías que ya gastaron más que su límite en su ciclo actual.")
+                + (filter.selection == nil ? "" : " Suma todas tus cuentas, no sólo " + selectedAccountName + "."),
             tiles: [StatFigure(label: "Con límite", value: "\(total)"),
                     StatFigure(label: "Cerca del límite", value: "\(near)",
                              color: near > 0 ? palette.warning : nil)],
@@ -1280,11 +1432,174 @@ struct DashboardView: View {
             .flatMap { Money.cents(Accounting.netCostInPEN($0, fallbackRate: rate)) > 0 ? $0 : nil }
     }
 
+    // MARK: - Hoja del periodo
+
+    /// Lo que formó un periodo (`03`): sus tres últimos gastos, cuántos más
+    /// hay y de qué categorías, y qué parte del mes —o del año, en la vista
+    /// de meses— es. Con la cuenta del chip, como todo el Resumen.
+    private func periodDetail(_ period: ChartPeriod, detail: String? = nil) -> PeriodDetail {
+        let calendar = Period.calendar
+        let range = Period(granularity: .rango, reference: period.start,
+                           customStart: period.start, customEnd: period.end)
+        let interval = range.interval
+
+        // Un año entero va más allá de los seis meses que lee el Resumen.
+        let source: [Expense]
+        if period.ofYear {
+            let year = calendar.dateInterval(of: .year, for: period.start)
+                ?? DateInterval(start: period.start, end: interval.end)
+            let start = year.start, end = year.end
+            let fetched = (try? modelContext.fetch(FetchDescriptor<Expense>(
+                predicate: #Predicate { $0.date >= start && $0.date < end },
+                sortBy: [SortDescriptor(\Expense.date, order: .reverse)]))) ?? []
+            if let account = filter.selection, let catalog {
+                source = fetched.filter { AccountFilter.matches($0, account: account, catalog: catalog) }
+            } else {
+                source = fetched
+            }
+        } else {
+            source = filteredExpenses
+        }
+        let snapshots = source.map(\.accountingSnapshot)
+        let spent = Accounting.totals(expenses: snapshots, incomes: [], period: range, usdToPen: rate).spent
+
+        // Ya vienen de la más nueva a la más vieja.
+        let ofPeriod = source.filter { $0.countsAsSpending && $0.date >= interval.start && $0.date < interval.end }
+        let recent = Array(ofPeriod.prefix(3))
+        let rest = ofPeriod.dropFirst(3)
+        var byCategory: [String: Double] = [:]
+        for expense in rest {
+            byCategory[expense.category, default: 0] += Accounting.netCostInPEN(expense, fallbackRate: rate)
+        }
+        let moreCategories = byCategory.sorted { $0.value > $1.value }.map(\.key)
+
+        let whole: Period
+        let wholeLabel: String
+        if period.ofYear {
+            let start = calendar.dateInterval(of: .year, for: period.start)?.start ?? period.start
+            let last = calendar.date(byAdding: .day, value: -1,
+                                     to: calendar.date(byAdding: .year, value: 1, to: start) ?? start) ?? start
+            whole = Period(granularity: .rango, reference: start, customStart: start, customEnd: last)
+            wholeLabel = "Del año"
+        } else {
+            whole = Period(granularity: .mes, reference: period.start)
+            wholeLabel = "Del mes"
+        }
+        let wholeSpent = Accounting.totals(expenses: snapshots, incomes: [], period: whole, usdToPen: rate).spent
+
+        let count = ofPeriod.count
+        let phrase = count == 0 ? "Sin gastos en este periodo."
+            : count == 1 ? "1 movimiento." : "\(count) movimientos."
+
+        return PeriodDetail(
+            title: period.title,
+            spent: spent,
+            detail: detail ?? phrase,
+            recent: recent,
+            moreCount: rest.count,
+            moreCategories: moreCategories,
+            tiles: [StatFigure(label: "Gastado", value: Money.formatCompact(spent)),
+                    StatFigure(label: wholeLabel, value: Money.formatPercent(spent, of: wholeSpent))],
+            filter: .init(interval: interval, label: period.label),
+            rate: rate)
+    }
+
+    /// El periodo de un solo día: «Día de más gasto» y la tira «Hoy».
+    private func dayPeriod(_ day: Date) -> ChartPeriod {
+        let day = Period.calendar.startOfDay(for: day)
+        return ChartPeriod(start: day, end: day, title: Self.dayTitle(day),
+                           label: Self.dayTitle(day).lowercased() + " " + Self.shortMonth(day), ofYear: false)
+    }
+
+    /// Lo que pidió el botón de una hoja de stats (`05`), ya cerrada.
+    private func runStatTarget() {
+        guard let target = statTarget else { return }
+        statTarget = nil
+        switch target {
+        case .expense(let id):
+            // `ContentView` espera a que baje la hoja y abre el detalle.
+            ActivityFocus.request(transactionID: id, date: Date())
+        case .day(let day):
+            openPeriod = periodDetail(dayPeriod(day))
+        }
+    }
+
+    /// «Ver en Movimientos»: la pestaña con sólo ese periodo.
+    private func runPeriodShowAll() {
+        guard let selection = periodShowAll else { return }
+        periodShowAll = nil
+        showMovements(in: selection)
+    }
+
+    private func showMovements(in selection: MovementsPeriodFilter.Selection?) {
+        MovementsPeriodFilter.shared.selection = selection
+        onOpen(.movements)
+    }
+
+    // MARK: - Menú de meses
+
+    struct MonthOption: Identifiable {
+        let offset: Int
+        let title: String
+        let spent: Double
+        var id: Int { offset }
+    }
+
+    /// Todo el historial, del mes actual hacia atrás, con el gasto de cada
+    /// mes en la cuenta del chip (`06`). Se agrupa una vez y cada mes suma
+    /// sólo lo suyo.
+    private func loadMonthOptions(_ all: [Expense]? = nil) {
+        let all = all ?? ((try? modelContext.fetch(FetchDescriptor<Expense>())) ?? [])
+        let calendar = Period.calendar
+        let mine: [Expense]
+        if let account = filter.selection, let catalog {
+            mine = all.filter { AccountFilter.matches($0, account: account, catalog: catalog) }
+        } else {
+            mine = all
+        }
+        var groups: [DateComponents: [ExpenseSnapshot]] = [:]
+        for expense in mine {
+            groups[calendar.dateComponents([.year, .month], from: expense.date), default: []]
+                .append(expense.accountingSnapshot)
+        }
+        let earliest = all.map(\.date).min() ?? Date()
+        let current = Period(granularity: .mes, reference: Date())
+        let span = max(0, (calendar.dateComponents([.month], from: calendar.startOfDay(for: earliest),
+                                                     to: current.interval.start).month ?? 0) + 1)
+        let thisYear = calendar.component(.year, from: Date())
+
+        var period = current
+        var options: [MonthOption] = []
+        for offset in 0...span {
+            let key = calendar.dateComponents([.year, .month], from: period.reference)
+            let spent = groups[key].map {
+                Accounting.totals(expenses: $0, incomes: [], period: period, usdToPen: rate).spent
+            } ?? 0
+            let year = calendar.component(.year, from: period.reference)
+            // El mes actual y los de otro año llevan el año, como el titular.
+            let name = Period.spanishMonthName(for: period.reference)
+            options.append(MonthOption(offset: offset,
+                                       title: offset == 0 || year != thisYear ? name + " " + String(year) : name,
+                                       spent: spent))
+            period = period.previous
+        }
+        // El mes más viejo sin nada es el de antes del primer movimiento.
+        while options.count > 1, let last = options.last, Money.cents(last.spent) == 0,
+              last.offset > monthOffset {
+            options.removeLast()
+        }
+        monthOptions = options
+    }
+
     // MARK: - Atajos
 
-    /// Atajos (`2b`): la tira de lo que falta clasificar —sólo mientras haya
-    /// algo— y, debajo, Categorías y Social lado a lado. Historial salió
-    /// porque Movimientos ya es pestaña, y Etiquetas con él.
+    /// Atajos (`2b`): la tira de lo que falta clasificar y, debajo, Categorías
+    /// y Social lado a lado. Historial salió porque Movimientos ya es
+    /// pestaña, y Etiquetas con él.
+    ///
+    /// Sin nada por clasificar, la tira pasa a hablar del día (`1c` de
+    /// «Atajos Movimientos»): misma forma, así que el cambio de estado no
+    /// mueve la cuadrícula de abajo.
     private func shortcuts(totals: PeriodTotals) -> some View {
         // Las categorías que pasaron su límite: el globo de la tarjeta y el
         // punto ámbar de sus filas.
@@ -1311,7 +1626,10 @@ struct DashboardView: View {
         return VStack(spacing: Self.gridSpacing) {
             if monthCount > 0 {
                 pendingStrip(count: monthCount)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
+            } else {
+                todayStrip
+                    .transition(.opacity)
             }
             Grid(horizontalSpacing: Self.gridSpacing, verticalSpacing: Self.gridSpacing) {
                 GridRow {
@@ -1371,6 +1689,86 @@ struct DashboardView: View {
         .accessibilityLabel("Por clasificar")
         .accessibilityValue(detail)
         .accessibilityHint("Abre Pendientes para clasificarlos")
+    }
+
+    /// «S/ 86.70 hoy · 5 movimientos» con los íconos de los últimos gastos
+    /// apilados (`1c`). El titular ya da el mes; esto da el día. En un mes
+    /// pasado, su último día: la barra que el gráfico marca en ese mes.
+    private var todayStrip: some View {
+        let calendar = Period.calendar
+        let day = calendar.startOfDay(for: referenceDay)
+        let next = calendar.date(byAdding: .day, value: 1, to: day) ?? day
+        let ofDay = filteredExpenses.filter { $0.countsAsSpending && $0.date >= day && $0.date < next }
+        let range = Period(granularity: .rango, reference: day, customStart: day, customEnd: day)
+        let spent = Accounting.totals(expenses: ofDay.map(\.accountingSnapshot), incomes: [],
+                                      period: range, usdToPen: rate).spent
+        var icons: [String] = []
+        for expense in ofDay where !icons.contains(expense.category) {
+            icons.append(expense.category)
+            if icons.count == 3 { break }
+        }
+        let when = isCurrentMonth ? "hoy" : "el \(calendar.component(.day, from: day)) " + Self.shortMonth(day)
+        let title = ofDay.isEmpty ? "Nada gastado " + when : Money.format(spent) + " " + when
+        let detail = ofDay.isEmpty
+            ? (isCurrentMonth ? "Sin movimientos todavía" : "Sin movimientos ese día")
+            : ofDay.count == 1 ? "1 movimiento" : "\(ofDay.count) movimientos"
+        let stripFill = accent.color.opacity(0.08)
+
+        return Button {
+            Analytics.tap("summary.today_strip", ["count": ofDay.count])
+            // Hoy, la lista ya empieza por hoy; en un mes pasado, se va a
+            // ese día.
+            showMovements(in: isCurrentMonth ? nil : periodDetail(dayPeriod(day)).filter)
+        } label: {
+            HStack(spacing: 12) {
+                if icons.isEmpty {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(accent.onSurface(scheme))
+                        .frame(width: 38, height: 38)
+                        .background(accent.softFill(scheme), in: Circle())
+                } else {
+                    StackedCategoryIcons(categories: icons, size: 30,
+                                         ring: palette.background.mix(with: accent.color, by: 0.08))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title.masked(hidesAmounts))
+                        .amountVeil()
+                        .font(.system(size: 15, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.label)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(palette.secondaryLabel)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text("Movimientos")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accent.buttonText)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
+                    .background(accent.buttonFill, in: Capsule())
+            }
+            // El mismo alto que «Por clasificar»: su círculo es de 38.
+            .frame(minHeight: 38)
+            .padding(.vertical, 12)
+            .padding(.leading, 14)
+            .padding(.trailing, 12)
+            .background(stripFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(accent.color.opacity(0.18), lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title.masked(hidesAmounts))
+        .accessibilityValue(detail)
+        .accessibilityHint("Abre Movimientos")
     }
 
     /// Entre las tiras de stats y entre las tarjetas de la cuadrícula: el
@@ -1445,15 +1843,16 @@ struct DashboardView: View {
 
 /// El dashboard con su mes. Guarda cuántos meses se retrocedió para que
 /// `DashboardView` se reconstruya —con consultas del mes nuevo— al cambiarlo.
+/// El mes vive en `SummaryContext`: Categorías abre con él.
 struct DashboardScreen: View {
     let progress: ScrollProgress
     let onOpen: (AppSection) -> Void
     let onSettings: () -> Void
 
-    @State private var monthOffset = 0
+    @State private var context = SummaryContext.shared
 
     var body: some View {
-        DashboardView(monthOffset: $monthOffset,
+        DashboardView(monthOffset: $context.monthOffset,
                       progress: progress,
                       onOpen: onOpen,
                       onSettings: onSettings)

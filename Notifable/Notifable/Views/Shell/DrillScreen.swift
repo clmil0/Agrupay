@@ -54,13 +54,14 @@ struct SectionScreen: View {
 
     @State private var progress = ScrollProgress()
     @State private var scrollToTopTrigger = false
+    @State private var showsProfile = false
 
     var body: some View {
         ZStack(alignment: .top) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            DrillHeader(progress: progress, onBack: onBack) {
+            DrillHeader(progress: progress, onBack: onBack, leading: leading) {
                 if siblings.count > 1 {
                     SubtabPill(tabs: siblings, selection: $section) { tab in
                         switch tab {
@@ -83,8 +84,32 @@ struct SectionScreen: View {
                 }
             }
         }
-        .onChange(of: section) { _, _ in progress.reset() }
+        .onChange(of: section) { _, new in
+            progress.reset()
+            openProfileIfAsked(new)
+        }
+        .onAppear { openProfileIfAsked(section) }
         .onChange(of: scrollToTopRequest) { _, _ in scrollToTopTrigger.toggle() }
+        .sheet(isPresented: $showsProfile) { ProfileSheet() }
+    }
+
+    /// En la raíz de una pestaña, la cápsula que ocupa el hueco del «volver»:
+    /// el correo en Movimientos, tu perfil en Amigos.
+    private var leading: AnyView? {
+        guard onBack == nil else { return nil }
+        switch section {
+        case .movements, .pending, .analysis: return AnyView(MailStatusChip())
+        case .social, .receivables: return AnyView(ProfileChip { showsProfile = true })
+        default: return nil
+        }
+    }
+
+    /// Mi perfil dejó de ser pestaña (`1a`): quien todavía pida esa sección
+    /// (el asistente, un enlace) cae en Amigos con la hoja abierta.
+    private func openProfileIfAsked(_ section: AppSection) {
+        guard section == .profile else { return }
+        self.section = .social
+        showsProfile = true
     }
 
     @ViewBuilder

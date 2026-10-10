@@ -139,6 +139,8 @@ struct ShellSegment<Item: Hashable>: View {
     let items: [Item]
     @Binding var selection: Item
     var tint: Color?
+    /// Un número junto a la opción: lo nuevo que hay del otro lado.
+    var badge: (Item) -> Int? = { _ in nil }
     let label: (Item) -> String
 
     @Environment(\.colorScheme) private var scheme
@@ -152,17 +154,27 @@ struct ShellSegment<Item: Hashable>: View {
                     guard selection != item else { return }
                     withAnimation(.easeInOut(duration: 0.22)) { selection = item }
                 } label: {
-                    Text(label(item))
-                        .font(.system(size: 13, weight: selection == item ? .semibold : .regular))
-                        .foregroundStyle(selection == item ? selectedText : palette.secondaryLabel)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .background {
-                            if selection == item {
-                                Capsule().fill(tint?.readableFill ?? palette.selectedFill)
-                            }
+                    HStack(spacing: 6) {
+                        Text(label(item))
+                            .font(.system(size: 13, weight: selection == item ? .semibold : .regular))
+                            .foregroundStyle(selection == item ? selectedText : palette.secondaryLabel)
+                        if let count = badge(item), count > 0 {
+                            Text(count > 99 ? "99+" : "\(count)")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 5)
+                                .frame(minWidth: 16, minHeight: 16)
+                                .background(palette.expense, in: Capsule())
                         }
-                        .contentShape(Capsule())
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 32)
+                    .background {
+                        if selection == item {
+                            Capsule().fill(tint?.readableFill ?? palette.selectedFill)
+                        }
+                    }
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }

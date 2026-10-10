@@ -167,19 +167,9 @@ struct MovementRow: View {
     @State private var categorizing = false
     @State private var tagging = false
     @State private var sharing = false
-    /// Deslizar a la izquierda muestra «Compartir» («Soluciones de cobro», 01).
-    @State private var swipeOffset: CGFloat = 0
-    @State private var swipeIsHorizontal: Bool?
-    /// Dónde estaba la fila al empezar a arrastrar (abierta o cerrada).
-    @State private var swipeBase: CGFloat = 0
     @State private var receivables = FriendReceivables.shared
     private var palette: Palette { Palette(scheme).themed(proTheme) }
     private var accent: AppThemeColor { .current }
-
-    private static let revealWidth: CGFloat = 92
-    private var swipeIsOpen: Bool { swipeOffset <= -Self.revealWidth + 1 }
-    /// Sólo fuera del modo selección y en un gasto que se pueda compartir.
-    private var allowsSwipe: Bool { selection == nil && expense.canBeShared }
 
     private func assignCategory() {
         if let onAssignCategory { onAssignCategory() } else { categorizing = true }
@@ -272,69 +262,11 @@ struct MovementRow: View {
         }
     }
 
-    /// La fila con «Compartir» detrás. Deslizar es un gesto aparte del
-    /// desplazamiento vertical: sólo se toma si el dedo va más de lado que
-    /// hacia abajo. Deslizar hasta el fondo comparte de una.
+    /// «Compartir» vive en el menú al mantener presionado y en el detalle:
+    /// deslizar la fila de lado estorbaba al desplazar la lista.
     private var content: some View {
-        ZStack(alignment: .trailing) {
-            if swipeOffset < 0 {
-                Button {
-                    closeSwipe()
-                    sharing = true
-                } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: "person.2.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                        Text("Compartir")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundStyle(accent.buttonText)
-                    .frame(width: max(Self.revealWidth, -swipeOffset))
-                    .frame(maxHeight: .infinity)
-                    .background(accent.buttonFill)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Compartir con amigos")
-            }
-            rowContent
-                .background(palette.surface.opacity(swipeOffset < 0 ? 1 : 0))
-                .offset(x: swipeOffset)
-        }
-        .clipped()
-        .simultaneousGesture(swipeGesture, including: allowsSwipe ? .all : .subviews)
-        .sheet(isPresented: $sharing) { ShareExpenseSheet(expense: expense) }
-    }
-
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 14, coordinateSpace: .local)
-            .onChanged { value in
-                if swipeIsHorizontal == nil {
-                    swipeIsHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.4
-                    swipeBase = swipeIsOpen ? -Self.revealWidth : 0
-                }
-                guard swipeIsHorizontal == true else { return }
-                swipeOffset = min(0, max(-Self.revealWidth * 2.2, swipeBase + value.translation.width))
-            }
-            .onEnded { value in
-                defer { swipeIsHorizontal = nil }
-                guard swipeIsHorizontal == true else { return }
-                // Compartir de una sólo si el dedo de verdad llegó al fondo;
-                // la inercia decide únicamente si queda abierta o cerrada.
-                let final = swipeOffset + (value.predictedEndTranslation.width - value.translation.width) * 0.2
-                if swipeOffset < -Self.revealWidth * 1.9 {
-                    // Hasta el fondo: comparte sin otro toque.
-                    closeSwipe()
-                    sharing = true
-                } else {
-                    withAnimation(.snappy(duration: 0.25)) {
-                        swipeOffset = final < -Self.revealWidth * 0.5 ? -Self.revealWidth : 0
-                    }
-                }
-            }
-    }
-
-    private func closeSwipe() {
-        withAnimation(.snappy(duration: 0.25)) { swipeOffset = 0 }
+        rowContent
+            .sheet(isPresented: $sharing) { ShareExpenseSheet(expense: expense) }
     }
 
     private var rowContent: some View {
@@ -417,8 +349,7 @@ struct MovementRow: View {
         .padding(.vertical, 13)
         .background(accent.color.opacity(selection == true ? 0.07 : 0))
         .contentShape(Rectangle())
-        // Abierta, el toque la cierra en vez de abrir el detalle.
-        .onTapGesture { if swipeOffset < 0 { closeSwipe() } else { onTap() } }
+        .onTapGesture { onTap() }
         .contextMenu {
             // «Compartir…» y «Repartir después» primero: el atajo rápido
             // sigue, pero su nombre dice que falta repartir.

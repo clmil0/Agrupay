@@ -7,7 +7,7 @@ import SwiftUI
 /// desde su tarjeta: Historial, Categorías, Pendientes, Amigos. Lo que antes
 /// eran hermanas en la píldora siguen siéndolo dentro de la pantalla a la que
 /// se entra: Movimientos ↔ Pendientes ↔ Análisis, Categorías ↔ Etiquetas, y en Social
-/// Amigos · Cobros · Perfil.
+/// Amigos · Cobros (Mi perfil se abre desde la cápsula de la izquierda).
 enum AppSection: Int, AppSubtab {
     case movements
     case analysis
@@ -54,7 +54,8 @@ enum AppSection: Int, AppSubtab {
         switch self {
         case .movements, .pending, .analysis: return [.movements, .pending, .analysis]
         case .categories, .tags:     return [.categories, .tags]
-        case .social, .receivables, .profile: return [.social, .receivables, .profile]
+        // Mi perfil ya no es pestaña: es la cápsula de la izquierda (`1a`).
+        case .social, .receivables, .profile: return [.social, .receivables]
         }
     }
 }

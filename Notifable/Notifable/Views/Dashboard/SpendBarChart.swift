@@ -14,7 +14,9 @@ import SwiftUI
 /// y lo del periodo elegido se lee en una línea encima («Vie 18 +S/ 45
 /// −S/ 86»). Sin ingresos queda el de siempre, con el monto sobre la barra.
 ///
-/// Tocar una barra la elige. Por defecto, la última con movimiento.
+/// Tocar una barra la elige. Por defecto, la última con movimiento. El monto
+/// de la elegida lleva una flecha (`03` de «Soluciones del Resumen»): tocarlo,
+/// o volver a tocar la barra elegida, abre lo que formó ese periodo.
 struct SpendBarChart: View {
 
     enum Mode: String, CaseIterable, Hashable {
@@ -47,6 +49,8 @@ struct SpendBarChart: View {
     /// animación la mueve el hilo principal fotograma a fotograma, y si
     /// arranca mientras se lee la base, se traba.
     var isReady: Bool = true
+    /// Abre el periodo de la barra elegida. Sin él, la barra sólo se elige.
+    var onOpen: ((Int) -> Void)?
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.proTheme) private var proTheme
@@ -134,12 +138,24 @@ struct SpendBarChart: View {
             }
             .overlay(alignment: .top) {
                 if isSelected {
-                    Text(Money.formatCompact(column.total).masked(hidesAmounts))
-                        .amountVeil()
-                        .font(.system(size: 13, weight: .semibold, design: proTheme?.numberDesign ?? .default))
-                        .monospacedDigit()
+                    HStack(spacing: 2) {
+                        Text(Money.formatCompact(column.total).masked(hidesAmounts))
+                            .amountVeil()
+                            .font(.system(size: 13, weight: .semibold, design: proTheme?.numberDesign ?? .default))
+                            .monospacedDigit()
+                        if canOpen(column) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9.5, weight: .bold))
+                        }
+                    }
                         .foregroundStyle(amountColor)
                         .fixedSize()
+                        // Un poco más de blanco para el dedo que el texto.
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                        .padding(.horizontal, -8)
+                        .padding(.vertical, -6)
                         .offset(y: -Self.labelRoom + max(0, Self.barArea - barHeight) - 4)
                         .transition(.opacity)
                 }
@@ -149,13 +165,12 @@ struct SpendBarChart: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.18)) { selected = column.id }
-        }
+        .onTapGesture { tap(column) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(column.detail)
         .accessibilityValue(Money.format(column.total).masked(hidesAmounts))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isSelected && canOpen(column) ? "Toca para ver sus movimientos" : "")
     }
 
     // MARK: Espejo
@@ -178,7 +193,16 @@ struct SpendBarChart: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(amountColor)
                     .amountVeil()
+                if canOpen(column) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(amountColor)
+                }
             }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let column, canOpen(column) { onOpen?(column.id) }
         }
         .font(.system(size: 12.5))
         .monospacedDigit()
@@ -233,13 +257,25 @@ struct SpendBarChart: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.18)) { selected = column.id }
-        }
+        .onTapGesture { tap(column) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(column.detail)
         .accessibilityValue(accessibilityValue(column))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// Sin gasto no hay qué abrir: la hoja saldría vacía.
+    private func canOpen(_ column: Column) -> Bool {
+        onOpen != nil && Money.cents(column.total) > 0
+    }
+
+    /// La primera vez elige; sobre la ya elegida, abre su periodo.
+    private func tap(_ column: Column) {
+        if selected == column.id, canOpen(column) {
+            onOpen?(column.id)
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.18)) { selected = column.id }
     }
 
     private func accessibilityValue(_ column: Column) -> String {

@@ -15,6 +15,12 @@ import SwiftData
 ///
 /// Cada porción del donut lleva el color de su categoría, el mismo de su ícono
 /// en la lista; el punto a su izquierda empata la fila con su porción.
+///
+/// Hereda el contexto del Resumen (`01` de «Soluciones del Resumen»): abre
+/// con su mes y su cuenta, y los dice en el subtítulo —«agosto 2026 ·
+/// BBVA»—, así que el total cuadra con el titular. Con el ojito cerrado tapa
+/// montos, límites y porcentajes, y el donut queda en gris. Tiene sus propias
+/// flechas de mes; moverlas no cambia el Resumen.
 struct CategoriesOverviewView: View {
     @Binding var scrollToTopTrigger: Bool
     let progress: ScrollProgress
@@ -26,6 +32,15 @@ struct CategoriesOverviewView: View {
     @StateObject private var rates = ExchangeRateService.shared
     @StateObject private var catalog = CategoryCatalog.shared
     @StateObject private var budgets = CategoryBudgetStore.shared
+    @StateObject private var accountBook = AccountBook.shared
+    @AppStorage(AmountPrivacy.storageKey) private var hidesAmounts = false
+
+    /// Meses hacia atrás: abre con el del Resumen.
+    @State private var monthOffset = SummaryContext.shared.monthOffset
+    @State private var filter = AccountFilter.shared
+    /// Para saber de qué cuenta es cada gasto; necesita el historial entero,
+    /// así que se arma al aparecer y no en cada dibujado.
+    @State private var accountCatalog: AccountCatalog?
 
     @State private var selectedCategory: CategoryRef?
     @State private var creatingCategory = false
@@ -36,11 +51,30 @@ struct CategoriesOverviewView: View {
     private var palette: Palette { Palette(scheme) }
     private var accent: AppThemeColor { .current }
     private var rate: Double { rates.usdToPenRate }
-    private var month: Period { Period(granularity: .mes, reference: Date()) }
+    private var month: Period { DashboardView.month(offset: monthOffset) }
+    private var isCurrentMonth: Bool { monthOffset == 0 }
+
+    /// Hoy en el mes en curso; en uno pasado, su último día. Así los límites
+    /// se leen en el ciclo del mes que se ve.
+    private var referenceDay: Date {
+        guard !isCurrentMonth else { return Date() }
+        let end = month.interval.end
+        return Period.calendar.date(byAdding: .day, value: -1, to: end) ?? end
+    }
+
+    /// Los gastos de la cuenta del chip; todos sin cuenta elegida.
+    private var accountExpenses: [Expense] {
+        guard let account = filter.selection, let accountCatalog else { return expenses }
+        return expenses.filter { AccountFilter.matches($0, account: account, catalog: accountCatalog) }
+    }
+
+    private var accountName: String? {
+        guard let key = filter.selection, let account = accountCatalog?.accounts[key] else { return nil }
+        return accountBook.preferences.name(for: account)
+    }
 
     private func totals(_ snapshots: [ExpenseSnapshot]) -> PeriodTotals {
-        Accounting.totals(expenses: snapshots, incomes: incomes.map(\.accountingSnapshot),
-                          period: month, usdToPen: rate)
+        Accounting.totals(expenses: snapshots, incomes: [], period: month, usdToPen: rate)
     }
 
     private func slices(_ totals: PeriodTotals) -> [CategoryDonut.Slice] {
@@ -54,18 +88,22 @@ struct CategoriesOverviewView: View {
     var body: some View {
         // Los totales y los límites leen el mismo historial: se convierte una
         // sola vez por dibujado, no una por cada uno.
-        let snapshots = expenses.map(\.accountingSnapshot)
+        //
+        // Los límites son de la categoría entera: se leen sobre todas las
+        // cuentas aunque la lista sea de una.
+        let snapshots = accountExpenses.map(\.accountingSnapshot)
+        let allSnapshots = filter.selection == nil ? snapshots : expenses.map(\.accountingSnapshot)
         let totals = self.totals(snapshots)
         let slices = self.slices(totals)
-        let rows = self.rows(totals, snapshots: snapshots)
+        let rows = self.rows(totals, snapshots: allSnapshots)
 
         TrackableScrollView(scrollToTopTrigger: $scrollToTopTrigger) {
             VStack(spacing: 0) {
-                ShellTitle(title: "Categorías", subtitle: monthSubtitle)
+                titleRow
 
                 if rows.isEmpty {
                     ShellEmptyState(icon: "square.grid.2x2",
-                                    title: "Sin gastos este mes",
+                                    title: isCurrentMonth ? "Sin gastos este mes" : "Sin gastos en " + monthName.lowercased(),
                                     message: "Cuando registres el primero verás aquí en qué se va tu dinero.")
                     // Crear categorías no depende de haber gastado: se pueden
                     // preparar antes del primer gasto.
@@ -92,6 +130,16 @@ struct CategoriesOverviewView: View {
             geometry.contentOffset.y + geometry.contentInsets.top
         } action: { _, offset in
             progress.update(offset)
+        }
+        .onAppear {
+            if accountCatalog == nil, filter.selection != nil {
+                accountCatalog = AccountCatalog(expenses: expenses, incomes: incomes)
+            }
+        }
+        .onChange(of: filter.selection) { _, selection in
+            if accountCatalog == nil, selection != nil {
+                accountCatalog = AccountCatalog(expenses: expenses, incomes: incomes)
+            }
         }
         .sheet(item: $selectedCategory) { ref in
             CategoryDetailView(category: ref.name)
@@ -132,19 +180,58 @@ struct CategoriesOverviewView: View {
     /// pantalla y la tarjeta queda para la lista, que es lo que se toca.
     private func chartCard(totals: PeriodTotals, slices: [CategoryDonut.Slice]) -> some View {
         HStack(spacing: 18) {
-            CategoryDonut(slices: slices)
+            // Tapado, el donut queda en gris: sus proporciones también dicen.
+            CategoryDonut(slices: hidesAmounts ? [] : slices)
 
-            DonutLegend(slices: slices, total: totals.spent)
+            DonutLegend(slices: slices, total: totals.spent, hidesPercents: hidesAmounts)
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 2)
         .padding(.top, 14)
     }
 
-    /// «setiembre 2026».
+    private var monthName: String { Period.spanishMonthName(for: month.reference) }
+
+    /// «setiembre 2026 · BBVA».
     private var monthSubtitle: String {
-        Period.spanishMonthName(for: Date()).lowercased() + " "
-            + String(Period.calendar.component(.year, from: Date()))
+        let name = monthName.lowercased() + " " + String(Period.calendar.component(.year, from: month.reference))
+        return accountName.map { name + " · " + $0 } ?? name
+    }
+
+    /// El título con el mes y la cuenta debajo, y las flechas del mes a la
+    /// derecha: cambiar de mes aquí no obliga a volver al Resumen.
+    private var titleRow: some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            ShellTitle(title: "Categorías", subtitle: monthSubtitle)
+            HStack(spacing: -10) {
+                monthArrow("chevron.left", label: "Mes anterior") { monthOffset += 1 }
+                monthArrow("chevron.right", label: "Mes siguiente", disabled: isCurrentMonth) {
+                    monthOffset = max(0, monthOffset - 1)
+                }
+            }
+            .padding(.trailing, -8)
+            .padding(.bottom, 8)
+            .sensoryFeedback(.selection, trigger: monthOffset)
+        }
+    }
+
+    private func monthArrow(_ icon: String, label: String, disabled: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.25)) { action() }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(disabled ? palette.tertiaryLabel.opacity(0.5) : palette.secondaryLabel)
+                .frame(width: 28, height: 28)
+                .background(palette.surface, in: Circle())
+                .overlay(Circle().stroke(palette.hairline, lineWidth: 0.5))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Filas
@@ -153,7 +240,7 @@ struct CategoriesOverviewView: View {
     /// límite: un límite que no se ha tocado en todo el mes es justo el que hay
     /// que ver, y si dependiera del gasto sería invisible hasta gastarlo.
     private func rows(_ totals: PeriodTotals, snapshots: [ExpenseSnapshot]) -> [Row] {
-        let today = Date()
+        let today = referenceDay
 
         func status(_ name: String) -> CategoryLimitStatus {
             CategoryLimits.status(category: name,
@@ -197,7 +284,7 @@ struct CategoriesOverviewView: View {
             Text("Gasto por categoría")
                 .font(.system(size: 15.5, weight: .semibold))
                 .foregroundStyle(palette.label)
-            Text(Money.format(spent))
+            Text(Money.format(spent).masked(hidesAmounts))
                 .font(.system(size: 12.5))
                 .monospacedDigit()
                 .foregroundStyle(palette.secondaryLabel)
@@ -254,7 +341,7 @@ struct CategoriesOverviewView: View {
 
             if row.status.hasLimit { limitBadge(row.status) }
 
-            Text(Money.format(row.total))
+            Text(Money.format(row.total).masked(hidesAmounts))
                 .font(.system(size: 14.5, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(Money.cents(row.total) > 0 ? palette.label : palette.tertiaryLabel)
@@ -270,7 +357,7 @@ struct CategoriesOverviewView: View {
         let tint = status.level.color(palette)
 
         return VStack(alignment: .trailing, spacing: 3) {
-            Text(status.shortLabel)
+            Text(status.shortLabel.masked(hidesAmounts))
                 .font(.system(size: 10.5, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(tint)
@@ -284,7 +371,7 @@ struct CategoriesOverviewView: View {
         }
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(status.longLabel)
+        .accessibilityLabel(status.longLabel.masked(hidesAmounts))
     }
 
     /// Pulsación larga: editar y eliminar (también las básicas).
@@ -345,8 +432,7 @@ struct CategoriesOverviewView: View {
 
         if !top.isEmpty {
             VStack(spacing: 8) {
-                ShellSectionHeader(title: "Top comercios",
-                                   trailing: Period.spanishMonthName(for: Date()))
+                ShellSectionHeader(title: "Top comercios", trailing: monthName)
 
                 MovementCard {
                     ForEach(Array(top.enumerated()), id: \.element.id) { index, merchant in
@@ -363,7 +449,7 @@ struct CategoriesOverviewView: View {
 
                             Spacer(minLength: 8)
 
-                            Text(Money.format(merchant.total))
+                            Text(Money.format(merchant.total).masked(hidesAmounts))
                                 .font(.system(size: 14.5, weight: .semibold))
                                 .monospacedDigit()
                                 .foregroundStyle(palette.label)

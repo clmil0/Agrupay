@@ -20,7 +20,7 @@ enum DashboardStat: String, CaseIterable, Identifiable {
         case .pace:          return "Ritmo"
         case .perDay:        return "Por día"
         case .biggest:       return "Mayor gasto"
-        case .topDay:        return "Top movimiento"
+        case .topDay:        return "Día de más gasto"
         case .noSpendStreak: return "Racha sin gastar"
         case .limitsOver:    return "Límites superados"
         }
@@ -59,8 +59,9 @@ enum DashboardStatsSettings {
 
     static let key = "dashboardStats"
 
-    /// Sin nada guardado salen todas, en el orden de siempre.
-    static let defaultValue = DashboardStat.allCases.map(\.rawValue).joined(separator: ",")
+    /// Sin nada guardado salen tres —Neto, Ritmo y Por día—, las que llenan
+    /// la fila. Las demás se encienden en Ajustes y asoman por el borde.
+    static let defaultValue = encode([.net, .pace, .perDay])
 
     static func decode(_ raw: String) -> [DashboardStat] {
         var seen = Set<DashboardStat>()

@@ -28,8 +28,12 @@ struct PendingView: View {
     /// tanto vale el de por defecto (`initialScope`), así el primer dibujado
     /// ya sale en el bueno en vez de pasar por «Este mes» y saltar.
     @State private var chosenScope: Scope?
+    /// «Seleccionar», como en Movimientos: sin él, tocar una fila abre su
+    /// detalle. Antes la lista arrancaba eligiendo y el detalle no se veía.
+    @State private var isSelecting = false
     /// Movimientos elegidos.
     @State private var selected: Set<UUID> = []
+    @State private var openedExpense: Expense?
     @State private var expanded: Set<String> = []
     @State private var visibleCount = pageSize
     @State private var assigning: AssignTarget?
@@ -134,7 +138,8 @@ struct PendingView: View {
         let merchantCount = Set(groups.map(\.merchant)).count
         let hasAnyPending = expenses.contains { $0.category == Accounting.unclassified && $0.countsAsSpending }
 
-        TrackableScrollView(scrollToTopTrigger: $scrollToTopTrigger) {
+        TrackableScrollView(scrollToTopTrigger: $scrollToTopTrigger,
+                                onRefresh: { await GmailSyncService.shared.refreshManually() }) {
             VStack(spacing: 0) {
                 ShellTitle(title: "Pendientes",
                            subtitle: groups.isEmpty ? nil
@@ -262,6 +267,7 @@ struct PendingView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
         }
+        .sheet(item: $openedExpense) { ExpenseDetailsView(expense: $0) }
         .sheet(isPresented: $showsBulk) {
             BulkClassifyView(onlyThisMonth: scope == .month)
         }
@@ -328,24 +334,45 @@ struct PendingView: View {
         let allIDs = Set(groups.flatMap { $0.expenses.map(\.id) })
         let allSelected = !allIDs.isEmpty && allIDs.isSubset(of: selected)
 
-        HStack {
-            Text(selected.isEmpty ? (layout == .merchant ? "Toca un comercio o ábrelo con la flecha"
-                                                         : "Toca los movimientos que quieras clasificar")
-                                  : selected.count == 1 ? "1 movimiento elegido"
-                                  : "\(selected.count) movimientos elegidos")
+        HStack(spacing: 14) {
+            Text(!isSelecting ? (layout == .merchant ? "Toca un comercio para ver sus movimientos"
+                                                     : "Toca un movimiento para ver su detalle")
+                 : selected.isEmpty ? "Toca los que quieras clasificar"
+                 : selected.count == 1 ? "1 movimiento elegido"
+                 : "\(selected.count) movimientos elegidos")
                 .font(.system(size: 12.5))
                 .foregroundStyle(palette.secondaryLabel)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
 
-            Spacer()
+            Spacer(minLength: 4)
+
+            if isSelecting {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selected = allSelected ? [] : allIDs
+                    }
+                } label: {
+                    Text(allSelected ? "Quitar todo" : "Todo")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(accent.onSurface(scheme))
+                }
+                .buttonStyle(.plain)
+            }
 
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    selected = allSelected ? [] : allIDs
+                withAnimation(.snappy(duration: 0.25)) {
+                    if isSelecting { selected.removeAll() }
+                    isSelecting.toggle()
                 }
             } label: {
-                Text(allSelected ? "Quitar selección" : "Seleccionar todo")
-                    .font(.system(size: 12.5, weight: .semibold))
+                Text(isSelecting ? "Listo" : "Seleccionar")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(accent.onSurface(scheme))
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(palette.surface, in: Capsule())
+                    .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
         }
@@ -435,14 +462,18 @@ struct PendingView: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        SelectionCheck(state: picked == 0 ? .off : picked == ids.count ? .on : .partial, size: 18)
+                        if isSelecting {
+                            SelectionCheck(state: picked == 0 ? .off : picked == ids.count ? .on : .partial, size: 18)
+                        }
                         Text(MovementDay.shortLabel(for: bucket.day))
                             .font(.system(size: 14.5, weight: .semibold))
                             .foregroundStyle(palette.secondaryLabel)
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Elegir todo el " + MovementDay.shortLabel(for: bucket.day))
+                .disabled(!isSelecting)
+                .accessibilityLabel(isSelecting ? "Elegir todo el " + MovementDay.shortLabel(for: bucket.day)
+                                                : MovementDay.shortLabel(for: bucket.day))
 
                 Spacer()
 
@@ -456,14 +487,18 @@ struct PendingView: View {
             MovementCard {
                 ForEach(Array(bucket.expenses.enumerated()), id: \.element.id) { index, expense in
                     let isOn = selected.contains(expense.id)
-                    MovementRow(expense: expense,
-                                showsTime: true,
-                                onTap: {
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        if isOn { selected.remove(expense.id) } else { selected.insert(expense.id) }
-                                    }
-                                },
-                                selection: isOn)
+                    if isSelecting {
+                        MovementRow(expense: expense,
+                                    showsTime: true,
+                                    onTap: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            if isOn { selected.remove(expense.id) } else { selected.insert(expense.id) }
+                                        }
+                                    },
+                                    selection: isOn)
+                    } else {
+                        MovementRow(expense: expense, showsTime: true, onTap: { openedExpense = expense })
+                    }
                     if index < bucket.expenses.count - 1 { MovementSeparator() }
                 }
             }
@@ -508,11 +543,17 @@ struct PendingView: View {
                 HStack(spacing: 0) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.18)) {
-                            if state == .on { selected.subtract(ids) } else { selected.formUnion(ids) }
+                            if isSelecting {
+                                if state == .on { selected.subtract(ids) } else { selected.formUnion(ids) }
+                            } else if isExpanded {
+                                expanded.remove(group.merchant)
+                            } else {
+                                expanded.insert(group.merchant)
+                            }
                         }
                     } label: {
                         HStack(spacing: 12) {
-                            checkmark(state, size: 24)
+                            if isSelecting { checkmark(state, size: 24) }
 
                             if let sample = group.expenses.first {
                                 let look = sourceLook(sample)
@@ -589,13 +630,16 @@ struct PendingView: View {
         let isOn = selected.contains(expense.id)
 
         return Button {
+            guard isSelecting else { openedExpense = expense; return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 if isOn { selected.remove(expense.id) } else { selected.insert(expense.id) }
             }
         } label: {
             HStack(spacing: 12) {
-                checkmark(isOn ? .on : .off, size: 20)
-                    .frame(width: 24)
+                if isSelecting {
+                    checkmark(isOn ? .on : .off, size: 20)
+                        .frame(width: 24)
+                }
 
                 Text(expense.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute().locale(Locale(identifier: "es_ES")))
                         .capitalized(with: Locale(identifier: "es_ES")))
@@ -608,6 +652,12 @@ struct PendingView: View {
                 Text(Money.format(expense.amount, currency: expense.currency))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(palette.secondaryLabel)
+
+                if !isSelecting {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.tertiaryLabel)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)

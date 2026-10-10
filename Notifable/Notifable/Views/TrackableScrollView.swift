@@ -18,6 +18,9 @@ struct TrackableScrollView<Content: View>: View {
     @Binding var scrollToTopTrigger: Bool
     /// Fila a la que desplazarse, centrada. Se vuelve a `nil` al llegar.
     @Binding var scrollTarget: UUID?
+    /// Jalar hacia abajo desde arriba: la rueda gira mientras dura. `nil`, sin
+    /// recarga.
+    var onRefresh: (@MainActor () async -> Void)?
     /// Si esta lista avisó a `ScrollActivity` de que se desliza: al
     /// desaparecer a mitad de gesto hay que cerrar ese aviso. En una caja y no
     /// en un `@State` suelto: cambiarlo no debe volver a dibujar nada, y como
@@ -27,9 +30,11 @@ struct TrackableScrollView<Content: View>: View {
 
     init(scrollToTopTrigger: Binding<Bool> = .constant(false),
          scrollTarget: Binding<UUID?> = .constant(nil),
+         onRefresh: (@MainActor () async -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self._scrollToTopTrigger = scrollToTopTrigger
         self._scrollTarget = scrollTarget
+        self.onRefresh = onRefresh
         self.content = content
     }
 
@@ -40,10 +45,14 @@ struct TrackableScrollView<Content: View>: View {
                     Color.clear.frame(height: 0).id("top")
                     content()
                 }
+                // La rueda sale encima del margen de abajo; el contenido sube
+                // lo mismo para quedarse donde estaba.
+                .padding(.top, onRefresh == nil ? 0 : -PullToRefresh.headerClearance)
             }
             // Sin barra de desplazamiento: con el header y el FAB flotando,
             // la barra del sistema se veía enorme y tapaba el borde derecho.
             .scrollIndicators(.hidden)
+            .modifier(PullToRefresh(action: onRefresh))
             .onScrollPhaseChange { _, phase in
                 report.update(isScrolling: phase.isScrolling)
             }
@@ -60,6 +69,26 @@ struct TrackableScrollView<Content: View>: View {
                 }
                 scrollTarget = nil
             }
+        }
+    }
+}
+
+/// `.refreshable` sólo si hay qué recargar: sin acción, la lista no se deja
+/// jalar.
+private struct PullToRefresh: ViewModifier {
+    let action: (@MainActor () async -> Void)?
+
+    /// La cabecera flota sobre la lista: sin este margen la rueda quedaba
+    /// escondida detrás de ella.
+    static let headerClearance = ShellMetrics.headerHeight
+
+    func body(content: Content) -> some View {
+        if let action {
+            content
+                .contentMargins(.top, Self.headerClearance, for: .scrollContent)
+                .refreshable { await action() }
+        } else {
+            content
         }
     }
 }

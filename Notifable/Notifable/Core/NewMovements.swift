@@ -4,8 +4,8 @@ import Observation
 /// Los movimientos que todavía no viste en Movimientos: los que llegaron del
 /// correo y los que anotaste a mano.
 ///
-/// Cuentan para el globo de la tarjeta «Historial» del dashboard y son los que
-/// Movimientos resalta un momento al entrar; entrar los da por vistos.
+/// Movimientos los resalta en su fila durante la visita: cada uno se apaga al
+/// pasarlo con el scroll y salir de la pestaña los da todos por vistos.
 ///
 /// Lo del correo se reconoce por el id del mensaje, no por el `UUID`: releer
 /// el correo borra y rearma los gastos con otro `UUID`, y todo volvería a ser
@@ -24,6 +24,9 @@ final class NewMovements {
     /// Hasta la primera vez no hay con qué comparar: todo lo que ya existe se
     /// da por visto, en vez de estrenar la función con cientos de «nuevos».
     private(set) var isBaselined: Bool
+    /// Los que siguen resaltados en esta visita a Movimientos: el número de
+    /// la cápsula del correo en el header.
+    var lit: Set<String> = []
 
     private init() {
         let defaults = UserDefaults.standard

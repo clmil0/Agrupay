@@ -137,12 +137,23 @@ struct ReceivablesView: View {
         var currency: String { shares.first?.currency ?? "PEN" }
     }
 
-    /// De quien más debe a quien menos; dentro, de la deuda más vieja a la
-    /// más nueva.
+    /// De quien más debe a quien menos; con el mismo monto, por nombre. El
+    /// desempate tiene que ser total: `Dictionary` no guarda orden, y sin él
+    /// los empatados se barajaban en cada redibujo (al abrir un amigo).
     private var groups: [FriendGroup] {
         Dictionary(grouping: receivables.open, by: \.debtor)
-            .map { FriendGroup(friendID: $0.key, shares: $0.value.sorted { $0.date < $1.date }) }
-            .sorted { $0.remaining > $1.remaining }
+            .map { FriendGroup(friendID: $0.key, shares: $0.value.sorted { ($0.date, $0.id) < ($1.date, $1.id) }) }
+            .sorted { a, b in
+                let ca = Money.cents(a.remaining), cb = Money.cents(b.remaining)
+                if ca != cb { return ca > cb }
+                let na = friendsManager.friend(with: a.friendID).name
+                let nb = friendsManager.friend(with: b.friendID).name
+                switch na.localizedCaseInsensitiveCompare(nb) {
+                case .orderedAscending: return true
+                case .orderedDescending: return false
+                case .orderedSame: return a.friendID < b.friendID
+                }
+            }
     }
 
     /// Las cifras del resumen suman una sola moneda: la de soles si hay

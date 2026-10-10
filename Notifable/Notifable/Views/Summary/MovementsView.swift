@@ -27,6 +27,8 @@ struct MovementsView: View {
     @StateObject private var accountBook = AccountBook.shared
 
     @State private var filter = AccountFilter.shared
+    /// El día, la semana o el mes al que llevó una hoja del Resumen.
+    @State private var period = MovementsPeriodFilter.shared
     @State private var searchText = ""
     @State private var kind: Kind = .gastos
     @State private var visibleCount = pageSize
@@ -40,9 +42,15 @@ struct MovementsView: View {
     /// Las tarjetas ocupan casi una pantalla chica: se pliegan con la
     /// flechita y se quedan como las dejaste.
     @AppStorage("movements.accountsCollapsed") private var accountsCollapsed = false
-    /// Los movimientos del correo que no habías visto: se resaltan dos
-    /// segundos al entrar y quedan como vistos.
-    @State private var highlighted: Set<String> = []
+    /// Lo que no habías visto sigue resaltado en su fila (`lit`) hasta que la
+    /// pasas con el scroll; salir de la pestaña lo da todo por visto.
+    @State private var newMovements = NewMovements.shared
+    /// Filas nuevas que ya se vieron en pantalla esta visita: al salir de
+    /// ella se apagan.
+    @State private var litOnScreen: Set<String> = []
+    /// Las que ya se apagaron esta visita: una lectura a mitad de visita no
+    /// debe volver a encenderlas.
+    @State private var passed: Set<String> = []
     /// Armado fuera del cuerpo: necesita el historial entero, y antes se
     /// volvía a armar en cada dibujado —al abrir una hoja, al escribir en el
     /// buscador—.
@@ -121,8 +129,8 @@ struct MovementsView: View {
     /// Las partes de un pago dividido tampoco: se dibujan bajo su pago
     /// (`SplitGroupRows`). Sólo si el pago está en la lista —si aún no se
     /// releyó del correo, la parte se ve suelta en vez de desaparecer—.
-    private func getSource() -> [TransactionItem] {
-        switch kind {
+    private func getSource(_ kind: Kind? = nil) -> [TransactionItem] {
+        switch kind ?? self.kind {
         case .ingresos:
             return incomes.compactMap { $0.isTransfer ? nil : .income($0) }
         case .porCobrar:
@@ -142,9 +150,11 @@ struct MovementsView: View {
     private func filterItems(_ source: [TransactionItem], catalog: AccountCatalog) -> [TransactionItem] {
         let isSearchEmpty = searchText.isEmpty
         let selection = filter.selection
-        if selection == nil && isSearchEmpty { return source }
+        let range = period.selection?.interval
+        if selection == nil && isSearchEmpty && range == nil { return source }
         
         return source.filter { item in
+            if let range, item.date < range.start || item.date >= range.end { return false }
             if let sel = selection, !AccountFilter.keys(of: item, catalog: catalog).contains(sel) { return false }
             if !isSearchEmpty && !item.matches(searchText) { return false }
             return true
@@ -183,7 +193,12 @@ struct MovementsView: View {
         let buckets = groups(from: visible)
         let splitParts = ExpenseSplit.partsByParent(expenses)
 
-        TrackableScrollView(scrollToTopTrigger: $scrollToTopTrigger) {
+        let segments: [Kind] = hasDebts ? [.gastos, .ingresos, .porCobrar] : [.gastos, .ingresos]
+        let found = searchCounts(segments, catalog: catalog)
+        let fresh = freshCounts()
+
+        TrackableScrollView(scrollToTopTrigger: $scrollToTopTrigger,
+                                onRefresh: { await GmailSyncService.shared.refreshManually() }) {
             VStack(spacing: 0) {
                 ShellTitle(title: "Movimientos", subtitle: subtitle(count: items.count))
 
@@ -211,7 +226,11 @@ struct MovementsView: View {
                     .onChange(of: carousel.map(\.key), initial: true) { _, keys in
                         if let key = filter.selection, !keys.contains(key) { filter.selection = nil }
                     }
+
+                    if filter.selection != nil { sharedFilterNote }
                 }
+
+                if let chosen = period.selection { periodNote(chosen) }
 
                 HStack(spacing: 8) {
                     searchField
@@ -221,20 +240,20 @@ struct MovementsView: View {
 
                 // La tercera opción sólo existe mientras haya algo por
                 // cobrar: un filtro que siempre dice «nada» es ruido.
-                ShellSegment(items: hasDebts ? [Kind.gastos, .ingresos, .porCobrar]
-                                             : [Kind.gastos, .ingresos],
+                ShellSegment(items: segments,
                              selection: $kind,
-                             tint: Palette(scheme).expense) { kind in
-                    switch kind {
-                    case .gastos:    return "Gastos"
-                    case .ingresos:  return "Ingresos"
-                    case .porCobrar: return "Por cobrar"
-                    }
+                             tint: Palette(scheme).expense,
+                             badge: { found == nil ? fresh[$0] : nil }) { kind in
+                    let name = Self.name(of: kind)
+                    // Buscando, cada lado dice cuántos resultados tiene: «juan»
+                    // en Gastos no es «nada» si su Plin está en Ingresos.
+                    guard let found else { return name }
+                    return name + " (\(found[kind] ?? 0))"
                 }
                 .padding(.bottom, 18)
 
                 if buckets.isEmpty {
-                    emptyState
+                    emptyState(found: found, segments: segments)
                 } else {
                     // Perezosa: con «Cargar más» la lista crece, y montar
                     // todas las filas de golpe se notaba al deslizar.
@@ -280,12 +299,25 @@ struct MovementsView: View {
             if newKind != .gastos { endSelection() }
         }
         .onChange(of: filter.selection) { _, _ in visibleCount = Self.pageSize }
+        .onChange(of: period.selection) { _, _ in
+            visibleCount = Self.pageSize
+            scrollToTopTrigger.toggle()
+        }
         // Al cobrar el último pendiente la opción desaparece: sin esto la
         // lista se quedaba vacía y sin forma de salir.
-        .onAppear(perform: rebuildCatalog)
-        .task { await showNewMovements() }
-        .onChange(of: expenses.count) { _, _ in rebuildCatalog() }
-        .onChange(of: incomes.count) { _, _ in rebuildCatalog() }
+        .onAppear {
+            rebuildCatalog()
+            lightUpNewMovements()
+        }
+        .onDisappear(perform: endVisit)
+        .onChange(of: expenses.count) { _, _ in
+            rebuildCatalog()
+            lightUpNewMovements()
+        }
+        .onChange(of: incomes.count) { _, _ in
+            rebuildCatalog()
+            lightUpNewMovements()
+        }
         .onChange(of: hasDebts) { _, has in
             if !has, kind == .porCobrar { kind = .gastos }
         }
@@ -335,22 +367,121 @@ struct MovementsView: View {
         .sheet(item: $splitting) { SplitExpenseSheet(parent: $0) }
     }
 
-    /// Resalta lo nuevo y lo da por visto. Si todo lo nuevo son ingresos, abre
-    /// en Ingresos para que se vea.
-    private func showNewMovements() async {
+    /// Enciende lo que no habías visto: al entrar y cuando llega algo con la
+    /// pestaña abierta. La lista se queda en el segmento que estaba; el número
+    /// junto a «Ingresos» avisa si lo nuevo está del otro lado.
+    private func lightUpNewMovements() {
         let store = NewMovements.shared
         let keys = NewMovements.keys(expenses: expenses, incomes: incomes)
         store.baselineIfNeeded(keys)
-        let fresh = store.unseen(in: keys)
-        guard !fresh.isEmpty else { return }
-        store.markSeen(fresh)
+        // Sólo lo que sale como fila propia: las partes de un pago dividido
+        // van bajo su pago y no se resaltan, y dejarían el número trabado.
+        let rows = Set((getSource(.gastos) + getSource(.ingresos)).compactMap(NewMovements.key))
+        let fresh = store.unseen(in: keys).intersection(rows).subtracting(passed)
+        if fresh != store.lit { store.lit = fresh }
+    }
 
-        let hasNewExpense = expenses.contains { NewMovements.key($0).map(fresh.contains) == true }
-        if !hasNewExpense, kind == .gastos { kind = .ingresos }
-        highlighted = fresh
+    /// Una fila nueva que estuvo en pantalla y salió: ya la viste.
+    private func rowVisibility(_ key: String, visible: Bool) {
+        guard newMovements.lit.contains(key) else { return }
+        if visible {
+            litOnScreen.insert(key)
+        } else if litOnScreen.contains(key) {
+            litOnScreen.remove(key)
+            passed.insert(key)
+            _ = withAnimation(.easeOut(duration: 0.6)) { newMovements.lit.remove(key) }
+        }
+    }
 
-        try? await Task.sleep(for: .seconds(2))
-        withAnimation(.easeOut(duration: 0.6)) { highlighted = [] }
+    /// Salir de la pestaña da por visto todo lo que hay.
+    private func endVisit() {
+        // El periodo es de esta visita: volver luego no debe encontrar la
+        // lista recortada.
+        period.selection = nil
+        let store = NewMovements.shared
+        store.markSeen(NewMovements.keys(expenses: expenses, incomes: incomes))
+        store.lit = []
+        litOnScreen = []
+        passed = []
+    }
+
+    /// Lo nuevo de cada segmento, para su número.
+    private func freshCounts() -> [Kind: Int] {
+        let lit = newMovements.lit
+        guard !lit.isEmpty else { return [:] }
+        var counts: [Kind: Int] = [:]
+        counts[.gastos] = expenses.reduce(0) { $0 + (NewMovements.key($1).map(lit.contains) == true ? 1 : 0) }
+        counts[.ingresos] = incomes.reduce(0) { $0 + (NewMovements.key($1).map(lit.contains) == true ? 1 : 0) }
+        counts[kind] = nil
+        return counts
+    }
+
+    /// Resultados de la búsqueda en cada segmento; `nil` sin búsqueda.
+    private func searchCounts(_ segments: [Kind], catalog: AccountCatalog) -> [Kind: Int]? {
+        guard !searchText.isEmpty else { return nil }
+        var counts: [Kind: Int] = [:]
+        for segment in segments {
+            counts[segment] = filterItems(getSource(segment), catalog: catalog).count
+        }
+        return counts
+    }
+
+    private static func name(of kind: Kind) -> String {
+        switch kind {
+        case .gastos:    return "Gastos"
+        case .ingresos:  return "Ingresos"
+        case .porCobrar: return "Por cobrar"
+        }
+    }
+
+    /// Elegir una cuenta aquí también filtra el Resumen: se dice donde se
+    /// elige, con la salida al lado.
+    private var sharedFilterNote: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 12, weight: .medium))
+            Text("Este filtro también se aplica en Resumen.")
+                .font(.system(size: 12.5))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Quitar") {
+                withAnimation(.easeInOut(duration: 0.2)) { filter.selection = nil }
+            }
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(accent.onSurface(scheme))
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(palette.secondaryLabel)
+        .padding(.horizontal, 2)
+        .padding(.bottom, 14)
+        .transition(.opacity)
+    }
+
+    /// «Sólo del sábado 12 set · Quitar»: la lista llegó recortada desde una
+    /// hoja del Resumen, y lo dice.
+    private func periodNote(_ chosen: MovementsPeriodFilter.Selection) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accent.onSurface(scheme))
+            Text("Sólo " + (chosen.label.first?.isNumber == true ? "del " : "") + chosen.label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 8)
+            Button("Quitar") {
+                withAnimation(.easeInOut(duration: 0.2)) { period.selection = nil }
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(accent.onSurface(scheme))
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(accent.softFill(scheme), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.bottom, 12)
+        .transition(.opacity)
     }
 
     private func rebuildCatalog() {
@@ -364,7 +495,9 @@ struct MovementsView: View {
         case .ingresos:  noun = count == 1 ? "ingreso" : "ingresos"
         case .porCobrar: noun = "por cobrar"
         }
-        return "\(count) " + noun + (searchText.isEmpty ? "" : " encontrados")
+        guard !searchText.isEmpty else { return "\(count) " + noun }
+        let found = kind == .porCobrar ? "encontrados" : count == 1 ? "encontrado" : "encontrados"
+        return "\(count) " + noun + " " + found
     }
 
     // MARK: - Selección
@@ -464,7 +597,8 @@ struct MovementsView: View {
 
             MovementCard {
                 ForEach(Array(bucket.items.enumerated()), id: \.element.id) { index, item in
-                    let isNew = NewMovements.key(item).map(highlighted.contains) == true
+                    let key = NewMovements.key(item)
+                    let isNew = key.map(newMovements.lit.contains) == true
                     Group {
                         switch item {
                         case .expense(let expense) where expense.isSplit
@@ -491,6 +625,9 @@ struct MovementsView: View {
                         }
                     }
                     .background(palette.expenseSoft.opacity(isNew ? 1 : 0))
+                    .onScrollVisibilityChange(threshold: 0.6) { visible in
+                        if let key { rowVisibility(key, visible: visible) }
+                    }
 
                     if index < bucket.items.count - 1 { MovementSeparator() }
                 }
@@ -555,8 +692,30 @@ struct MovementsView: View {
     }
 
     @ViewBuilder
-    private var emptyState: some View {
-        if !searchText.isEmpty {
+    private func emptyState(found: [Kind: Int]?, segments: [Kind]) -> some View {
+        if let found, let other = segments.first(where: { $0 != kind && (found[$0] ?? 0) > 0 }) {
+            // Lo buscado está del otro lado: se dice y se ofrece el salto.
+            let n = found[other] ?? 0
+            VStack(spacing: 0) {
+                ShellEmptyState(icon: "magnifyingglass",
+                                title: "Sin " + Self.name(of: kind).lowercased() + " con «" + searchText + "»",
+                                message: n == 1 ? "Hay 1 resultado en \(Self.name(of: other))."
+                                                : "Hay \(n) resultados en \(Self.name(of: other)).")
+                    .padding(.bottom, -20)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.22)) { kind = other }
+                } label: {
+                    Text("Ver \(n) en \(Self.name(of: other))")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(accent.onSurface(scheme))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(palette.surface, in: Capsule())
+                        .overlay(Capsule().stroke(palette.hairline, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        } else if !searchText.isEmpty {
             ShellEmptyState(icon: "magnifyingglass",
                             title: "Sin resultados para «" + searchText + "»",
                             message: MovementSearch.emptyMessage(for: searchText))

@@ -20,6 +20,10 @@ enum ShellMetrics {
     static let sideInset: CGFloat = 22
 
     static let circleButton: CGFloat = 38
+    /// Alto de lo que va en el header de una sección: el «volver», la
+    /// cápsula de la izquierda y la píldora de hermanas (`1a`, 44 pt para
+    /// que se apunten con el dedo sin mirar).
+    static let headerControl: CGFloat = 44
     static let pillCorner: CGFloat = 999
 
     /// Desplazamiento con el que el degradado de arriba ya se ve entero.
@@ -33,6 +37,7 @@ struct ShellCircleButton: View {
     let icon: String
     let label: String
     var tint: Color?
+    var size: CGFloat = ShellMetrics.circleButton
     let action: () -> Void
 
     @Environment(\.colorScheme) private var scheme
@@ -44,7 +49,7 @@ struct ShellCircleButton: View {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(tint ?? palette.secondaryLabel)
-                .frame(width: ShellMetrics.circleButton, height: ShellMetrics.circleButton)
+                .frame(width: size, height: size)
                 // Superficie opaca, no material: el blur se recalculaba en
                 // cada fotograma con el contenido pasando por debajo.
                 .background(palette.surface, in: Circle())
@@ -77,14 +82,16 @@ struct SubtabPill<Tab: AppSubtab>: View {
                 } label: {
                     ZStack {
                         if selection == tab {
-                            Circle().fill(palette.selectedFill)
+                            Capsule().fill(palette.selectedFill)
                                 .matchedGeometryEffect(id: "subtab", in: namespace)
                         }
                         Image(systemName: tab.icon)
-                            .font(.system(size: 15, weight: selection == tab ? .semibold : .regular))
+                            .font(.system(size: 17, weight: selection == tab ? .semibold : .regular))
                             .foregroundStyle(selection == tab ? palette.label : palette.secondaryLabel)
                     }
-                    .frame(width: 32, height: 32)
+                    // `1a`: segmentos de 50×38 en una cápsula de 44 — antes
+                    // eran círculos de 32 y se tocaba el vecino.
+                    .frame(width: 50, height: ShellMetrics.headerControl - 6)
                     .overlay(alignment: .topTrailing) {
                         if let count = badge(tab), selection != tab {
                             Text(count > 99 ? "99+" : "\(count)")
@@ -93,10 +100,10 @@ struct SubtabPill<Tab: AppSubtab>: View {
                                 .padding(.horizontal, 4)
                                 .frame(minWidth: 16, minHeight: 16)
                                 .background(palette.expense, in: Capsule())
-                                .offset(x: 4, y: -3)
+                                .offset(x: -4, y: 1)
                         }
                     }
-                    .contentShape(Circle())
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(tab.title)
@@ -161,6 +168,8 @@ struct DrillHeader<Trailing: View>: View {
     let progress: ScrollProgress
     /// `nil` en la raíz de una pestaña: sin botón de volver.
     let onBack: (() -> Void)?
+    /// En la raíz de una pestaña, lo que ocupa el hueco del «volver».
+    var leading: AnyView? = nil
     @ViewBuilder var trailing: Trailing
 
     @Environment(\.colorScheme) private var scheme
@@ -170,7 +179,10 @@ struct DrillHeader<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 10) {
             if let onBack {
-                ShellCircleButton(icon: "chevron.left", label: "Volver", tint: palette.label, action: onBack)
+                ShellCircleButton(icon: "chevron.left", label: "Volver", tint: palette.label,
+                                  size: ShellMetrics.headerControl, action: onBack)
+            } else if let leading {
+                leading
             }
             Spacer(minLength: 8)
             trailing

@@ -10,6 +10,8 @@ import SwiftData
 struct ProfileView: View {
     @Binding var scrollToTopTrigger: Bool
     let progress: ScrollProgress
+    /// Hueco sobre la tarjeta: el del header flotante, o casi nada en la hoja.
+    let topInset: CGFloat
 
     @Environment(\.colorScheme) private var scheme
     @Query private var expenses: [Expense]
@@ -22,9 +24,11 @@ struct ProfileView: View {
     @State private var phone = PhoneVerification.shared
     @State private var showsPhone = false
 
-    init(scrollToTopTrigger: Binding<Bool>, progress: ScrollProgress) {
+    init(scrollToTopTrigger: Binding<Bool>, progress: ScrollProgress,
+         topInset: CGFloat = ShellMetrics.contentTopInset) {
         self._scrollToTopTrigger = scrollToTopTrigger
         self.progress = progress
+        self.topInset = topInset
 
         let window = Period(granularity: .mes, reference: Date()).dataWindow()
         let start = window.start
@@ -69,7 +73,7 @@ struct ProfileView: View {
                 previewSection(shared: shared, totals: totals)
             }
             .padding(.horizontal, ShellMetrics.sideInset)
-            .padding(.top, ShellMetrics.contentTopInset)
+            .padding(.top, topInset)
             .padding(.bottom, ShellMetrics.contentBottomInset)
         }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in

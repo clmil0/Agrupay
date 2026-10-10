@@ -20,12 +20,29 @@ struct StatDetail: Identifiable {
     /// Segunda línea de la tira cuando hay sitio (dos tiras o una sola).
     var caption: String?
     var visual: StatVisual?
+    /// Con una cuenta elegida, «Ritmo · BBVA»: la cifra es de esa cuenta.
+    var customTitle: String?
+    /// A dónde lleva la hoja (`05`): el movimiento del que habla, o el día.
+    var button: StatButton?
 
     var id: String { kind.rawValue }
-    var title: String { kind.title }
+    var title: String { customTitle ?? kind.title }
     /// La cifra de arriba es texto (una fecha), no un monto: va más chica y
     /// en dos líneas si hace falta.
     var isName: Bool { kind == .topDay }
+}
+
+/// El botón con el que termina una hoja: lleva a los movimientos de su cifra.
+struct StatButton {
+    enum Target {
+        /// Mayor gasto: el detalle del gasto.
+        case expense(UUID)
+        /// Día de más gasto: la hoja de ese día.
+        case day(Date)
+    }
+
+    let title: String
+    let target: Target
 }
 
 struct StatFigure: Hashable {
@@ -86,6 +103,8 @@ struct StatChart {
 struct StatSheet: View {
     @Environment(\.hidesAmounts) private var hidesAmounts
     let stat: StatDetail
+    /// Lo que pidió el botón de abajo; quien abrió la hoja la cierra y lo hace.
+    var onButton: (StatButton.Target) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
@@ -141,6 +160,20 @@ struct StatSheet: View {
             }
 
             StatTilesRow(tiles: stat.tiles)
+
+            if let button = stat.button {
+                Button { onButton(button.target) } label: {
+                    Text(button.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AppThemeColor.current.buttonText)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(AppThemeColor.current.buttonFill, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 18)

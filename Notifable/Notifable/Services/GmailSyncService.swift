@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SwiftData
 
 /// De qué correos se lee. Una lectura puede limitarse a uno: al vincular
@@ -174,6 +175,16 @@ class GmailSyncService: ObservableObject {
                 continuation.resume()
             }
         }
+    }
+
+    /// Jalar hacia abajo en Resumen, Movimientos o Pendientes: leer ya,
+    /// sin el límite de frecuencia, y esperar a que termine para que la rueda
+    /// no se vaya antes de que aparezcan los movimientos.
+    @MainActor
+    func refreshManually() async {
+        Diagnostics.shared.log("Sync Gmail: recarga manual")
+        if Self.qaToken != nil || MailProviders.anyConnected { await syncNow() }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.6)
     }
 
     private func finishRun() {

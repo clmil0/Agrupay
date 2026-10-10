@@ -80,6 +80,8 @@ struct DonutLegend: View {
     let total: Double
     /// Filas como mucho, «Otras N» incluida.
     var maxRows: Int = CategoryDonut.maxEntries
+    /// Con el ojito del Resumen cerrado: «•••» en vez del porcentaje.
+    var hidesPercents = false
 
     @Environment(\.colorScheme) private var scheme
     private var palette: Palette { Palette(scheme) }
@@ -117,7 +119,7 @@ struct DonutLegend: View {
 
             Spacer(minLength: 6)
 
-            Text(percent)
+            Text(hidesPercents ? AmountPrivacy.hiddenDigits : percent)
                 .font(.system(size: 13, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(palette.secondaryLabel)
